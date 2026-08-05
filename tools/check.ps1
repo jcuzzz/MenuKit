@@ -170,10 +170,21 @@ $gitField = "clean"
 $gitFail = $false
 $insideGit = (Test-Path (Join-Path $RepoRoot ".git"))
 if ($insideGit) {
-    $null = git diff HEAD --check 2>$null
-    $diffCheckFailed = ($LASTEXITCODE -ne 0)
-
-    $gitAfter = @(git status --porcelain)
+    # PowerShell 5.1 turns a native command's stderr into a terminating NativeCommandError under
+    # $ErrorActionPreference = "Stop" — and git writes routine notices (line-ending normalisation,
+    # advice) to stderr. Relaxing the preference around the git calls keeps a whitespace notice from
+    # failing the whole verification gate. Do NOT reintroduce a `2>$null` redirect here; that is what
+    # triggers the wrapping in the first place.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $null = git diff HEAD --check
+        $diffCheckFailed = ($LASTEXITCODE -ne 0)
+        $gitAfter = @(git status --porcelain)
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
     $beforeSet = @{}
     foreach ($l in $GitBefore) { $beforeSet[$l] = $true }
     $drift = @()

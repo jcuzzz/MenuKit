@@ -1,0 +1,18 @@
+# Normalise line endings so git stops warning on every add. Without this, `git diff --check` in
+# tools/check.ps1 emits a CRLF warning per file, and PowerShell 5.1 turns a native command's stderr
+# into a terminating NativeCommandError — the verification gate fails on a whitespace notice.
+* text=auto eol=lf
+
+# Godot text resources are line-based and diff best normalised.
+*.gd   text eol=lf
+*.tscn text eol=lf
+*.tres text eol=lf
+*.gdshader text eol=lf
+*.cfg  text eol=lf
+*.godot text eol=lf
+*.md   text eol=lf
+
+# PowerShell is happier with CRLF on Windows.
+*.ps1  text eol=crlf
+
+*.png binary

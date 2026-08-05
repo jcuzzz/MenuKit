@@ -34,6 +34,15 @@ const SETTINGS_SERVICE_PATH := "/root/MKSettingsService"
 ## repoints both.
 @export var config: MKConfig
 
+## Process mode applied to instantiated page content.
+##
+## [constant Node.PROCESS_MODE_PAUSABLE] is the right default: a host's page should not keep
+## animating during pause and behave differently there than in-game. The pause menu's own page is
+## the exception — a PAUSABLE control reports [method Node.can_process] false, and Godot does not
+## dispatch GUI input to it, so under a tree pause policy its Resume button would be dead. An
+## [MKRoot] hosting the pause page sets this to [constant Node.PROCESS_MODE_ALWAYS].
+@export var host_content_process_mode: Node.ProcessMode = Node.PROCESS_MODE_PAUSABLE
+
 @export_group("Audio hooks")
 ## Optional; no audio files ship (licensing). All four play through one internal player.
 @export var hover_sfx: AudioStream
@@ -63,6 +72,8 @@ var _current_page_node: Node
 ## Counts MenuKit surfaces that require the world suspended and the cursor free. One counter, owned
 ## here: policies carry no depth state, so every custom policy inherits correct counting for free.
 var _suspend_depth := 0
+## How many of the current suspensions came from modals. See [method _on_modal_pushed].
+var _modal_suspensions := 0
 var _saved_mouse_mode := Input.MOUSE_MODE_VISIBLE
 var _pause_menu_open := false
 
@@ -93,6 +104,7 @@ func _exit_tree() -> void:
 	if Engine.is_editor_hint():
 		return
 	_suspend_depth = 0
+	_modal_suspensions = 0
 	_pause_menu_open = false
 	if config != null and config.manage_mouse_mode:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -183,13 +195,28 @@ func _show_page(id: StringName) -> void:
 	if def == null:
 		MKLog.warn("go_to_page('%s'): no such page in %s" % [id, MKLog.context(config, "pages")])
 		return
+	# Every page change pops the modal stack. This lives here rather than in push_page because
+	# go_to_page is the path nav tabs and open_pause_menu take: leaving it out stranded a modal above
+	# the new page AND stranded its suspend count, since the modal that owned the count was no longer
+	# reachable to dismiss. Under a tree pause policy that is a permanently paused world.
+	if _modal_layer != null:
+		_modal_layer.pop_all()
 	if _current_page_node != null:
+		# remove_child before queue_free: a queued node stays in the tree until end of frame, so the
+		# old and new pages would both draw for a frame and both answer focus queries.
+		_page_host.remove_child(_current_page_node)
 		_current_page_node.queue_free()
 		_current_page_node = null
-	if def.scene != null:
+	if def.scene == null:
+		MKLog.warn("%s: page '%s' has no scene — the page host will be empty"
+			% [MKLog.context(def, "scene"), id])
+	else:
 		var inst := def.scene.instantiate()
-		# Host-supplied page content must not keep running under pause (plan §4.2a).
-		inst.process_mode = Node.PROCESS_MODE_PAUSABLE
+		# Host-supplied content must not keep animating under pause and behave differently there than
+		# in-game (plan §4.2a). The pause menu's own page is the exception a host must be able to
+		# make: a PAUSABLE control has can_process() false, and Godot does not dispatch GUI input to
+		# it, so under a tree pause policy its Resume button would not respond.
+		inst.process_mode = host_content_process_mode
 		_page_host.add_child(inst)
 		if inst is Control:
 			var c := inst as Control
@@ -234,12 +261,7 @@ func get_suspend_depth() -> int:
 
 ## Raises the suspension count, and on the 0→1 edge only, tells the policy and frees the cursor.
 ##
-## [b]A modal extends an existing suspension but never creates one.[/b] Over the pause menu a modal
-## pushes 1→2 so dismissing it does not restore capture underneath a still-open menu — the exact
-## case the plan calls out. In the main menu there is nothing suspended to extend, so a confirm
-## dialog neither pauses the tree nor touches a cursor that is already free. Without that rule a
-## [code]MKTreePausePolicy[/code] on a main-menu root would freeze a host's animated menu background
-## the first time any dialog opened.
+## Modals do not call this directly — see [method _on_modal_pushed] for the rule that governs them.
 func _push_suspend(reason: StringName) -> void:
 	_suspend_depth += 1
 	if _suspend_depth != 1:
@@ -344,6 +366,12 @@ func _apply_theme() -> void:
 	if config == null or config.palette == null:
 		MKLog.warn("no MKPalette assigned — panels will fall back to the engine default theme")
 		return
+	# Rebuild whenever the palette changes. Without this subscription every per-field emit_changed()
+	# in MKPalette has no listener, and editing a palette at runtime restyles nothing — the shipped
+	# Theme is a one-shot snapshot taken at boot. Re-skinning by swapping a palette is the package's
+	# core promise, so the live path has to work, not just the editor bake.
+	if not config.palette.changed.is_connected(_apply_theme):
+		config.palette.changed.connect(_apply_theme)
 	var generated := MKThemeGenerator.build(config.palette)
 	if generated == null:
 		return
@@ -429,6 +457,10 @@ func _resolve_settings_backend() -> MKSettingsBackend:
 			% SETTINGS_SERVICE_PATH)
 		return _make_backend(config.settings_backend, MKSettingsBackend, "settings_backend")
 	_adopted_settings = true
+	# The service lives outside this subtree, so it does not inherit the ALWAYS process mode — and the
+	# D14 revert countdown runs on it. Left PAUSABLE, that countdown freezes under a tree pause policy
+	# and the confirm-or-revert dialog hangs forever with no failing write to reveal it.
+	live.process_mode = Node.PROCESS_MODE_ALWAYS
 	# A scene naming a different script than the service already built is a misconfiguration, not a
 	# reason to double-instantiate. Keep the service's instance and say so, naming both scripts.
 	var slot := config.settings_backend
@@ -502,11 +534,29 @@ func _on_nav_page_selected(id: StringName) -> void:
 	go_to_page(id)
 
 
+## [b]A modal extends an existing suspension but never creates one.[/b]
+##
+## Over the pause menu a modal pushes 1→2, so dismissing it does not restore mouse capture underneath
+## a still-open menu — the case the plan calls out. In the main menu there is nothing suspended to
+## extend, so a confirm dialog neither pauses the tree nor touches a cursor that is already free.
+## Without that asymmetry a [code]MKTreePausePolicy[/code] on a main-menu root would freeze a host's
+## animated menu background the first time any dialog opened, and — because page content is
+## PAUSABLE — would leave the page under the dialog input-dead.
+##
+## [member _modal_suspensions] records how many pushes actually counted, so the pops stay symmetric.
+## Deriving it at pop time from the depth instead would double-decrement: by then the depth reflects
+## this modal's own contribution.
 func _on_modal_pushed(_control: Control) -> void:
+	if _suspend_depth == 0:
+		return
+	_modal_suspensions += 1
 	_push_suspend(&"modal")
 
 
 func _on_modal_popped(_control: Control) -> void:
+	if _modal_suspensions == 0:
+		return
+	_modal_suspensions -= 1
 	_pop_suspend(&"modal")
 
 

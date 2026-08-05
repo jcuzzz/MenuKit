@@ -60,12 +60,29 @@ func run_tests() -> void:
 	check_eq(layer.depth(), 0, "cancel popped the modal")
 	check_eq(root.get_page_id(), &"settings",
 		"cancel did NOT also pop the page underneath the modal")
-	check(not is_instance_valid(dialog) or dialog.is_queued_for_deletion() or true,
-		"dialog handled without error")
+	check(not is_instance_valid(dialog) or dialog.is_queued_for_deletion(),
+		"a dialog opened by MKConfirmDialog.open frees itself when popped")
 
 	# --- suspension counter: a modal extends a suspension but never creates one ---
+	# Asserted while the modal is OPEN. Measuring after the pop passed for the wrong reason and was
+	# the only guard on this rule, which turned out not to be implemented at all.
+	MKConfirmDialog.open(layer, "T", "B")
+	await step_frame()
+	check_eq(layer.depth(), 1, "modal open for the main-menu suspension check")
 	check_eq(root.get_suspend_depth(), 0,
-		"a modal in the main menu suspends nothing — otherwise a tree pause policy would freeze a host's animated menu")
+		"a modal in the main menu suspends nothing — otherwise a tree pause policy would freeze a host's animated menu and leave the page under the dialog input-dead")
+	layer.pop_modal()
+	await step_frame()
+	check_eq(root.get_suspend_depth(), 0, "and popping it does not underflow the counter")
+
+	# --- a page change never strands a modal (plan §4.7a) ---
+	MKConfirmDialog.open(layer, "T", "B")
+	await step_frame()
+	check_eq(layer.depth(), 1, "modal open before a lateral page change")
+	root.go_to_page(&"credits")
+	await step_frame()
+	check_eq(layer.depth(), 0, "a nav-tab page change pops the modal stack")
+	check_eq(root.get_suspend_depth(), 0, "and leaves no orphaned suspension behind")
 
 	root.open_pause_menu(&"play")
 	check_eq(root.get_suspend_depth(), 1, "pause menu suspends")
@@ -99,9 +116,15 @@ func run_tests() -> void:
 ## Feeds a real ui_cancel through the viewport's unhandled-input path, rather than calling the
 ## handler directly — the precedence ladder is only meaningful if it is exercised through the same
 ## dispatch order the engine uses.
+##
+## Returns whether the viewport actually marked the event handled. Returning a bare [code]true[/code]
+## made every [code]check(_cancel(root), …)[/code] a tautology that could not fail, which is worse
+## than no assertion because the suite counts it as coverage.
 func _cancel(root: MKRoot) -> bool:
+	var viewport := root.get_viewport()
 	var ev := InputEventAction.new()
 	ev.action = &"ui_cancel"
 	ev.pressed = true
-	root.get_viewport().push_input(ev)
-	return true
+	viewport.set_input_as_handled()  # clear any stale handled flag from a previous push
+	viewport.push_input(ev)
+	return viewport.is_input_handled()

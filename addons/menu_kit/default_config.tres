@@ -1,15 +1,31 @@
-[gd_resource type="Resource" script_class="MKConfig" load_steps=4 format=3]
+[gd_resource type="Resource" script_class="MKConfig" load_steps=6 format=3]
 
 ; The host's copy-me starting point. Every value here is chosen so that copying addons/menu_kit/
-; alone into an empty Godot project boots with zero errors and zero warnings (ship gate 2).
+; alone into an empty Godot project boots with zero errors and zero warnings (ship gate 2) —
+; verified by cold drop, not assumed.
 ;
-; All five backend slots ship UNASSIGNED at Phase 1: the shipped default implementations land in
-; Phase 2, and an unassigned slot is valid config — it warns when something invokes it, never at
-; boot. The network slot stays empty permanently by design, so a cold drop has no server browser.
+; All five backend slots ship UNASSIGNED at Phase 1. The shipped default implementations land in
+; Phase 2 and this file gains four of them (menu, profile, settings, pause); the network slot stays
+; empty permanently by design, so a cold drop has no server browser. An unassigned slot is valid
+; config — it warns when something invokes it, never at boot.
+;
+; The single Welcome page exists so the shell has a tab and something to render on a fresh install.
+; A host replaces `pages` wholesale with its own scenes; nothing else in the addon references it.
 
 [ext_resource type="Script" path="res://addons/menu_kit/core/mk_config.gd" id="1_config"]
-[ext_resource type="Resource" path="res://addons/menu_kit/themes/default_palette.tres" id="2_palette"]
-[ext_resource type="Resource" path="res://addons/menu_kit/themes/default_backdrop_catalog.tres" id="3_backdrops"]
+[ext_resource type="Script" path="res://addons/menu_kit/core/mk_menu_page_def.gd" id="2_pagedef"]
+[ext_resource type="Resource" path="res://addons/menu_kit/themes/default_palette.tres" id="3_palette"]
+[ext_resource type="Resource" path="res://addons/menu_kit/themes/default_backdrop_catalog.tres" id="4_backdrops"]
+[ext_resource type="PackedScene" path="res://addons/menu_kit/panels/mk_welcome_page.tscn" id="5_welcome"]
+
+[sub_resource type="Resource" id="page_welcome"]
+script = ExtResource("2_pagedef")
+id = &"welcome"
+title = "Welcome"
+icon = null
+scene = ExtResource("5_welcome")
+visible = true
+order = 0
 
 [resource]
 script = ExtResource("1_config")
@@ -18,11 +34,11 @@ profile_backend = null
 settings_backend = null
 network_backend = null
 pause_policy = null
-palette = ExtResource("2_palette")
-backdrop_catalog = ExtResource("3_backdrops")
+palette = ExtResource("3_palette")
+backdrop_catalog = ExtResource("4_backdrops")
 backdrop_id = &""
-pages = Array[Resource]([])
-initial_page = &""
+pages = Array[Resource]([SubResource("page_welcome")])
+initial_page = &"welcome"
 manage_mouse_mode = true
 manage_brightness = true
 verbose = false

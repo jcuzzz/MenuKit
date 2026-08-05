@@ -217,7 +217,6 @@ func set_body(text: String) -> void:
 ## and lets the stack own the removal, so there is exactly one place that pops.
 func handle_cancel() -> bool:
 	cancelled.emit()
-	_queue_free_after_pop()
 	return false
 
 
@@ -236,15 +235,14 @@ func _on_alternate() -> void:
 	_close()
 
 
+## Removes the dialog from the stack. Freeing is deliberately NOT done here: ownership is decided in
+## exactly one place, [method _on_popped], which frees only what [method open] built. A second
+## unconditional free here would also destroy a dialog a host constructed and intends to reuse,
+## contradicting the ownership split this class documents.
 func _close() -> void:
-	_queue_free_after_pop()
 	if _layer != null and is_instance_valid(_layer) and _layer.top() == self:
 		_layer.pop_modal()
 	elif get_parent() != null:
 		get_parent().remove_child(self)
-
-
-func _queue_free_after_pop() -> void:
-	# Deferred so the layer finishes its pop bookkeeping (focus restore, signal emission) against a
-	# still-valid instance before this node goes away.
-	call_deferred("queue_free")
+		if _owns_self:
+			queue_free()

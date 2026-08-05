@@ -18,19 +18,18 @@ const BAKE_MENU_ITEM := "Bake MenuKit Theme"
 const BAKED_THEME_PATH := "res://addons/menu_kit/themes/generated_theme.tres"
 const DEFAULT_PALETTE_PATH := "res://addons/menu_kit/themes/default_palette.tres"
 
-const MKRootScene := preload("res://addons/menu_kit/core/mk_root.tscn")
-const MKRootScript := preload("res://addons/menu_kit/core/mk_root.gd")
-
-
+## No [code]add_custom_type[/code] call: [code]class_name MKRoot[/code] already registers the type
+## globally, so adding it again would duplicate the Create-Node entry — and the custom-type entry
+## hands out a bare scripted [Control], not [code]mk_root.tscn[/code], which is the thing hosts
+## actually want to instance. [code]INTEGRATION.md[/code] says "instance
+## [code]addons/menu_kit/core/mk_root.tscn[/code]" for that reason.
 func _enter_tree() -> void:
 	_register_config_path_setting()
-	add_custom_type("MKRoot", "Control", MKRootScript, null)
 	add_tool_menu_item(BAKE_MENU_ITEM, _bake_theme)
 
 
 func _exit_tree() -> void:
 	remove_tool_menu_item(BAKE_MENU_ITEM)
-	remove_custom_type("MKRoot")
 	# The project setting is deliberately left in place: removing it would discard a host's
 	# repointed path on a plugin disable/enable cycle.
 
