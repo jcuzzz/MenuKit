@@ -188,10 +188,35 @@ if ($Smokes) {
                             if (-not $isExpected) { $noise += $line }
                         }
                     }
+                    # A declaration must be MATCHED, not merely made. Otherwise expect_engine_error is
+                    # a pure exemption: a test can declare an error, never provoke it, and both the
+                    # declaration and whatever it silenced go unnoticed - which is exactly how
+                    # silencing the settings-mismatch error left the suite green. An unmatched
+                    # declaration means the behaviour under test stopped happening.
+                    $unmatched = @()
+                    foreach ($e in $expected) {
+                        if ($e -eq "") { continue }
+                        $seen = $false
+                        foreach ($f in @($log, "$log.err")) {
+                            if (-not (Test-Path $f)) { continue }
+                            foreach ($line in Get-Content $f) {
+                                if ($line -notmatch 'MKTEST_EXPECT_NOISE:' -and $line.Contains($e)) {
+                                    $seen = $true; break
+                                }
+                            }
+                            if ($seen) { break }
+                        }
+                        if (-not $seen) { $unmatched += $e }
+                    }
+
                     if ($noise.Count -gt 0) {
                         $failNames += "$name(ENGINE_ERRORS)"
                         $sample = ($noise | Select-Object -First 3 | ForEach-Object { $_.Trim() }) -join ' | '
                         Write-Output ("ENGINE_NOISE in {0}: {1}" -f $name, $sample)
+                    }
+                    elseif ($unmatched.Count -gt 0) {
+                        $failNames += "$name(UNMATCHED_EXPECT)"
+                        Write-Output ("UNMATCHED_EXPECT in {0}: declared but never provoked: {1}" -f $name, ($unmatched -join ' | '))
                     }
                     else { $pass++ }
                 }

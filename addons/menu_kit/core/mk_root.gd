@@ -395,6 +395,11 @@ func dump_diagnostics() -> String:
 		if node != null:
 			var s := node.get_script() as Script
 			desc = s.resource_path if s != null else node.get_class()
+			# §4.8 requires the dump to carry resolved user:// paths, and ship gate 9 checks for them:
+			# "settings don't persist" is usually a question about WHICH file was written, and without
+			# this the answer costs a round trip with the reporter.
+			if node.has_method("get_file_path"):
+				desc += "  store: %s" % node.call("get_file_path")
 		lines.append("backend %s: %s" % [pair[0], desc])
 	lines.append("settings backend adopted from autoload: %s" % _adopted_settings)
 	if config != null:
@@ -526,14 +531,14 @@ func _instantiate_backends() -> void:
 func _resolve_settings_backend() -> MKSettingsBackend:
 	var service := get_node_or_null(SETTINGS_SERVICE_PATH)
 	if service == null:
-		return _make_backend(config.settings_backend, MKSettingsBackend, "settings_backend")
+		return _boot_own_settings_backend()
 	var live: MKSettingsBackend = null
 	if service.has_method("get_settings_backend"):
 		live = service.call("get_settings_backend")
 	if live == null:
 		MKLog.warn("%s exists but exposes no settings backend — falling back to this scene's slot"
 			% SETTINGS_SERVICE_PATH)
-		return _make_backend(config.settings_backend, MKSettingsBackend, "settings_backend")
+		return _boot_own_settings_backend()
 	_adopted_settings = true
 	# The service lives outside this subtree, so it does not inherit the ALWAYS process mode — and the
 	# D14 revert countdown runs on it. Left PAUSABLE, that countdown freezes under a tree pause policy
@@ -549,6 +554,28 @@ func _resolve_settings_backend() -> MKSettingsBackend:
 				% [SETTINGS_SERVICE_PATH, live_script.resource_path,
 					MKLog.context(config, "settings_backend"), slot.backend_script.resource_path])
 	return live
+
+
+## Builds this scene's own settings backend AND boots it.
+##
+## The three calls are what make a settings store mean anything, and in a service-less configuration
+## nothing else makes them: [MKRoot] used to instantiate the backend and never load it, so a stored
+## resolution was never read and a stored rebind was never applied. Every panel then reads an empty
+## store, and the symptom — "my settings don't stick" — looks like a bug in whatever panel the user
+## happened to be on.
+##
+## The order matches [code]MKSettingsService[/code] exactly and is load-bearing: the snapshot must
+## precede the load, or the captured "defaults" are the user's own overrides and Reset to Defaults
+## silently resets to them.
+func _boot_own_settings_backend() -> MKSettingsBackend:
+	var backend := _make_backend(config.settings_backend, MKSettingsBackend, "settings_backend") \
+		as MKSettingsBackend
+	if backend == null:
+		return null
+	backend.snapshot_input_defaults()
+	backend.load()
+	backend.apply_all()
+	return backend
 
 
 ## Instantiates a slot's script as a child Node, handing it its params first.

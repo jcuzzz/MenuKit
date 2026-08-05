@@ -228,7 +228,16 @@ func _ensure_loaded() -> void:
 	var data: Dictionary = parsed
 
 	var version := int(data.get("version", 0))
-	if version < 1 or version > SCHEMA_VERSION:
+	if version > SCHEMA_VERSION:
+		# A NEWER file is a downgraded install, not corruption. Leave it exactly where it is and boot
+		# empty: renaming it would destroy the roster the newer install still reads, which is the very
+		# harm quarantine exists to prevent. This matches MKJsonSettingsBackend — the two backends
+		# previously took opposite positions on the same situation, and this one did what the other
+		# named as the harm.
+		MKLog.warn("%s: %s was written by a newer MenuKit (schema %d, this build reads %d) — starting with an empty roster and leaving the file untouched"
+			% [MKLog.context(get_script()), _file_path, version, SCHEMA_VERSION])
+		return
+	if version < 1:
 		_quarantine("schema version %d is not readable by MenuKit (expected 1..%d)" % [
 			version, SCHEMA_VERSION,
 		])

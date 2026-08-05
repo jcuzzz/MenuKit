@@ -13,6 +13,69 @@ func run_tests() -> void:
 	await _test_tree_policy()
 	await _test_tree_policy_teardown_while_paused()
 	await _test_no_pause_policy()
+	await _test_can_pause_false_suppresses_enter_menu()
+	await _test_host_paused_world_survives_a_menu_cycle()
+
+
+## `can_pause() == false` must SUPPRESS enter_menu, not merely coexist with a policy that happens to
+## do nothing in it. MKNoPausePolicy's enter_menu is empty, so testing only against it cannot tell
+## the two apart — deleting the can_pause() check from MKRoot left the suite green. §4.2a advertises
+## that a declining policy may still duck audio or notify a server from its own methods, so a host
+## whose enter_menu has real side effects would have had them fired anyway.
+func _test_can_pause_false_suppresses_enter_menu() -> void:
+	DecliningSpy.reset()
+	var root := _make_root(DecliningSpy)
+	await step_frame()
+
+	root.open_pause_menu(&"only")
+	check(root.is_pause_menu_open(), "the menu opens under a declining policy — can_pause is never a veto")
+	check_eq(DecliningSpy.enters, 0,
+		"enter_menu is NOT called when can_pause() is false, even though the policy defines one")
+
+	root.close_pause_menu()
+	check_eq(DecliningSpy.exits, 0, "and exit_menu is not called either, keeping the pair symmetric")
+	check_eq(root.get_suspend_depth(), 0, "while MKRoot's own counter still unwinds normally")
+
+	root.free()
+	await step_frame()
+
+
+## A world the HOST paused must still be paused after a menu cycle. MKTreePausePolicy declines
+## ownership of a pause it did not set, because clearing a flag it does not own would silently resume
+## a cutscene or a loading screen — a failure the host cannot defend against.
+func _test_host_paused_world_survives_a_menu_cycle() -> void:
+	var root := _make_root(MKTreePausePolicy)
+	await step_frame()
+	get_root().get_tree().paused = true
+
+	root.open_pause_menu(&"only")
+	check(get_root().get_tree().paused, "still paused with the menu open")
+	root.close_pause_menu()
+	check(get_root().get_tree().paused,
+		"a host-paused world survives the cycle — MenuKit does not clear a pause it did not set")
+
+	get_root().get_tree().paused = false
+	root.free()
+	await step_frame()
+
+
+## Declines to pause AND records both calls, so the test can tell suppression from inertness.
+class DecliningSpy extends MKPausePolicy:
+	static var enters := 0
+	static var exits := 0
+
+	static func reset() -> void:
+		enters = 0
+		exits = 0
+
+	func can_pause() -> bool:
+		return false
+
+	func enter_menu(_reason: StringName) -> void:
+		enters += 1
+
+	func exit_menu(_reason: StringName) -> void:
+		exits += 1
 
 
 func _test_tree_policy() -> void:

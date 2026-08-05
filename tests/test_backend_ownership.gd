@@ -21,24 +21,85 @@ func run_tests() -> void:
 	await _test_standalone()
 	await _test_adopt()
 	await _test_mismatch_keeps_service_instance()
+	await _test_service_resolves_from_project_setting()
 
 
-## No autoload: MKRoot builds its own backend from the config slot and owns its lifetime.
+## The SHIPPED resolution route, not the injection seam.
+##
+## Every other test here supplies `override_backend_slot`, which skips `_resolve_slot_from_config`
+## entirely — the ProjectSettings read, the loadable-path guard, the is-it-an-MKConfig check. That is
+## the half a real host actually uses, and it went unexercised while a fatal defect sat in the same
+## file: the script declared `class_name MKSettingsService`, which Godot forbids for a script
+## registered under that autoload name, so the autoload never instantiated in any real project while
+## these tests stayed green.
+func _test_service_resolves_from_project_setting() -> void:
+	const KEY := "menu_kit/config_path"
+	var previous: Variant = ProjectSettings.get_setting(KEY) if ProjectSettings.has_setting(KEY) else null
+	ProjectSettings.set_setting(KEY, "res://addons/menu_kit/default_config.tres")
+
+	var service: Node = SERVICE_SCRIPT.new()
+	service.name = SERVICE_NAME
+	get_root().add_child(service)
+	await step_frame()
+
+	var config: MKConfig = service.get_config()
+	check(config != null, "the service resolved an MKConfig from menu_kit/config_path")
+	var backend: MKSettingsBackend = service.get_settings_backend()
+	check(backend != null,
+		"and built the backend that config's slot names — the shipped default assigns one")
+	if backend != null:
+		check(backend is MKJsonSettingsBackend, "which is the shipped JSON backend")
+		check_eq(backend.process_mode, Node.PROCESS_MODE_ALWAYS,
+			"the service's backend runs ALWAYS: it lives outside MKRoot's subtree, so it inherits nothing, and the D14 countdown runs on it")
+
+	_remove_service(service)
+	await step_frame()
+	if previous == null:
+		ProjectSettings.set_setting(KEY, null)
+	else:
+		ProjectSettings.set_setting(KEY, previous)
+
+
+## No autoload: MKRoot builds its own backend from the config slot, owns its lifetime, AND boots it.
+##
+## The boot half is asserted by seeding a store on disk first. Checking only that a backend exists —
+## or that it answers queries — cannot catch the defect this covers, because a cold backend answers
+## too, with the caller's defaults. MKRoot used to instantiate the backend and never call
+## load/apply_all, so with no autoload present nothing in a shipped configuration ever read the
+## store, and the symptom looked like a bug in whatever panel the user happened to be on.
 func _test_standalone() -> void:
-	var config := _make_config(MKJsonSettingsBackend)
+	BootSpy.reset()
+	var config := _make_config(BootSpy)
 	var root := MKRoot.new()
 	root.config = config
 	get_root().add_child(root)
 	await step_frame()
 
 	var backend := root.get_settings_backend()
+	# The boot half, recorded by the backend itself. A store-based assertion would work too, but this
+	# also pins the ORDER, which is the part that fails silently: a snapshot taken after the load
+	# captures the user's own overrides, so Reset to Defaults resets to them and appears to work.
+	check_eq(BootSpy.calls, ["snapshot", "load", "apply"],
+		"standalone: MKRoot boots the backend it built — snapshot, then load, then apply")
 	check(backend != null, "standalone: MKRoot instantiated a settings backend from its slot")
-	check(backend is MKJsonSettingsBackend, "standalone: and it is the script the slot named")
+	check(backend is BootSpy, "standalone: and it is the script the slot named")
 	if backend != null:
 		check_eq(backend.get_parent(), root,
 			"standalone: MKRoot parents the backend it owns, so it dies with the scene")
 	check(root.dump_diagnostics().contains("adopted from autoload: false"),
 		"standalone: diagnostics report that nothing was adopted")
+	root.free()
+	await step_frame()
+
+
+func _clean_store(path: String) -> void:
+	var dir := DirAccess.open(path.get_base_dir())
+	if dir == null:
+		return
+	var stem := path.get_file().get_basename()
+	for file in dir.get_files():
+		if file.begins_with(stem):
+			dir.remove(file)
 
 	root.free()
 	await step_frame()
@@ -125,8 +186,16 @@ func _make_config(backend_script: Script) -> MKConfig:
 ## Installs the autoload under the exact node name MKRoot looks for. Registering a real autoload
 ## needs an editor, so the test mounts the node at the same path instead — MKRoot resolves it with
 ## get_node_or_null("/root/MKSettingsService"), which cannot tell the difference.
-func _install_service(backend_script: Script) -> MKSettingsService:
-	var service := MKSettingsService.new()
+##
+## Loaded by path, not by class name: the service script deliberately has no [code]class_name[/code],
+## because Godot forbids one that matches an autoload singleton name. It had one, and the collision
+## meant the real autoload never instantiated in any host while this test — which mounts the node
+## directly — stayed green.
+const SERVICE_SCRIPT := preload("res://addons/menu_kit/core/mk_settings_service.gd")
+
+
+func _install_service(backend_script: Script) -> Node:
+	var service: Node = SERVICE_SCRIPT.new()
 	service.name = SERVICE_NAME
 	var slot := MKBackendSlot.new()
 	slot.backend_script = backend_script
@@ -135,10 +204,39 @@ func _install_service(backend_script: Script) -> MKSettingsService:
 	return service
 
 
-func _remove_service(service: MKSettingsService) -> void:
+func _remove_service(service: Node) -> void:
 	if is_instance_valid(service):
 		get_root().remove_child(service)
 		service.free()
+
+
+## Records the boot sequence MKRoot performs on a backend it owns, so the ORDER is assertable.
+## Storage is a plain dictionary — this exists to observe calls, not to persist anything.
+class BootSpy extends MKSettingsBackend:
+	static var calls: Array[String] = []
+	var _values := {}
+
+	static func reset() -> void:
+		calls = []
+
+	func get_value(id: StringName, default_value: Variant) -> Variant:
+		return _values.get(id, default_value)
+
+	func set_value(id: StringName, value: Variant) -> void:
+		_values[id] = value
+		setting_changed.emit(id, value)
+
+	func save() -> void:
+		calls.append("save")
+
+	func load() -> void:
+		calls.append("load")
+
+	func apply_all() -> void:
+		calls.append("apply")
+
+	func snapshot_input_defaults() -> void:
+		calls.append("snapshot")
 
 
 ## A second, distinct MKSettingsBackend subclass, so the mismatch case has two genuinely different

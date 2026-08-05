@@ -1,7 +1,14 @@
-class_name MKSettingsService
 extends Node
 ## The optional autoload that owns the one live [MKSettingsBackend] and applies settings at boot
 ## (plan §4.2).
+##
+## [b]This script deliberately has NO [code]class_name[/code].[/b] Godot forbids a global class name
+## that matches an autoload singleton name, and this script is registered as the autoload
+## [code]MKSettingsService[/code]. Declaring both made the script fail to parse at every boot —
+## "Class ... hides an autoload singleton" — so the autoload never instantiated and §4.2's entire
+## mechanism was absent from every real host, while the headless tests (which mount the node
+## directly, with no autoload registered) stayed green. [MKRoot] resolves this node duck-typed via
+## [method Node.get_node_or_null] plus [method Object.has_method], so nothing needs the type.
 ##
 ## [b]Why an autoload exists at all.[/b] Persisted settings — critically [InputMap] overrides — must
 ## apply even when the host boots straight into gameplay without ever instancing a MenuKit scene. A
@@ -59,9 +66,10 @@ func _ready() -> void:
 	if slot == null or not slot.is_assigned():
 		slot = _resolve_slot_from_config()
 	if slot == null or not slot.is_assigned():
-		# Not a warning. The shipped `default_config.tres` leaves every slot unassigned, and ship
-		# gate 2 cold-drops the addon into an empty project and demands zero warnings — so the
-		# out-of-the-box configuration must be quiet here.
+		# Not a warning: an unassigned settings slot is valid config. The shipped
+		# `default_config.tres` does assign one, but a host that repoints `menu_kit/config_path` at
+		# a config of its own may legitimately leave it empty, and ship gate 2 demands zero warnings
+		# out of the box.
 		MKLog.debug("no settings backend configured — MKSettingsService is inert")
 		return
 

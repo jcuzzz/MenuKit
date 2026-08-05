@@ -60,9 +60,10 @@ func _test_settings_corrupt_recovery() -> void:
 	backend.load()
 	check_eq(backend.get_value(&"video/max_fps", 60), 60,
 		"settings: a corrupt store boots defaults rather than crashing")
-	check(not FileAccess.file_exists(SETTINGS_PATH)
-			or FileAccess.open(SETTINGS_PATH, FileAccess.READ).get_length() == 0
-			or _corrupt_sibling_exists(SETTINGS_PATH),
+	# Assert the rename ONLY. The previous form also accepted "the file no longer exists", which is
+	# satisfied by deleting it — the precise failure the assertion names. Replacing the quarantine
+	# with DirAccess.remove_absolute kept the suite green.
+	check(_corrupt_sibling_exists(SETTINGS_PATH),
 		"settings: the bad file was renamed aside, not deleted — the user's data is recoverable")
 	backend.free()
 

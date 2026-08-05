@@ -146,11 +146,36 @@ func get_default_action_events(action: StringName) -> Array[InputEvent]:
 ## (or re-apply the action) afterwards for the engine to follow.
 func reset_action_to_default(action: StringName) -> void:
 	_input_overrides.erase(String(action))
+	_restore_default_events(action)
 
 
 ## Drops every override at once — the Controls page's global reset.
 func reset_all_actions_to_defaults() -> void:
+	var actions := _input_overrides.keys()
 	_input_overrides.clear()
+	for key in actions:
+		_restore_default_events(StringName(key))
+
+
+## Puts the boot snapshot back into the live [InputMap] for [param action].
+##
+## Dropping the override from the store is only half a reset: [method _apply_input_overrides] walks
+## the overrides that EXIST, so an action that just lost one is never revisited and the live InputMap
+## keeps the binding the user asked to undo. Reset then appears to work — the row redraws as default
+## — while the key still does the new thing, which is the worst shape this bug could take because the
+## recovery path for a user who has nuked their bindings is exactly this method.
+func _restore_default_events(action: StringName) -> void:
+	if not InputMap.has_action(action):
+		return
+	if not _input_defaults.has(String(action)):
+		# No snapshot: snapshot_input_defaults() was never called, which is a host contract breach
+		# (§4.2). Leave the live binding alone rather than erasing it into nothing.
+		MKLog.warn("%s: no boot snapshot for action '%s' — call snapshot_input_defaults() before load()"
+			% [_context(), action])
+		return
+	InputMap.action_erase_events(action)
+	for event in _deserialize_events(_input_defaults[String(action)]):
+		InputMap.action_add_event(action, event)
 
 
 ## True when [param action] carries a user override, so a UI can mark a changed row.
