@@ -49,7 +49,13 @@ func _register_config_path_setting() -> void:
 	if ProjectSettings.has_setting(CONFIG_PATH_SETTING):
 		return
 	ProjectSettings.set_setting(CONFIG_PATH_SETTING, DEFAULT_CONFIG_PATH)
-	ProjectSettings.set_initial_value(CONFIG_PATH_SETTING, DEFAULT_CONFIG_PATH)
+	# The initial value must DIFFER from the value being written. Godot omits from project.godot any
+	# setting whose current value equals its initial value, so setting both to the same path made
+	# save() a silent no-op: the key never reached disk, has_setting() stayed false on every launch,
+	# and the settings-service autoload — which is specified to find its config through this key —
+	# would always fall back to the default. An empty initial value means "the host has not chosen
+	# one", which is what the default actually represents.
+	ProjectSettings.set_initial_value(CONFIG_PATH_SETTING, "")
 	ProjectSettings.add_property_info({
 		"name": CONFIG_PATH_SETTING,
 		"type": TYPE_STRING,

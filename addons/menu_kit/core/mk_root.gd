@@ -70,8 +70,6 @@ var _back_stack: Array[StringName] = []
 var _current_page_node: Node
 ## The palette currently wired to [method _apply_theme], so a swap can unsubscribe the old one.
 var _themed_palette: MKPalette
-## Likewise for the config, so a replaced one stops restyling a menu it no longer describes.
-var _themed_config: MKConfig
 
 ## Counts MenuKit surfaces that require the world suspended and the cursor free. One counter, owned
 ## here: policies carry no depth state, so every custom policy inherits correct counting for free.
@@ -320,8 +318,10 @@ func _push_suspend(reason: StringName) -> void:
 	# diagnostic. exit_menu is the counterpart of an enter that happened, not of a condition that
 	# still holds.
 	if _pause_policy != null and _pause_policy.can_pause():
-		# Latched BEFORE the call, not after: a policy that errors partway through enter_menu has
-		# still half-entered, and must still get its exit_menu to undo whatever it managed to do.
+		# Latched before the call as a matter of ordering hygiene — the flag means "enter_menu was
+		# invoked", and setting it after would briefly disagree with that. (It is not load-bearing
+		# against a policy erroring mid-call: a GDScript runtime error aborts only the innermost
+		# function, so the assignment would run either way.)
 		_policy_entered = true
 		_pause_policy.enter_menu(reason)
 	elif _pause_policy != null:
@@ -416,12 +416,11 @@ func _resolve_config() -> void:
 	# Regenerate when the config swaps its palette. _apply_theme subscribes to the palette itself for
 	# per-field edits, but nothing re-invoked it when config.palette was REASSIGNED — so the disconnect
 	# logic there guarded a state it could never reach, and swapping a palette was a no-op at runtime.
-	# Unsubscribe a replaced config for the same reason, one level up: otherwise a discarded config
-	# still restyles the live menu.
-	if _themed_config != null and is_instance_valid(_themed_config) and _themed_config != config \
-			and _themed_config.changed.is_connected(_apply_theme):
-		_themed_config.changed.disconnect(_apply_theme)
-	_themed_config = config
+	# No unsubscribe-the-old-config branch here: _resolve_config runs once, from _ready, so there is
+	# no second entry point at which a previous config could exist. Assigning `config` at runtime is
+	# NOT a supported gesture — it re-runs nothing, rebuilds no nav, and restyles nothing. The
+	# palette-level equivalent below is different precisely because the `changed` signal gives it a
+	# second entry point.
 	if not config.changed.is_connected(_apply_theme):
 		config.changed.connect(_apply_theme)
 	# Report every problem at once: a first-time integrator gets one list to work through instead of

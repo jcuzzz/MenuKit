@@ -29,7 +29,12 @@ func _ready() -> void:
 	# The backdrop is scenery: it must never eat a click meant for the menu above it.
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ensure_rect()
-	set_process(false)
+	# Do NOT unconditionally stop processing here. apply_def/apply_from_catalog work before the node
+	# enters the tree (they call _ensure_rect themselves), and _apply_material already arms processing
+	# for a scrolling def — so a blanket set_process(false) silently cancelled scrolling configured
+	# pre-tree, and nothing re-armed it. Only idle when there is genuinely nothing to animate.
+	if _def == null or absf(_def.scroll_speed) <= 0.0001:
+		set_process(false)
 
 
 ## Displays [param def]. Null CLEARS the backdrop rather than being ignored, so a host can turn the
@@ -114,7 +119,13 @@ func _ensure_rect() -> void:
 	_rect.name = "MKBackdropRect"
 	_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	# STRETCH_SCALE, not KEEP_ASPECT_COVERED. The generated gradient is a 4x256 ramp; covering a 16:9
+	# viewport from a 1:64 source scales it to tens of thousands of pixels tall, so under 1% of the
+	# ramp lands on screen and the shipped backdrop rendered as flat colour — sampling four rows of
+	# the cold drop returned an identical value at every one. Scaling to the rect shows the whole
+	# ramp; a host supplying a real photographic texture and wanting cover behaviour can set
+	# stretch_mode itself.
+	_rect.stretch_mode = TextureRect.STRETCH_SCALE
 	_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_rect)
 

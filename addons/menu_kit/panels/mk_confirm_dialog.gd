@@ -89,6 +89,15 @@ func _ready() -> void:
 ##
 ## The signal carries the popped control, so a dialog stacked under another one ignores that pop and
 ## only reacts to its own.
+## Called by [method MKModalLayer.clear_for_teardown]. Teardown emits no [signal
+## MKModalLayer.modal_popped], so a dialog that frees itself on that signal would otherwise leak once
+## the layer also unparents it. Only self-built dialogs dispose here; one a host constructed and
+## pushed is handed back untouched, same as everywhere else.
+func _mk_layer_teardown() -> void:
+	if _owns_self:
+		queue_free()
+
+
 func _on_popped(control: Control) -> void:
 	if control != self or not _owns_self:
 		return

@@ -150,6 +150,12 @@ if ($Smokes) {
                         if (-not (Test-Path $f)) { continue }
                         $noise += @(Get-Content $f | Where-Object {
                             $_ -match 'SCRIPT ERROR' -or
+                            $_ -match 'USER ERROR' -or
+                            # MenuKit's own contract-violation channel. Leaving it out exempted the
+                            # one error stream the package raises deliberately — a backend not
+                            # extending its base, a Theme missing type variations — so a test could
+                            # trigger a documented contract violation and still be counted green.
+                            $_ -match '\[MenuKit\] ERROR:' -or
                             $_ -match 'were leaked' -or
                             $_ -match 'leaked at exit' -or
                             $_ -match 'Cannot call method' -or

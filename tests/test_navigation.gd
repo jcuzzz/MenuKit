@@ -22,6 +22,21 @@ func run_tests() -> void:
 	check_eq(config.get_visible_pages().size(), 3, "hidden sub-page is not a nav tab")
 	check_eq(config.get_visible_pages()[0].id, &"play", "visible pages sort by order")
 
+	# Ties must resolve by authoring order. sort_custom is NOT stable, and this feeds both the tab
+	# order and the boot page (visible_pages[0]) — so with equal `order` values a host could get tabs
+	# that disagree with `pages` and a boot page that is not the first tab.
+	var tied := MKConfig.new()
+	var ids: Array[StringName] = [&"a", &"b", &"c", &"d"]
+	for tie_id in ids:
+		var page := MKMenuPageDef.new()
+		page.id = tie_id
+		page.order = 0
+		tied.pages.append(page)
+	var tied_ids: Array[StringName] = []
+	for page in tied.get_visible_pages():
+		tied_ids.append(page.id)
+	check_eq(tied_ids, ids, "pages sharing an order keep their authored sequence")
+
 	# Duplicate before mutating: the shipped config is a cached resource, and wiring a spy policy into
 	# the original would leak into every later test in the sweep.
 	config = config.duplicate(true)

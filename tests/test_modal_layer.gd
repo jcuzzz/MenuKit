@@ -22,6 +22,8 @@ func run_tests() -> void:
 	await _test_handle_cancel_unwedges_freed_top()
 	await _test_remove_modal_releases_focus_trap()
 	await _test_clear_for_teardown_is_silent()
+	await _test_clear_for_teardown_returns_ownership()
+	await _test_pop_on_detached_layer_is_quiet()
 
 
 ## A host that frees a dialog it pushed itself leaves a corpse in the stack. Popping it must not
@@ -110,6 +112,49 @@ func _test_clear_for_teardown_is_silent() -> void:
 	_layer.modal_popped.disconnect(on_popped)
 	a.free()
 	b.free()
+
+
+## Teardown must hand host-owned modals back, not keep them parented. Clearing the stack while
+## leaving entries under ModalHost meant the root's own free destroyed them — so an integrator who
+## caches a confirm dialog across scene changes would find it dead after the first teardown, which
+## contradicts the layer's documented "removed but NOT freed" ownership rule.
+func _test_clear_for_teardown_returns_ownership() -> void:
+	var panel := _make_panel()
+	_layer.push_modal(panel)
+	await step_frame()
+	check_eq(panel.get_parent() != null, true, "panel is parented while stacked")
+
+	_layer.clear_for_teardown()
+	check(is_instance_valid(panel), "a host-owned modal survives teardown")
+	check_eq(panel.get_parent(), null, "and is unparented, so the layer's free cannot take it with it")
+	check(not panel.has_meta(MKFocus.TRAP_META), "and its focus trap is released")
+	panel.free()
+
+
+## A host calling pop_all() from its own teardown pops a layer that is already out of the tree, where
+## get_viewport() is null. Unguarded, the focus-release path printed a script error — which every
+## assertion in the suite passed straight through, because assertions cannot see engine output.
+## The engine-noise gate in check.ps1 is what turns that into a failure.
+func _test_pop_on_detached_layer_is_quiet() -> void:
+	var host := Control.new()
+	get_root().add_child(host)
+	var layer := MKModalLayer.new()
+	host.add_child(layer)
+	await step_frame()
+
+	var panel := _make_panel()
+	layer.push_modal(panel)
+	await step_frame()
+	check_eq(layer.depth(), 1, "modal stacked on the detachable layer")
+
+	# Detach, then pop — the shape of a host tearing down while a dialog is open.
+	get_root().remove_child(host)
+	check(layer.get_viewport() == null, "the detached layer really has no viewport")
+	layer.pop_all()
+	check(layer.is_empty(), "pop_all on a detached layer drains the stack without erroring")
+
+	panel.free()
+	host.free()
 
 
 func _make_panel() -> Control:

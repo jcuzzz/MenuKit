@@ -221,6 +221,21 @@ func remove_modal(control: Control) -> bool:
 ## So teardown discards rather than unwinds: MKRoot zeroes its own counters, and each policy undoes
 ## its own effects in its own [method Node._exit_tree] while its tree reference is still valid.
 func clear_for_teardown() -> void:
+	# Unparent and untrap each entry, exactly as a pop would — just without the signal. This layer
+	# never frees what it did not create (a host may cache a dialog and reuse it), so leaving entries
+	# parented here would hand them to the root's own free and destroy them with it.
+	for control in _stack:
+		if control == null or not is_instance_valid(control):
+			continue
+		MKFocus.release(control)
+		if control.get_parent() == _host:
+			_host.remove_child(control)
+		# Teardown emits no modal_popped, so anything that frees itself on that signal would leak
+		# now that it is also unparented. A modal may implement `_mk_layer_teardown()` to dispose of
+		# itself; the layer still never decides ownership, it just tells the entry the layer is going
+		# away. Host-owned modals implement nothing and are simply handed back.
+		if control.has_method("_mk_layer_teardown"):
+			control.call("_mk_layer_teardown")
 	_stack.clear()
 	_focus_memory.clear()
 	_sync_scrim()
