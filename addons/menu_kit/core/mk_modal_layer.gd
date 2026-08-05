@@ -173,6 +173,32 @@ func pop_modal() -> void:
 		emptied.emit()
 
 
+## Removes [param control] from anywhere in the stack, not just the top.
+##
+## Exists so a modal that closes itself while something is stacked above it has a route that keeps
+## the layer's bookkeeping intact. Reaching around the layer — reparenting and freeing directly —
+## leaves the entry in [member _stack], so [method is_empty] reports false forever, the scrim stays
+## up over nothing, and [code]MKRoot[/code] swallows every cancel gesture from then on. A permanently
+## dead menu with no diagnostic.
+##
+## Returns whether the control was found. Popping the top routes through [method pop_modal] so focus
+## restoration still happens.
+func remove_modal(control: Control) -> bool:
+	var index := _stack.find(control)
+	if index == -1:
+		return false
+	if index == _stack.size() - 1:
+		pop_modal()
+		return true
+	_stack.remove_at(index)
+	_focus_memory.remove_at(index)
+	if control != null and is_instance_valid(control) and control.get_parent() == _host:
+		_host.remove_child(control)
+	_sync_scrim()
+	modal_popped.emit(control)
+	return true
+
+
 ## Pops every modal, newest first, emitting the same signals as individual pops.
 ## Page changes must never leave a modal orphaned above the new page (plan §4.7a), and a host
 ## closing the menu wholesale needs one call it can trust.
@@ -201,12 +227,19 @@ func top() -> Control:
 	return c if is_instance_valid(c) else null
 
 
-## Dispatches a cancel gesture to the top modal and reports whether the stack consumed it.
-## [code]MKRoot[/code] calls this from its own [code]_unhandled_input[/code] as rung two of the
-## precedence ladder; returning false is what lets the gesture continue to the page back stack.
-## A modal may define [code]handle_cancel() -> bool[/code] to keep the gesture (a rebind row that is
-## listening, a wizard step that wants to go back one page); anything else is closed by popping,
-## which is the behaviour every simple dialog wants without writing code for it.
+## Dispatches a cancel gesture to the top modal. [code]MKRoot[/code] calls this from its own
+## [code]_unhandled_input[/code] as rung two of the precedence ladder.
+##
+## [b]Declining happens at the modal, not here.[/b] A modal may define
+## [code]handle_cancel() -> bool[/code] and return [code]true[/code] to keep the gesture and stay open
+## (a rebind row that is listening, a wizard step that goes back one step instead of closing);
+## anything else is closed by popping, which is what every simple dialog wants without writing code
+## for it.
+##
+## The [code]false[/code] this returns means only "there was no live modal to hand it to" — i.e. the
+## top entry had been freed. It does [b]not[/b] pass the gesture down to the page back stack: while
+## the stack is non-empty the gesture belongs to the stack, and letting it fall through would pop a
+## page out from under an open modal, which is the desync this ladder exists to prevent.
 func handle_cancel() -> bool:
 	var control := top()
 	if control == null:

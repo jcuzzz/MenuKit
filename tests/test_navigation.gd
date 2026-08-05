@@ -22,11 +22,22 @@ func run_tests() -> void:
 	check_eq(config.get_visible_pages().size(), 3, "hidden sub-page is not a nav tab")
 	check_eq(config.get_visible_pages()[0].id, &"play", "visible pages sort by order")
 
+	# Duplicate before mutating: the shipped config is a cached resource, and wiring a spy policy into
+	# the original would leak into every later test in the sweep.
+	config = config.duplicate(true)
+	SpyPolicy.reset()
+	var slot := MKBackendSlot.new()
+	slot.backend_script = SpyPolicy
+	config.pause_policy = slot
+	check_eq(config.validate(), PackedStringArray(),
+		"a slot carrying an MKPausePolicy subclass validates")
+
 	var root := MKRoot.new()
 	root.config = config
 	root.size = Vector2(1920, 1080)
 	get_root().add_child(root)
 	await step_frame()
+	check(root.get_pause_policy() != null, "MKRoot instantiated the pause policy from its slot")
 
 	# --- boot ---
 	check_eq(root.get_page_id(), &"play", "boots to initial_page")
@@ -75,6 +86,18 @@ func run_tests() -> void:
 	await step_frame()
 	check_eq(root.get_suspend_depth(), 0, "and popping it does not underflow the counter")
 
+	# --- a modal over captured gameplay DOES suspend (the FPS case) ---
+	# Depth is 0 here, same as the main menu, but the cursor is captured — so a dialog raised over
+	# live gameplay that never went through open_pause_menu must still free it, or it is literally
+	# unclickable in a Doom-like. Keying this rule on depth alone got that backwards.
+	# Headless note: the dummy DisplayServer does not honour a real mouse mode, so this asserts the
+	# decision function rather than Input.mouse_mode itself. The cursor half is gate 4b (Phase 6).
+	check(not root._modal_should_suspend(),
+		"with a free cursor and nothing suspended, a modal suspends nothing")
+	root.open_pause_menu(&"play")
+	check(root._modal_should_suspend(), "with the world already suspended, a modal extends it")
+	root.close_pause_menu()
+
 	# --- a page change never strands a modal (plan §4.7a) ---
 	MKConfirmDialog.open(layer, "T", "B")
 	await step_frame()
@@ -97,20 +120,58 @@ func run_tests() -> void:
 	check_eq(root.get_suspend_depth(), 0, "closing the pause menu unwinds fully")
 
 	# --- teardown zeroes the counter (plan §4.2a) ---
+	# Asserted on the SAME root, before it is freed, and on a policy spy that records its own
+	# teardown. The previous version freed the root and then checked a brand-new instance's counter —
+	# which is zero from its member initialiser regardless, so deleting the whole body of _exit_tree
+	# left it green. It was the only guard on the unwind rule.
 	root.open_pause_menu(&"play")
 	check_eq(root.get_suspend_depth(), 1, "suspended before teardown")
+	var exits_before := SpyPolicy.exits
+	var teardowns_before := SpyPolicy.teardowns
 	root.free()
+	check_eq(SpyPolicy.teardowns - teardowns_before, 1,
+		"the policy undid its own effects in its own _exit_tree")
+	check_eq(SpyPolicy.exits - exits_before, 0,
+		"MKRoot did NOT call exit_menu on teardown — the policy is already out of the tree by then, so the cross-node call would crash the shipped default on every quit-while-paused")
 	await step_frame()
 
 	var diag_root := MKRoot.new()
 	diag_root.config = config
 	get_root().add_child(diag_root)
 	await step_frame()
-	check_eq(diag_root.get_suspend_depth(), 0,
-		"a fresh root after a quit-while-paused starts unsuspended")
 	var diag := diag_root.dump_diagnostics()
 	check(diag.contains("MenuKit") and diag.contains("suspend_depth"),
 		"dump_diagnostics reports version and counter state")
+
+
+## A pause policy that records what it was asked to do, so the teardown contract can be asserted
+## rather than assumed. Counters are static because the instance is destroyed by the very teardown
+## under test.
+class SpyPolicy extends MKPausePolicy:
+	static var enters := 0
+	static var exits := 0
+	static var teardowns := 0
+	var _entered := false
+
+	static func reset() -> void:
+		enters = 0
+		exits = 0
+		teardowns = 0
+
+	func enter_menu(_reason: StringName) -> void:
+		enters += 1
+		_entered = true
+
+	func exit_menu(_reason: StringName) -> void:
+		exits += 1
+		_entered = false
+
+	func _exit_tree() -> void:
+		# The defined teardown path: undo only what this policy did, while its own tree reference is
+		# still valid.
+		if _entered:
+			teardowns += 1
+			_entered = false
 
 
 ## Feeds a real ui_cancel through the viewport's unhandled-input path, rather than calling the
@@ -125,6 +186,7 @@ func _cancel(root: MKRoot) -> bool:
 	var ev := InputEventAction.new()
 	ev.action = &"ui_cancel"
 	ev.pressed = true
-	viewport.set_input_as_handled()  # clear any stale handled flag from a previous push
+	# push_input resets the handled flag at dispatch start, so no manual clearing is needed here —
+	# and calling set_input_as_handled() first would SET it, not clear it.
 	viewport.push_input(ev)
 	return viewport.is_input_handled()

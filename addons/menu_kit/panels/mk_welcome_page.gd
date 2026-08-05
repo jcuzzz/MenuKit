@@ -16,10 +16,14 @@ const _BODY := "MenuKit is installed and running.
 
 This page is the addon's shipped default so a fresh install has something to show. Point MKConfig.pages at your own scenes to replace it — no addon edit required.
 
-See docs/INTEGRATION.md for wiring backends."
+Backends are unassigned by default, so Play and Quit do nothing yet."
 
 
 func _ready() -> void:
+	# @tool guard: without it, opening this scene in the editor materialises the whole UI as unowned
+	# children that get saved into whatever scene instanced it.
+	if Engine.is_editor_hint():
+		return
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	var margin := MarginContainer.new()

@@ -68,6 +68,8 @@ var _adopted_settings := false
 var _page_id: StringName = &""
 var _back_stack: Array[StringName] = []
 var _current_page_node: Node
+## The palette currently wired to [method _apply_theme], so a swap can unsubscribe the old one.
+var _themed_palette: MKPalette
 
 ## Counts MenuKit surfaces that require the world suspended and the cursor free. One counter, owned
 ## here: policies carry no depth state, so every custom policy inherits correct counting for free.
@@ -144,14 +146,16 @@ func go_to_page(id: StringName) -> void:
 	_show_page(id)
 
 
-## Enters a sub-panel, remembering where to return. Modals stack independently and are always popped
-## before a page change, so a push never strands one on screen.
+## Enters a sub-panel, remembering where to return. Modals are popped by [method _show_page], which
+## every navigation route funnels through — duplicating the call here would just be a second place to
+## keep in sync.
 func push_page(id: StringName) -> void:
-	if _modal_layer != null:
-		_modal_layer.pop_all()
-	if not _page_id.is_empty():
-		_back_stack.push_back(_page_id)
-	_show_page(id)
+	var previous := _page_id
+	if not previous.is_empty():
+		_back_stack.push_back(previous)
+	if not _show_page(id) and not previous.is_empty():
+		# Do not leave a return address for a page we never left.
+		_back_stack.pop_back()
 
 
 ## Returns whether anything was popped, so callers can distinguish "went back" from "already at the
@@ -188,19 +192,24 @@ func request_quit_confirm() -> void:
 	)
 
 
-func _show_page(id: StringName) -> void:
+## Returns whether the page actually changed. Callers that took an action conditional on navigation
+## succeeding — [method open_pause_menu] raises a suspension first — need to unwind when it did not.
+func _show_page(id: StringName) -> bool:
 	if config == null:
-		return
-	var def := config.get_page(id)
-	if def == null:
-		MKLog.warn("go_to_page('%s'): no such page in %s" % [id, MKLog.context(config, "pages")])
-		return
-	# Every page change pops the modal stack. This lives here rather than in push_page because
-	# go_to_page is the path nav tabs and open_pause_menu take: leaving it out stranded a modal above
-	# the new page AND stranded its suspend count, since the modal that owned the count was no longer
-	# reachable to dismiss. Under a tree pause policy that is a permanently paused world.
+		return false
+	# Every page change pops the modal stack — INCLUDING one that fails on a bad id. This lives here
+	# rather than in push_page because go_to_page is the path nav tabs and open_pause_menu take:
+	# leaving it out stranded a modal above the new page AND stranded its suspend count, since the
+	# modal that owned the count was no longer reachable to dismiss. Under a tree pause policy that is
+	# a permanently paused world. Popping before the id check keeps the two routes identical on a bad
+	# id rather than leaving one of them holding a stranded modal.
 	if _modal_layer != null:
 		_modal_layer.pop_all()
+	var def := config.get_page(id)
+	if def == null:
+		MKLog.warn("page '%s' is not in %s — navigation refused"
+			% [id, MKLog.context(config, "pages")])
+		return false
 	if _current_page_node != null:
 		# remove_child before queue_free: a queued node stays in the tree until end of frame, so the
 		# old and new pages would both draw for a frame and both answer focus queries.
@@ -225,20 +234,43 @@ func _show_page(id: StringName) -> void:
 	_page_id = id
 	if _nav_bar != null:
 		_nav_bar.set_active(id)
+	# Focus something on every page change, or the shell is a gamepad dead end: gate 4 requires the
+	# whole demo be completable with a gamepad alone, and a page that focuses nothing has no entry
+	# point. Deferred so the new page's own _ready has run and its controls exist. Falls back to the
+	# nav bar when a page has no focusable content of its own.
+	_focus_page_content.call_deferred()
 	page_changed.emit(id)
+	return true
+
+
+func _focus_page_content() -> void:
+	if _current_page_node != null and is_instance_valid(_current_page_node):
+		if MKFocus.focus_first(_current_page_node) != null:
+			return
+	if _nav_bar != null and is_instance_valid(_nav_bar):
+		_nav_bar.focus_active()
 
 
 # --- Pause and mouse capture --------------------------------------------------
 
 ## The single entry point for the pause gesture: policy, mouse mode, and page state change together
 ## in a fixed order, in one place. The host forwards the ESC/Start gesture and nothing more.
-func open_pause_menu(page_id: StringName = &"pause") -> void:
+## Returns whether the pause menu opened. It refuses — and unwinds its own suspension — when the
+## named page does not exist: suspending the world and freeing the cursor to display nothing is
+## strictly worse than not pausing, and the bare call defaults to a page id no shipped config defines
+## yet.
+func open_pause_menu(page_id: StringName = &"pause") -> bool:
 	if _pause_menu_open:
-		return
+		return false
 	_pause_menu_open = true
 	_push_suspend(&"pause")
-	go_to_page(page_id)
+	if not _show_page(page_id):
+		_pause_menu_open = false
+		_pop_suspend(&"pause")
+		return false
+	_back_stack.clear()
 	pause_menu_toggled.emit(true)
+	return true
 
 
 func close_pause_menu() -> void:
@@ -370,8 +402,15 @@ func _apply_theme() -> void:
 	# in MKPalette has no listener, and editing a palette at runtime restyles nothing — the shipped
 	# Theme is a one-shot snapshot taken at boot. Re-skinning by swapping a palette is the package's
 	# core promise, so the live path has to work, not just the editor bake.
+	# Drop the previous subscription first: without it, swapping config.palette leaves the discarded
+	# palette wired to this root, so editing a palette nothing displays still forces a regenerate.
+	if _themed_palette != null and is_instance_valid(_themed_palette) \
+			and _themed_palette != config.palette \
+			and _themed_palette.changed.is_connected(_apply_theme):
+		_themed_palette.changed.disconnect(_apply_theme)
 	if not config.palette.changed.is_connected(_apply_theme):
 		config.palette.changed.connect(_apply_theme)
+	_themed_palette = config.palette
 	var generated := MKThemeGenerator.build(config.palette)
 	if generated == null:
 		return
@@ -534,23 +573,36 @@ func _on_nav_page_selected(id: StringName) -> void:
 	go_to_page(id)
 
 
-## [b]A modal extends an existing suspension but never creates one.[/b]
+## A modal suspends only when there is something to suspend [i]from[/i].
 ##
-## Over the pause menu a modal pushes 1→2, so dismissing it does not restore mouse capture underneath
-## a still-open menu — the case the plan calls out. In the main menu there is nothing suspended to
-## extend, so a confirm dialog neither pauses the tree nor touches a cursor that is already free.
-## Without that asymmetry a [code]MKTreePausePolicy[/code] on a main-menu root would freeze a host's
-## animated menu background the first time any dialog opened, and — because page content is
-## PAUSABLE — would leave the page under the dialog input-dead.
+## Two contexts qualify, and getting the test wrong breaks one genre or the other:
+## [br]- [b]Already suspended[/b] — over the pause menu a modal pushes 1→2, so dismissing it does not
+##   restore mouse capture underneath a still-open menu.
+## [br]- [b]The cursor is captured[/b] — a dialog raised over live gameplay that never went through
+##   [method open_pause_menu] (connection lost, an in-game confirm). Depth is 0 there too, but a
+##   Doom-like runs [constant Input.MOUSE_MODE_CAPTURED], so skipping the push would leave the dialog
+##   literally unclickable. An earlier revision keyed purely on depth and did exactly that.
+##
+## What is excluded is the main menu: nothing is suspended and the cursor is already free, so a
+## confirm dialog must not pause the tree — otherwise a [code]MKTreePausePolicy[/code] would freeze a
+## host's animated menu background, and (page content being PAUSABLE) leave the page under the dialog
+## input-dead.
 ##
 ## [member _modal_suspensions] records how many pushes actually counted, so the pops stay symmetric.
-## Deriving it at pop time from the depth instead would double-decrement: by then the depth reflects
-## this modal's own contribution.
+## Deriving it at pop time from the depth instead would double-decrement: by then the depth already
+## reflects this modal's own contribution.
 func _on_modal_pushed(_control: Control) -> void:
-	if _suspend_depth == 0:
+	if not _modal_should_suspend():
 		return
 	_modal_suspensions += 1
 	_push_suspend(&"modal")
+
+
+func _modal_should_suspend() -> bool:
+	if _suspend_depth > 0:
+		return true
+	return config != null and config.manage_mouse_mode \
+		and Input.mouse_mode != Input.MOUSE_MODE_VISIBLE
 
 
 func _on_modal_popped(_control: Control) -> void:

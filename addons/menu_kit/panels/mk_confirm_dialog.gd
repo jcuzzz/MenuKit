@@ -240,9 +240,12 @@ func _on_alternate() -> void:
 ## unconditional free here would also destroy a dialog a host constructed and intends to reuse,
 ## contradicting the ownership split this class documents.
 func _close() -> void:
-	if _layer != null and is_instance_valid(_layer) and _layer.top() == self:
-		_layer.pop_modal()
-	elif get_parent() != null:
+	# Always ask the layer to do the removal, even when this dialog is not on top. Reparenting
+	# ourselves out from under it would leave a stale entry in its stack, and from then on the layer
+	# reports non-empty forever: the scrim stays up over nothing and MKRoot swallows every cancel.
+	if _layer != null and is_instance_valid(_layer) and _layer.remove_modal(self):
+		return
+	if get_parent() != null:
 		get_parent().remove_child(self)
-		if _owns_self:
-			queue_free()
+	if _owns_self:
+		queue_free()
