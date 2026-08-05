@@ -77,6 +77,9 @@ var _suspend_depth := 0
 ## How many of the current suspensions came from modals. See [method _on_modal_pushed].
 var _modal_suspensions := 0
 var _saved_mouse_mode := Input.MOUSE_MODE_VISIBLE
+## Whether the policy's [code]enter_menu[/code] actually ran, so its [code]exit_menu[/code] is paired
+## with that call rather than with a re-query of [code]can_pause()[/code]. See [method _push_suspend].
+var _policy_entered := false
 var _pause_menu_open := false
 
 
@@ -105,10 +108,22 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if Engine.is_editor_hint():
 		return
+	# Pop the stack first, so each modal unwinds its own suspension through the normal path — which
+	# also restores the saved cursor correctly. _exit_tree fires on ANY tree removal, including a
+	# reparent (a host moving the shell under a CanvasLayer, or a scene-transition addon), and
+	# _ready does not re-run on re-add: without this the shell came back with a stranded modal, a
+	# scrim over nothing, and a cursor forced visible while the game had it captured.
+	if _modal_layer != null and is_instance_valid(_modal_layer):
+		_modal_layer.pop_all()
+	var was_suspended := _suspend_depth > 0
 	_suspend_depth = 0
 	_modal_suspensions = 0
+	_policy_entered = false
 	_pause_menu_open = false
-	if config != null and config.manage_mouse_mode:
+	# Only touch the cursor if we were actually holding it. Teardown discards the saved value rather
+	# than restoring it — that value was captured from gameplay, so restoring it here would re-capture
+	# the cursor on the main menu.
+	if was_suspended and config != null and config.manage_mouse_mode:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
@@ -298,8 +313,15 @@ func _push_suspend(reason: StringName) -> void:
 	_suspend_depth += 1
 	if _suspend_depth != 1:
 		return
+	# Latch whether enter_menu actually ran. _pop_suspend must NOT re-ask can_pause(): a policy whose
+	# answer changes while a menu is open — the stated multiplayer story, where a session can start
+	# mid-menu — would skip its own exit_menu and leave the world paused with no menu on screen and no
+	# diagnostic. exit_menu is the counterpart of an enter that happened, not of a condition that
+	# still holds.
+	_policy_entered = false
 	if _pause_policy != null and _pause_policy.can_pause():
 		_pause_policy.enter_menu(reason)
+		_policy_entered = true
 	elif _pause_policy != null:
 		# can_pause() false means the menu still opens and the world keeps running. It is never a
 		# veto: a menu you cannot open is not the right answer to "the world cannot pause".
@@ -315,8 +337,9 @@ func _pop_suspend(reason: StringName) -> void:
 	_suspend_depth -= 1
 	if _suspend_depth != 0:
 		return
-	if _pause_policy != null and _pause_policy.can_pause():
+	if _policy_entered and _pause_policy != null:
 		_pause_policy.exit_menu(reason)
+	_policy_entered = false
 	if config != null and config.manage_mouse_mode:
 		Input.mouse_mode = _saved_mouse_mode
 
@@ -388,6 +411,11 @@ func _resolve_config() -> void:
 				% path)
 			return
 	MKLog.verbose = MKLog.verbose or config.verbose
+	# Regenerate when the config swaps its palette. _apply_theme subscribes to the palette itself for
+	# per-field edits, but nothing re-invoked it when config.palette was REASSIGNED — so the disconnect
+	# logic there guarded a state it could never reach, and swapping a palette was a no-op at runtime.
+	if not config.changed.is_connected(_apply_theme):
+		config.changed.connect(_apply_theme)
 	# Report every problem at once: a first-time integrator gets one list to work through instead of
 	# a fix-run-fix loop.
 	for problem in config.validate():
@@ -598,11 +626,18 @@ func _on_modal_pushed(_control: Control) -> void:
 	_push_suspend(&"modal")
 
 
-func _modal_should_suspend() -> bool:
+## [param mouse_mode] is a parameter purely so tests can drive the captured-cursor branch: under
+## [code]--headless[/code] the dummy DisplayServer never leaves [constant Input.MOUSE_MODE_VISIBLE],
+## so that branch is otherwise unreachable from the suite and the regression it guards had no test.
+func _modal_should_suspend(mouse_mode: int = Input.mouse_mode) -> bool:
 	if _suspend_depth > 0:
 		return true
-	return config != null and config.manage_mouse_mode \
-		and Input.mouse_mode != Input.MOUSE_MODE_VISIBLE
+	# Deliberately NOT gated on config.manage_mouse_mode. That flag means "MenuKit does not write the
+	# cursor", not "the world is not live" — a host with its own cursor manager still has a running
+	# world behind an in-game dialog, and conflating the two put the pause policy back to sleep for
+	# exactly the configuration an FPS studio is most likely to pick. The flag gates the mouse-mode
+	# WRITE in _push_suspend/_pop_suspend, which is the only thing it should ever gate.
+	return mouse_mode != Input.MOUSE_MODE_VISIBLE
 
 
 func _on_modal_popped(_control: Control) -> void:

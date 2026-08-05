@@ -38,7 +38,17 @@ extends Resource
 @export_group("Appearance")
 ## Source of truth for the generated [Theme]. [MKRoot] builds the Theme from this at runtime, so a
 ## cold drop is styled with no manual step; the editor bake is only a preview convenience.
-@export var palette: MKPalette
+##
+## Assigning a different palette emits [signal Resource.changed], which is how a live [MKRoot] learns
+## to regenerate. Without that, swapping the palette — the headline re-skin gesture — changed nothing
+## at runtime: the root stayed subscribed to the palette it no longer displayed, and only edits to
+## the [i]old[/i] palette had any effect.
+@export var palette: MKPalette:
+	set(value):
+		if palette == value:
+			return
+		palette = value
+		emit_changed()
 
 @export var backdrop_catalog: MKBackdropCatalog
 

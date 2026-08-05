@@ -158,7 +158,10 @@ func push_modal(control: Control) -> void:
 func pop_modal() -> void:
 	if _stack.is_empty():
 		return
-	var control := _stack.pop_back() as Control
+	# Untyped, and NOT cast. `as Control` evaluates against a freed instance and prints
+	# "Trying to cast a freed object" — reachable whenever a host frees a dialog it pushed itself.
+	# _focus_memory is untyped for exactly this reason; _stack carries the identical risk.
+	var control = _stack.pop_back()
 	var remembered = _focus_memory.pop_back()
 	if control != null and is_instance_valid(control):
 		MKFocus.release(control)
@@ -192,8 +195,13 @@ func remove_modal(control: Control) -> bool:
 		return true
 	_stack.remove_at(index)
 	_focus_memory.remove_at(index)
-	if control != null and is_instance_valid(control) and control.get_parent() == _host:
-		_host.remove_child(control)
+	if control != null and is_instance_valid(control):
+		# Release the focus trap, exactly as pop_modal does. Without it the control keeps its
+		# wrap-around neighbour ring and its trapped marker, so a host that caches a dialog and later
+		# reuses it as ordinary page content has a region focus can enter and never leave.
+		MKFocus.release(control)
+		if control.get_parent() == _host:
+			_host.remove_child(control)
 	_sync_scrim()
 	modal_popped.emit(control)
 	return true
@@ -243,6 +251,13 @@ func top() -> Control:
 func handle_cancel() -> bool:
 	var control := top()
 	if control == null:
+		# Non-empty stack with a freed top: the entry is a corpse. Clear it here rather than reporting
+		# "nothing to hand it to" and leaving it wedged — otherwise is_empty() reports false forever,
+		# the scrim stays up over nothing, and every later cancel gesture is swallowed. MKRoot has a
+		# fallback for this, but a host driving the layer through its public API does not.
+		if not _stack.is_empty():
+			pop_modal()
+			return true
 		return false
 	if control.has_method("handle_cancel"):
 		var consumed: bool = control.call("handle_cancel")

@@ -90,22 +90,64 @@ func run_tests() -> void:
 	# Depth is 0 here, same as the main menu, but the cursor is captured — so a dialog raised over
 	# live gameplay that never went through open_pause_menu must still free it, or it is literally
 	# unclickable in a Doom-like. Keying this rule on depth alone got that backwards.
-	# Headless note: the dummy DisplayServer does not honour a real mouse mode, so this asserts the
-	# decision function rather than Input.mouse_mode itself. The cursor half is gate 4b (Phase 6).
-	check(not root._modal_should_suspend(),
+	# The dummy DisplayServer never leaves MOUSE_MODE_VISIBLE, so the captured branch is unreachable
+	# from a real cursor here — _modal_should_suspend takes the mode as a parameter precisely so this
+	# case is testable rather than merely asserted in a comment.
+	check(not root._modal_should_suspend(Input.MOUSE_MODE_VISIBLE),
 		"with a free cursor and nothing suspended, a modal suspends nothing")
+	check(root._modal_should_suspend(Input.MOUSE_MODE_CAPTURED),
+		"a modal over captured gameplay DOES suspend, or the dialog is unclickable in an FPS")
+	check(root._modal_should_suspend(Input.MOUSE_MODE_CONFINED),
+		"any non-visible cursor counts, not just CAPTURED")
+	# The rule must not be disabled by a host that owns its own cursor: manage_mouse_mode means
+	# "MenuKit does not write the cursor", not "the world is not live".
+	config.manage_mouse_mode = false
+	check(root._modal_should_suspend(Input.MOUSE_MODE_CAPTURED),
+		"manage_mouse_mode = false must NOT switch off the captured-gameplay rule")
+	config.manage_mouse_mode = true
 	root.open_pause_menu(&"play")
-	check(root._modal_should_suspend(), "with the world already suspended, a modal extends it")
+	check(root._modal_should_suspend(Input.MOUSE_MODE_VISIBLE),
+		"with the world already suspended, a modal extends it regardless of cursor state")
 	root.close_pause_menu()
 
 	# --- a page change never strands a modal (plan §4.7a) ---
+	# Run this with the pause menu OPEN so the modal actually carries a suspension. Asserting it on
+	# the main menu made the depth check 0→0 whatever pop_all did — the §4.7a rule only has teeth
+	# when there is a suspension to strand.
+	root.open_pause_menu(&"play")
+	check_eq(root.get_suspend_depth(), 1, "suspended before the page change")
 	MKConfirmDialog.open(layer, "T", "B")
 	await step_frame()
 	check_eq(layer.depth(), 1, "modal open before a lateral page change")
+	check_eq(root.get_suspend_depth(), 2, "the modal carries a suspension of its own")
 	root.go_to_page(&"credits")
 	await step_frame()
 	check_eq(layer.depth(), 0, "a nav-tab page change pops the modal stack")
-	check_eq(root.get_suspend_depth(), 0, "and leaves no orphaned suspension behind")
+	check_eq(root.get_suspend_depth(), 1,
+		"and releases the modal's suspension rather than stranding it forever")
+	root.close_pause_menu()
+	check_eq(root.get_suspend_depth(), 0, "closing unwinds the rest")
+
+	# --- a bad page id must not strand a modal either ---
+	MKConfirmDialog.open(layer, "T", "B")
+	await step_frame()
+	root.go_to_page(&"no_such_page")
+	await step_frame()
+	check_eq(layer.depth(), 0, "a refused page change still pops the modal stack")
+	check_eq(root.get_page_id(), &"credits", "and leaves the current page untouched")
+
+	# --- exit_menu is paired with the enter that happened, not a re-query of can_pause ---
+	# A policy whose answer changes while a menu is open is the stated multiplayer story; re-asking
+	# on the way out skipped exit_menu and left the world paused with no menu on screen.
+	var enters_before := SpyPolicy.enters
+	var exits_at_open := SpyPolicy.exits
+	root.open_pause_menu(&"play")
+	check_eq(SpyPolicy.enters - enters_before, 1, "opening entered the policy")
+	SpyPolicy.pausable = false
+	root.close_pause_menu()
+	check_eq(SpyPolicy.exits - exits_at_open, 1,
+		"exit_menu still fired even though can_pause() flipped false while the menu was open")
+	SpyPolicy.pausable = true
 
 	root.open_pause_menu(&"play")
 	check_eq(root.get_suspend_depth(), 1, "pause menu suspends")
@@ -151,12 +193,18 @@ class SpyPolicy extends MKPausePolicy:
 	static var enters := 0
 	static var exits := 0
 	static var teardowns := 0
+	## Drives can_pause(), so a test can flip the answer mid-menu.
+	static var pausable := true
 	var _entered := false
 
 	static func reset() -> void:
 		enters = 0
 		exits = 0
 		teardowns = 0
+		pausable = true
+
+	func can_pause() -> bool:
+		return pausable
 
 	func enter_menu(_reason: StringName) -> void:
 		enters += 1

@@ -29,7 +29,20 @@ static func context(res, field := "") -> String:
 	var path := "<unknown>"
 	if res is Resource:
 		var r := res as Resource
-		path = r.resource_path if not r.resource_path.is_empty() else "<unsaved %s>" % r.get_class()
+		if not r.resource_path.is_empty():
+			path = r.resource_path
+		else:
+			# An unsaved or duplicated resource has no path, and get_class() reports the ENGINE class
+			# ("Resource") for every scripted type — so the message would name nothing useful. Prefer
+			# the script's global class name, which is what the reader is actually looking for.
+			var type_name := r.get_class()
+			var script := r.get_script() as Script
+			if script != null:
+				if not script.get_global_name().is_empty():
+					type_name = script.get_global_name()
+				elif not script.resource_path.is_empty():
+					type_name = script.resource_path.get_file()
+			path = "<unsaved %s>" % type_name
 	elif res is String:
 		path = res
 	if field.is_empty():

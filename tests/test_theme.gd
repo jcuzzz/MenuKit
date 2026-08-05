@@ -60,3 +60,25 @@ func run_tests() -> void:
 	check(box != null, "regenerated Theme still carries the primary-button stylebox")
 	if box != null:
 		check_eq(box.bg_color, probe, "the new accent actually reached the styled control")
+
+	# --- swapping the palette outright (D4 / ship gate 3) ---
+	# The headline re-skin gesture, and the one that had no reachable code path: the root stayed
+	# subscribed to the palette it no longer displayed, so only edits to the OLD palette did anything.
+	var swap_probe := Color(0.13, 0.77, 0.41)
+	var alt := config.palette.duplicate(true) as MKPalette
+	alt.accent = swap_probe
+	var old_palette := config.palette
+	config.palette = alt
+	await step_frame()
+
+	var swapped := root.theme.get_stylebox(&"normal", MKTheme.PRIMARY_BUTTON) as StyleBoxFlat
+	check(swapped != null, "theme survives a palette swap")
+	if swapped != null:
+		check_eq(swapped.bg_color, swap_probe, "swapping the palette restyles the menu")
+
+	# The discarded palette must be unsubscribed, or editing a palette nothing displays still forces
+	# a full regenerate on a live root.
+	var after_swap: Theme = root.theme
+	old_palette.accent = Color(1.0, 0.0, 1.0)
+	await step_frame()
+	check(root.theme == after_swap, "editing the DISCARDED palette no longer restyles anything")
