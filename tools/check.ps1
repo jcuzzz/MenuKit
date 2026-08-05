@@ -107,7 +107,9 @@ if ($Smokes) {
             }
         }
         $smokeFiles = @()
-        foreach ($f in ([System.IO.Directory]::GetFiles((Join-Path $RepoRoot "tests"), "test_*.gd") | Sort-Object)) {
+        # Recursive: a non-recursive enumeration silently skipped tests/<subdir>/test_*.gd, which
+        # would never run and never be counted missing.
+        foreach ($f in ([System.IO.Directory]::GetFiles((Join-Path $RepoRoot "tests"), "test_*.gd", [System.IO.SearchOption]::AllDirectories) | Sort-Object)) {
             $fname = [System.IO.Path]::GetFileName($f)
             if ($filterPats.Count -gt 0) {
                 $matched = $false
@@ -125,7 +127,9 @@ if ($Smokes) {
             foreach ($sf in $smokeFiles) {
                 $name = [System.IO.Path]::GetFileName($sf)
                 $base = [System.IO.Path]::GetFileNameWithoutExtension($sf)
-                $rel = "tests/" + $name
+                # Relative to the repo root, so a test in tests/<subdir>/ is addressed correctly now
+                # that enumeration recurses.
+                $rel = ($sf.Substring($RepoRoot.Length + 1) -replace '\\', '/')
                 $log = Join-Path $SmokeProfile ($base + ".log")
                 $proc = Start-Process -FilePath $Godot `
                     -ArgumentList @("--headless", "--path", ".", "--script", $rel) `
@@ -145,22 +149,23 @@ if ($Smokes) {
                     # nodes — a freed-object cast, a null get_viewport(), an unfreed panel. Those are
                     # real defects the assertions cannot see, and treating them as noise is how they
                     # ship. An engine complaint during a test is a failing test.
+                    # Channels, most important first:
+                    #   SCRIPT ERROR  — GDScript runtime faults.
+                    #   ERROR:        — every engine-side ERR_FAIL_COND: failed resource loads,
+                    #                   off-tree Control operations, null parameters, double adds.
+                    #                   The largest channel of the lot; matching only the narrow
+                    #                   ones below while omitting this caught almost nothing.
+                    #   USER ERROR / [MenuKit] ERROR: — MKLog.error, the package's own declared
+                    #                   contract-violation stream (a backend not extending its base,
+                    #                   a Theme missing type variations).
+                    #   leak / freed-cast — defects no assertion can observe.
+                    # WARNING: is deliberately absent: test_navigation provokes one on purpose, so
+                    # matching it needs an expected-noise mechanism first.
+                    $noisePattern = 'SCRIPT ERROR|USER ERROR|\[MenuKit\] ERROR:|^\s*ERROR:|were leaked|leaked at exit|Cannot call method|Trying to (cast|assign) a (previously )?freed'
                     $noise = @()
                     foreach ($f in @($log, "$log.err")) {
                         if (-not (Test-Path $f)) { continue }
-                        $noise += @(Get-Content $f | Where-Object {
-                            $_ -match 'SCRIPT ERROR' -or
-                            $_ -match 'USER ERROR' -or
-                            # MenuKit's own contract-violation channel. Leaving it out exempted the
-                            # one error stream the package raises deliberately — a backend not
-                            # extending its base, a Theme missing type variations — so a test could
-                            # trigger a documented contract violation and still be counted green.
-                            $_ -match '\[MenuKit\] ERROR:' -or
-                            $_ -match 'were leaked' -or
-                            $_ -match 'leaked at exit' -or
-                            $_ -match 'Cannot call method' -or
-                            $_ -match 'Trying to (cast|assign) a (previously )?freed'
-                        })
+                        $noise += @(Get-Content $f | Where-Object { $_ -match $noisePattern })
                     }
                     if ($noise.Count -gt 0) {
                         $failNames += "$name(ENGINE_ERRORS)"
@@ -179,6 +184,16 @@ if ($Smokes) {
         $total = $smokeFiles.Count
         $smokesField = "$pass/$total"
         if ($failNames.Count -gt 0) { $smokesFailed = $true }
+        # Zero tests is a failure, not a pass. A -Filter typo otherwise reported
+        # "smokes=0/0 ... exit=0", which reads as proof while proving nothing.
+        if ($total -eq 0) {
+            $smokesFailed = $true
+            $failNames += "NO_TESTS_MATCHED"
+            # ASCII only inside .ps1 STRING literals. PowerShell 5.1 reads this file as ANSI, so a
+            # UTF-8 em-dash decodes to a smart quote, which it accepts as a string delimiter - the
+            # literal terminates early and the whole script fails to parse. Comments are safe.
+            Write-Output "SMOKES: no test files matched - a filter typo reads as a pass otherwise"
+        }
         $note = if ($filterPats.Count -gt 0) { " [SUBSET filter=$($filterPats -join ',') -- NOT full proof]" } else { "" }
         Write-Output ("SMOKES: {0}/{1} PASS in {2}s{3}" -f $pass, $total, [math]::Round($sweepWatch.Elapsed.TotalSeconds), $note)
         foreach ($fn in $failNames) { Write-Output ("FAIL: tests/" + $fn) }

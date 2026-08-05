@@ -59,13 +59,32 @@ static func set_variation_if(control: Control, condition: bool, when_true: Strin
 	set_variation(control, when_true if condition else when_false)
 
 
-## True when [param theme] defines every variation in the vocabulary. Used by the Phase 1 tests and
-## by [code]MKRoot[/code] boot validation: a palette-generated Theme missing a variation would
-## silently un-style whichever panel used it.
+## True when [param theme] both registers every variation in the vocabulary [b]and actually styles
+## it[/b]. Used by [code]MKRoot[/code] boot validation and by the theme tests.
+##
+## Checking registration alone was worthless: the generator registers every key of
+## [constant VARIATION_BASE] in one unconditional loop, so this asked whether that loop had run and
+## nothing more. Deleting the code that styles panels, or the code that styles labels, left the whole
+## package rendering unstyled while this returned true and the suite passed. Registration is not
+## styling, so a variation must carry at least one real theme entry to count.
 static func theme_defines_all(theme: Theme) -> bool:
 	if theme == null:
 		return false
 	for name in VARIATION_BASE:
 		if theme.get_type_variation_base(name) == StringName():
 			return false
+		if not variation_is_styled(theme, name):
+			return false
 	return true
+
+
+## Whether [param variation] carries any style entry at all — a StyleBox, colour, font size or
+## constant. The specific entries differ per base type (a Button needs styleboxes, a Label needs a
+## colour and a size), so this asks the question every variation can answer.
+static func variation_is_styled(theme: Theme, variation: StringName) -> bool:
+	if theme == null:
+		return false
+	return not theme.get_stylebox_list(variation).is_empty() \
+		or not theme.get_color_list(variation).is_empty() \
+		or not theme.get_font_size_list(variation).is_empty() \
+		or not theme.get_constant_list(variation).is_empty()

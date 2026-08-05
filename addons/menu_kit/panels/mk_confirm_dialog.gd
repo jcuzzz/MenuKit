@@ -50,6 +50,8 @@ var _owns_self := false
 ## A dialog opened this way frees itself when it is popped (see [method _on_popped]), so callers
 ## never own cleanup. Building one with [method Object.new] and pushing it yourself keeps ownership
 ## with you.
+## Returns [code]null[/code] when [param layer] is null — there is nowhere to show a dialog, so the
+## instance is disposed of rather than handed back unparented.
 static func open(layer: MKModalLayer, title: String, body: String, confirm_text := "Confirm",
 		cancel_text := "Cancel", destructive := false, alt_text := "") -> MKConfirmDialog:
 	var dialog := MKConfirmDialog.new()
@@ -61,11 +63,21 @@ static func open(layer: MKModalLayer, title: String, body: String, confirm_text 
 		dialog._owns_self = true
 		layer.push_modal(dialog)
 	else:
-		MKLog.warn("MKConfirmDialog.open: no MKModalLayer given — dialog is unparented")
+		# Returning the orphan leaked one Control per call — on the error path of the very method
+		# whose contract promises callers never own cleanup. Nothing can be done with an unparented
+		# dialog anyway, so dispose of it and return null rather than handing back a dead object for
+		# a caller to connect signals to.
+		MKLog.error("MKConfirmDialog.open: no MKModalLayer given — nothing to show the dialog on")
+		dialog.free()
+		return null
 	return dialog
 
 
 func _ready() -> void:
+	# @tool guard: opening this scene in the editor would otherwise materialise the whole dialog as
+	# unowned children and save them into whatever instanced it — the hazard MKWelcomePage documents.
+	if Engine.is_editor_hint():
+		return
 	# Anchors AND offsets. set_anchors_preset moves the anchors but leaves the rect at whatever size
 	# the node was constructed with, so the dialog stayed a small box pinned to the top-left and the
 	# CenterContainer below had nothing to centre within. Centring here is pure container work —

@@ -41,7 +41,11 @@ foreach ($f in $files) {
 
 # --- Scan 2: add_theme_*_override -------------------------------------------
 $overrideViolations = @()
-$ovRe = [regex]'add_theme_\w+_override'
+# Two forms, because the scan covers two file types and they spell it differently. In .gd it is the
+# call; in .tscn Godot serialises an override as a PROPERTY (theme_override_colors/font_color = ...)
+# and never emits the call name — so a call-only regex made the scene half of this gate dead, and a
+# panel scene with baked overrides would have passed while being unre-skinnable.
+$ovRe = [regex]'add_theme_\w+_override|theme_override_\w+/'
 foreach ($f in ($files | Where-Object { $_ -match '\.(gd|tscn)$' })) {
     $rel = $f.Substring($RepoRoot.Length + 1)
     $lineNo = 0

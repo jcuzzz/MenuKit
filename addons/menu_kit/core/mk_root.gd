@@ -197,6 +197,8 @@ func request_quit_confirm() -> void:
 		return
 	var dialog := MKConfirmDialog.open(_modal_layer, "Quit", "Quit to desktop?", "Quit", "Cancel",
 		true)
+	if dialog == null:
+		return
 	dialog.confirmed.connect(func() -> void:
 		if _menu_backend != null:
 			_menu_backend.quit()

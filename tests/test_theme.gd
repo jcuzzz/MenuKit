@@ -24,6 +24,20 @@ func run_tests() -> void:
 	check(MKTheme.theme_defines_all(theme),
 		"generated Theme defines every variation in MKTheme.VARIATION_BASE")
 
+	# Assert styling per variation, not just registration. The generator registers the whole
+	# vocabulary in one unconditional loop, so a registration-only check asked whether that loop ran —
+	# deleting the panel styling or the label styling left the package rendering unstyled and the
+	# suite green.
+	for variation in MKTheme.VARIATION_BASE:
+		check(MKTheme.variation_is_styled(theme, variation),
+			"%s carries real theme entries, not just a registered base" % variation)
+
+	# The specific entries each base type needs to look intentional.
+	check(theme.has_stylebox(&"panel", MKTheme.PANEL), "MKPanel draws a background")
+	check(theme.has_color(&"font_color", MKTheme.HEADER), "MKHeader colours its text")
+	check(theme.has_font_size(&"font_size", MKTheme.HEADER), "MKHeader sizes its text")
+	check(theme.has_color(&"font_color", MKTheme.ROW_LABEL), "MKRowLabel colours its text")
+
 	# Every Button variation needs all five StyleBoxes. A missing `focus` box makes keyboard and
 	# gamepad traversal invisible — a shipped bug that no headless assertion elsewhere would catch.
 	for variation in MKTheme.VARIATION_BASE:

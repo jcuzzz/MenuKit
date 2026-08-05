@@ -54,10 +54,21 @@ func _check(path: String) -> void:
 		_failed.append(path)
 		return
 	# A .gd with a parse error can still load as a NON-null GDScript resource; can_instantiate() is
-	# false until it actually compiles. Abstract bases are exempted by name — see _is_abstract.
-	if res is GDScript and not (res as GDScript).can_instantiate() and not _is_abstract(path):
-		_failed.append("%s (parse/compile error)" % path)
-		return
+	# false until it actually compiles.
+	#
+	# Abstract scripts report can_instantiate() false BY DESIGN, so they cannot use that signal — but
+	# exempting them outright meant a parse error in any of the five backend bases compiled green.
+	# reload() surfaces the parse result directly, so they get a real check instead of a pass.
+	if res is GDScript:
+		var script := res as GDScript
+		if _is_abstract(path):
+			var err := script.reload()
+			if err != OK:
+				_failed.append("%s (parse/compile error %d in abstract script)" % [path, err])
+				return
+		elif not script.can_instantiate():
+			_failed.append("%s (parse/compile error)" % path)
+			return
 	# Godot tolerates a .tscn whose ext_resource is missing (load returns non-null, ref nulled).
 	if path.ends_with(".tscn"):
 		var missing := _missing_ext_resources(path)

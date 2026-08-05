@@ -20,7 +20,9 @@ func run_tests() -> void:
 	var path_re := RegEx.new()
 	path_re.compile('res://[^"\'\\s\\)\\]]+')
 	var override_re := RegEx.new()
-	override_re.compile("add_theme_\\w+_override")
+	# The .tscn form is a serialised PROPERTY (theme_override_colors/font_color), not the call — a
+	# call-only pattern left the scene half of this scan dead.
+	override_re.compile("add_theme_\\w+_override|theme_override_\\w+/")
 
 	for path in files:
 		var f := FileAccess.open(path, FileAccess.READ)
