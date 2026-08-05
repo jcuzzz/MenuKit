@@ -1,0 +1,18 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://demo/pages/demo_page.gd" id="1_page"]
+
+; The shipped proof that adding a page needs no addon edit: this scene and its page def live
+; entirely in demo/, and it is the only exercise of the menu backend's open_url.
+
+[node name="PageCredits" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_page")
+title = "Credits"
+body = "A host-added page. Nothing in addons/menu_kit/ knows this exists — it is one MKMenuPageDef entry in the demo's own config."
+url = "https://godotengine.org"

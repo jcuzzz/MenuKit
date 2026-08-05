@@ -1,0 +1,17 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://demo/pages/demo_page.gd" id="1_page"]
+
+; Reached only via push_page — its page def is marked invisible, so it has no nav tab. That is the
+; sub-panel shape (settings -> rebind conflict, select -> confirm delete) the back stack exists for.
+
+[node name="PageSub" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_page")
+title = "Sub-panel"
+body = "Escape here pops back to Settings. Escape again, with the stack empty, raises the quit confirm."

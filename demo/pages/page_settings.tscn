@@ -1,0 +1,15 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://demo/pages/demo_page.gd" id="1_page"]
+
+[node name="PageSettings" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_page")
+title = "Settings"
+body = "The real schema-driven panel lands in Phase 3. For now this page exists to push a sub-panel onto the back stack."
+push_page_id = &"sub"

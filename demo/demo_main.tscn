@@ -1,0 +1,9 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://addons/menu_kit/core/mk_root.tscn" id="1_root"]
+[ext_resource type="Resource" path="res://demo/demo_config.tres" id="2_config"]
+
+; The whole demo boot: instance MKRoot, hand it a config. Nothing else.
+
+[node name="DemoMain" instance=ExtResource("1_root")]
+config = ExtResource("2_config")
