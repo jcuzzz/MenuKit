@@ -70,6 +70,8 @@ var _back_stack: Array[StringName] = []
 var _current_page_node: Node
 ## The palette currently wired to [method _apply_theme], so a swap can unsubscribe the old one.
 var _themed_palette: MKPalette
+## Likewise for the config, so a replaced one stops restyling a menu it no longer describes.
+var _themed_config: MKConfig
 
 ## Counts MenuKit surfaces that require the world suspended and the cursor free. One counter, owned
 ## here: policies carry no depth state, so every custom policy inherits correct counting for free.
@@ -108,21 +110,20 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if Engine.is_editor_hint():
 		return
-	# Pop the stack first, so each modal unwinds its own suspension through the normal path — which
-	# also restores the saved cursor correctly. _exit_tree fires on ANY tree removal, including a
-	# reparent (a host moving the shell under a CanvasLayer, or a scene-transition addon), and
-	# _ready does not re-run on re-add: without this the shell came back with a stranded modal, a
-	# scrim over nothing, and a cursor forced visible while the game had it captured.
-	if _modal_layer != null and is_instance_valid(_modal_layer):
-		_modal_layer.pop_all()
 	var was_suspended := _suspend_depth > 0
+	# DISCARD the stack; do not pop it. A real pop here reaches _pop_suspend's 1→0 edge and calls
+	# exit_menu on a policy that is already out of the tree — the crash this function's contract
+	# exists to prevent — and restores the gameplay cursor onto the main menu. An earlier revision
+	# popped here and did both.
+	if _modal_layer != null and is_instance_valid(_modal_layer):
+		_modal_layer.clear_for_teardown()
 	_suspend_depth = 0
 	_modal_suspensions = 0
 	_policy_entered = false
 	_pause_menu_open = false
-	# Only touch the cursor if we were actually holding it. Teardown discards the saved value rather
-	# than restoring it — that value was captured from gameplay, so restoring it here would re-capture
-	# the cursor on the main menu.
+	# Only touch the cursor if we were actually holding it, and set it VISIBLE rather than restoring
+	# the saved value: that value was captured from gameplay, so restoring it would re-capture the
+	# cursor on the main menu.
 	if was_suspended and config != null and config.manage_mouse_mode:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
@@ -318,10 +319,11 @@ func _push_suspend(reason: StringName) -> void:
 	# mid-menu — would skip its own exit_menu and leave the world paused with no menu on screen and no
 	# diagnostic. exit_menu is the counterpart of an enter that happened, not of a condition that
 	# still holds.
-	_policy_entered = false
 	if _pause_policy != null and _pause_policy.can_pause():
-		_pause_policy.enter_menu(reason)
+		# Latched BEFORE the call, not after: a policy that errors partway through enter_menu has
+		# still half-entered, and must still get its exit_menu to undo whatever it managed to do.
 		_policy_entered = true
+		_pause_policy.enter_menu(reason)
 	elif _pause_policy != null:
 		# can_pause() false means the menu still opens and the world keeps running. It is never a
 		# veto: a menu you cannot open is not the right answer to "the world cannot pause".
@@ -414,6 +416,12 @@ func _resolve_config() -> void:
 	# Regenerate when the config swaps its palette. _apply_theme subscribes to the palette itself for
 	# per-field edits, but nothing re-invoked it when config.palette was REASSIGNED — so the disconnect
 	# logic there guarded a state it could never reach, and swapping a palette was a no-op at runtime.
+	# Unsubscribe a replaced config for the same reason, one level up: otherwise a discarded config
+	# still restyles the live menu.
+	if _themed_config != null and is_instance_valid(_themed_config) and _themed_config != config \
+			and _themed_config.changed.is_connected(_apply_theme):
+		_themed_config.changed.disconnect(_apply_theme)
+	_themed_config = config
 	if not config.changed.is_connected(_apply_theme):
 		config.changed.connect(_apply_theme)
 	# Report every problem at once: a first-time integrator gets one list to work through instead of
@@ -423,28 +431,30 @@ func _resolve_config() -> void:
 
 
 func _apply_theme() -> void:
-	if config == null or config.palette == null:
+	# Unsubscribe FIRST, before any early return. Behind the null-palette check, setting
+	# config.palette = null left the discarded palette wired to this root, so every later edit to it
+	# re-entered here and emitted another "no MKPalette assigned" warning.
+	var next_palette: MKPalette = config.palette if config != null else null
+	if _themed_palette != null and is_instance_valid(_themed_palette) \
+			and _themed_palette != next_palette \
+			and _themed_palette.changed.is_connected(_apply_theme):
+		_themed_palette.changed.disconnect(_apply_theme)
+	_themed_palette = next_palette
+	if next_palette == null:
 		MKLog.warn("no MKPalette assigned — panels will fall back to the engine default theme")
 		return
 	# Rebuild whenever the palette changes. Without this subscription every per-field emit_changed()
 	# in MKPalette has no listener, and editing a palette at runtime restyles nothing — the shipped
-	# Theme is a one-shot snapshot taken at boot. Re-skinning by swapping a palette is the package's
-	# core promise, so the live path has to work, not just the editor bake.
-	# Drop the previous subscription first: without it, swapping config.palette leaves the discarded
-	# palette wired to this root, so editing a palette nothing displays still forces a regenerate.
-	if _themed_palette != null and is_instance_valid(_themed_palette) \
-			and _themed_palette != config.palette \
-			and _themed_palette.changed.is_connected(_apply_theme):
-		_themed_palette.changed.disconnect(_apply_theme)
-	if not config.palette.changed.is_connected(_apply_theme):
-		config.palette.changed.connect(_apply_theme)
-	_themed_palette = config.palette
-	var generated := MKThemeGenerator.build(config.palette)
+	# Theme is a one-shot snapshot taken at boot. Re-skinning is the package's core promise, so the
+	# live path has to work, not just the editor bake.
+	if not next_palette.changed.is_connected(_apply_theme):
+		next_palette.changed.connect(_apply_theme)
+	var generated := MKThemeGenerator.build(next_palette)
 	if generated == null:
 		return
 	if not MKTheme.theme_defines_all(generated):
 		MKLog.error("%s: generated Theme is missing type variations — panels using them render unstyled"
-			% MKLog.context(config.palette))
+			% MKLog.context(next_palette))
 	theme = generated
 
 

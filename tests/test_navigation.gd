@@ -166,15 +166,26 @@ func run_tests() -> void:
 	# teardown. The previous version freed the root and then checked a brand-new instance's counter —
 	# which is zero from its member initialiser regardless, so deleting the whole body of _exit_tree
 	# left it green. It was the only guard on the unwind rule.
+	# Removed rather than freed, so the SAME root can be interrogated after _exit_tree has run.
+	# Freeing it and asserting on a fresh instance was vacuous twice over: a new root's counter is
+	# zero from its member initialiser, so deleting the entire body of _exit_tree left the suite
+	# green — which is exactly how a teardown crash and a stuck cursor shipped past this assertion.
 	root.open_pause_menu(&"play")
-	check_eq(root.get_suspend_depth(), 1, "suspended before teardown")
+	MKConfirmDialog.open(root.get_modal_layer(), "T", "B")
+	await step_frame()
+	check_eq(root.get_suspend_depth(), 2, "suspended, with a modal stacked, before teardown")
 	var exits_before := SpyPolicy.exits
 	var teardowns_before := SpyPolicy.teardowns
-	root.free()
+	get_root().remove_child(root)
+
+	check_eq(root.get_suspend_depth(), 0, "_exit_tree zeroed the suspend counter")
+	check_eq(root.get_modal_layer().depth(), 0, "_exit_tree emptied the modal stack")
+	check(not root.is_pause_menu_open(), "_exit_tree cleared the pause-menu flag")
 	check_eq(SpyPolicy.teardowns - teardowns_before, 1,
 		"the policy undid its own effects in its own _exit_tree")
 	check_eq(SpyPolicy.exits - exits_before, 0,
-		"MKRoot did NOT call exit_menu on teardown — the policy is already out of the tree by then, so the cross-node call would crash the shipped default on every quit-while-paused")
+		"MKRoot did NOT call exit_menu on teardown — the policy is already out of the tree by then, so the cross-node call crashes the shipped tree policy on every quit-while-paused")
+	root.free()
 	await step_frame()
 
 	var diag_root := MKRoot.new()

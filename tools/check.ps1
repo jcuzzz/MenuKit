@@ -139,8 +139,30 @@ if ($Smokes) {
                     $proc.WaitForExit()
                     $failNames += "$name(TIMEOUT_${SmokeTimeoutSec}s)"
                 }
-                elseif ($proc.ExitCode -eq 0) { $pass++ }
-                else { $failNames += $name }
+                elseif ($proc.ExitCode -ne 0) { $failNames += $name }
+                else {
+                    # A test can pass every assertion while the engine prints script errors or leaks
+                    # nodes — a freed-object cast, a null get_viewport(), an unfreed panel. Those are
+                    # real defects the assertions cannot see, and treating them as noise is how they
+                    # ship. An engine complaint during a test is a failing test.
+                    $noise = @()
+                    foreach ($f in @($log, "$log.err")) {
+                        if (-not (Test-Path $f)) { continue }
+                        $noise += @(Get-Content $f | Where-Object {
+                            $_ -match 'SCRIPT ERROR' -or
+                            $_ -match 'were leaked' -or
+                            $_ -match 'leaked at exit' -or
+                            $_ -match 'Cannot call method' -or
+                            $_ -match 'Trying to (cast|assign) a (previously )?freed'
+                        })
+                    }
+                    if ($noise.Count -gt 0) {
+                        $failNames += "$name(ENGINE_ERRORS)"
+                        $sample = ($noise | Select-Object -First 3 | ForEach-Object { $_.Trim() }) -join ' | '
+                        Write-Output ("ENGINE_NOISE in {0}: {1}" -f $name, $sample)
+                    }
+                    else { $pass++ }
+                }
             }
         }
         finally {

@@ -207,6 +207,25 @@ func remove_modal(control: Control) -> bool:
 	return true
 
 
+## Empties the stack during teardown [b]without emitting [signal modal_popped][/b].
+##
+## Teardown must not route through the normal pop path. [constant Node.NOTIFICATION_EXIT_TREE]
+## propagates children first, so when [code]MKRoot._exit_tree[/code] runs, both this layer and the
+## pause policy are already detached. A real pop there would drive MKRoot's suspend counter to its
+## 1→0 edge and call [code]MKPausePolicy.exit_menu[/code] on a policy whose
+## [method Node.get_tree] is null — crashing the shipped tree policy on exactly the
+## quit-while-paused sequence the plan spent a revision correcting. It would also restore the
+## [i]saved[/i] cursor, which was captured from gameplay, leaving the main menu with an invisible
+## captured cursor.
+##
+## So teardown discards rather than unwinds: MKRoot zeroes its own counters, and each policy undoes
+## its own effects in its own [method Node._exit_tree] while its tree reference is still valid.
+func clear_for_teardown() -> void:
+	_stack.clear()
+	_focus_memory.clear()
+	_sync_scrim()
+
+
 ## Pops every modal, newest first, emitting the same signals as individual pops.
 ## Page changes must never leave a modal orphaned above the new page (plan §4.7a), and a host
 ## closing the menu wholesale needs one call it can trust.
@@ -282,7 +301,11 @@ func _restore_focus(remembered) -> void:
 		# rather than left where it was: the popped modal's own button would otherwise keep it,
 		# and an off-tree control holding focus is an invisible keyboard dead end.
 		MKLog.debug("MKModalLayer: focus memory unusable on pop — releasing focus")
-		get_viewport().gui_release_focus()
+		# Guarded: during teardown this layer is already out of the tree and get_viewport() is null.
+		# Unguarded, every quit-to-menu with a dialog open printed a script error.
+		var viewport := get_viewport()
+		if viewport != null:
+			viewport.gui_release_focus()
 	_restoring_focus = false
 
 

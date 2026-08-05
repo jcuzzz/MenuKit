@@ -144,8 +144,19 @@ func get_visible_pages() -> Array[MKMenuPageDef]:
 	for page in pages:
 		if page != null and page.is_valid() and page.visible:
 			out.append(page)
-	out.sort_custom(func(a: MKMenuPageDef, b: MKMenuPageDef) -> bool: return a.order < b.order)
-	return out
+	# Stabilised by original index. `sort_custom` is not a stable sort, so pages sharing an `order`
+	# could come back permuted — and since this feeds both the nav bar's tab order AND the boot page
+	# (`get_visible_pages()[0]`), a host giving two pages the same order could get a tab order that
+	# does not match `pages` and a boot page that is not the first tab.
+	var decorated: Array = []
+	for i in out.size():
+		decorated.append([out[i].order, i, out[i]])
+	decorated.sort_custom(func(a: Array, b: Array) -> bool:
+		return a[0] < b[0] if a[0] != b[0] else a[1] < b[1])
+	var sorted: Array[MKMenuPageDef] = []
+	for entry in decorated:
+		sorted.append(entry[2])
+	return sorted
 
 
 func get_page(id: StringName) -> MKMenuPageDef:
