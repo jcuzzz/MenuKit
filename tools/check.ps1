@@ -162,10 +162,31 @@ if ($Smokes) {
                     # WARNING: is deliberately absent: test_navigation provokes one on purpose, so
                     # matching it needs an expected-noise mechanism first.
                     $noisePattern = 'SCRIPT ERROR|USER ERROR|\[MenuKit\] ERROR:|^\s*ERROR:|were leaked|leaked at exit|Cannot call method|Trying to (cast|assign) a (previously )?freed'
+                    # A test may declare an error it provokes on purpose, via
+                    # MKTest.expect_engine_error(). Some contracts can only be proven by triggering a
+                    # real error - the settings-backend mismatch rule, a backend not extending its
+                    # base. Without this the choice is to weaken the gate for every test or leave
+                    # those contracts untested. Declarations are substrings and are matched
+                    # literally, so a test exempts its own error and nothing else.
+                    $expected = @()
+                    foreach ($f in @($log, "$log.err")) {
+                        if (-not (Test-Path $f)) { continue }
+                        foreach ($line in Get-Content $f) {
+                            if ($line -match 'MKTEST_EXPECT_NOISE:\s*(.+)$') {
+                                $expected += $Matches[1].Trim()
+                            }
+                        }
+                    }
                     $noise = @()
                     foreach ($f in @($log, "$log.err")) {
                         if (-not (Test-Path $f)) { continue }
-                        $noise += @(Get-Content $f | Where-Object { $_ -match $noisePattern })
+                        foreach ($line in (Get-Content $f | Where-Object { $_ -match $noisePattern })) {
+                            $isExpected = $false
+                            foreach ($e in $expected) {
+                                if ($e -ne "" -and $line.Contains($e)) { $isExpected = $true; break }
+                            }
+                            if (-not $isExpected) { $noise += $line }
+                        }
                     }
                     if ($noise.Count -gt 0) {
                         $failNames += "$name(ENGINE_ERRORS)"

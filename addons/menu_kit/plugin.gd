@@ -2,16 +2,22 @@
 extends EditorPlugin
 ## Editor-side registration for MenuKit.
 ##
-## Owns three things a host would otherwise have to do by hand — the plan's position is that the
+## Owns four things a host would otherwise have to do by hand — the plan's position is that the
 ## delivery mechanism for integration should be the plugin itself, not a step buried in docs:
 ## [br]1. The [code]MKRoot[/code] custom type, so the shell is a Create-Node entry.
-## [br]2. The [code]menu_kit/config_path[/code] project setting, which is how the (Phase 2)
+## [br]2. The [code]menu_kit/config_path[/code] project setting, which is how the
 ##    [code]MKSettingsService[/code] autoload finds its config — an autoload cannot see a
 ##    scene-assigned [code]MKConfig[/code].
-## [br]3. A tool menu entry that bakes the palette-generated [Theme] to disk for editor preview.
+## [br]3. The [code]MKSettingsService[/code] autoload itself, so persisted settings and rebinds apply
+##    on a host that boots straight into gameplay without ever instancing a MenuKit scene (plan
+##    §4.2). Hosts that refuse third-party autoloads disable it in Project Settings and take the
+##    documented manual path.
+## [br]4. A tool menu entry that bakes the palette-generated [Theme] to disk for editor preview.
 ##    Runtime never needs the bake; [code]MKRoot[/code] generates the same Theme at
 ##    [method Node._ready], so a cold drop is styled with zero manual steps.
 
+const SETTINGS_SERVICE_NAME := "MKSettingsService"
+const SETTINGS_SERVICE_SCRIPT := "res://addons/menu_kit/core/mk_settings_service.gd"
 const CONFIG_PATH_SETTING := "menu_kit/config_path"
 const DEFAULT_CONFIG_PATH := "res://addons/menu_kit/default_config.tres"
 const BAKE_MENU_ITEM := "Bake MenuKit Theme"
@@ -25,13 +31,19 @@ const DEFAULT_PALETTE_PATH := "res://addons/menu_kit/themes/default_palette.tres
 ## [code]addons/menu_kit/core/mk_root.tscn[/code]" for that reason.
 func _enter_tree() -> void:
 	_register_config_path_setting()
+	# Unlike the project setting above, this needs no ProjectSettings.save() — the editor persists
+	# autoloads itself. Do not add one assuming symmetry.
+	add_autoload_singleton(SETTINGS_SERVICE_NAME, SETTINGS_SERVICE_SCRIPT)
 	add_tool_menu_item(BAKE_MENU_ITEM, _bake_theme)
 
 
 func _exit_tree() -> void:
 	remove_tool_menu_item(BAKE_MENU_ITEM)
-	# The project setting is deliberately left in place: removing it would discard a host's
-	# repointed path on a plugin disable/enable cycle.
+	# Removed on disable, unlike the project setting: an autoload left behind would keep loading a
+	# script from a plugin the host has turned off. The setting is a host's own choice of config
+	# path and is deliberately left in place — removing it would discard a repointed path on a
+	# disable/enable cycle.
+	remove_autoload_singleton(SETTINGS_SERVICE_NAME)
 
 
 ## Writes the config-path setting, with two details that are silent-failure traps rather than

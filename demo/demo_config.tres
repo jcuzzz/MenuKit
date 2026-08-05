@@ -1,10 +1,16 @@
-[gd_resource type="Resource" script_class="MKConfig" load_steps=12 format=3]
+[gd_resource type="Resource" script_class="MKConfig" load_steps=18 format=3]
 
 ; The demo's own config. Everything that needs host provisioning lives here rather than in the
 ; addon, which is what keeps the shipped defaults cold-droppable into an empty project.
 ;
 ; The Credits page is the shipped proof of the host-added-page path: its scene and its page def are
 ; both in demo/, and no addon file references either.
+;
+; This is also where the backend slots get real parameters. MKSceneMenuBackend names no scene of its
+; own — the addon may not reference demo/ — so the demo supplies game_scene and menu_scene through
+; its slot's params, which is the mechanism that exists so a host never has to subclass a backend to
+; change one value. The network slot points at MKStubNetworkBackend here, while the shipped default
+; config leaves it empty: the demo is where the server browser is meant to be visible.
 
 [ext_resource type="Script" path="res://addons/menu_kit/core/mk_config.gd" id="1_config"]
 [ext_resource type="Script" path="res://addons/menu_kit/core/mk_menu_page_def.gd" id="2_pagedef"]
@@ -14,6 +20,45 @@
 [ext_resource type="PackedScene" path="res://demo/pages/page_settings.tscn" id="6_settings"]
 [ext_resource type="PackedScene" path="res://demo/pages/page_sub.tscn" id="7_sub"]
 [ext_resource type="PackedScene" path="res://demo/pages/page_credits.tscn" id="8_credits"]
+[ext_resource type="Script" path="res://addons/menu_kit/core/mk_backend_slot.gd" id="9_slot"]
+[ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_scene_menu_backend.gd" id="10_menu"]
+[ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_json_profile_backend.gd" id="11_profile"]
+[ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_json_settings_backend.gd" id="12_settings"]
+[ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_tree_pause_policy.gd" id="13_pause"]
+[ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_stub_network_backend.gd" id="14_network"]
+
+[sub_resource type="Resource" id="slot_menu"]
+script = ExtResource("9_slot")
+backend_script = ExtResource("10_menu")
+params = {
+"menu_scene": "res://demo/demo_main.tscn"
+}
+
+[sub_resource type="Resource" id="slot_profile"]
+script = ExtResource("9_slot")
+backend_script = ExtResource("11_profile")
+params = {
+"file_path": "user://menukit_demo_profiles.json"
+}
+
+[sub_resource type="Resource" id="slot_settings"]
+script = ExtResource("9_slot")
+backend_script = ExtResource("12_settings")
+params = {
+"file_path": "user://menukit_demo_settings.json"
+}
+
+[sub_resource type="Resource" id="slot_pause"]
+script = ExtResource("9_slot")
+backend_script = ExtResource("13_pause")
+params = {}
+
+[sub_resource type="Resource" id="slot_network"]
+script = ExtResource("9_slot")
+backend_script = ExtResource("14_network")
+params = {
+"connect_delay": 1.2
+}
 
 [sub_resource type="Resource" id="page_play"]
 script = ExtResource("2_pagedef")
@@ -53,11 +98,11 @@ order = 100
 
 [resource]
 script = ExtResource("1_config")
-menu_backend = null
-profile_backend = null
-settings_backend = null
-network_backend = null
-pause_policy = null
+menu_backend = SubResource("slot_menu")
+profile_backend = SubResource("slot_profile")
+settings_backend = SubResource("slot_settings")
+network_backend = SubResource("slot_network")
+pause_policy = SubResource("slot_pause")
 palette = ExtResource("3_palette")
 backdrop_catalog = ExtResource("4_backdrops")
 backdrop_id = &""
