@@ -1,0 +1,6 @@
+.godot/
+.agent_tmp/
+*.translation
+
+# Editor-preview convenience bake only; never the source of truth (plan §1.2).
+addons/menu_kit/themes/generated_theme.tres
