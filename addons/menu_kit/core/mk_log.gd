@@ -20,9 +20,15 @@ const PREFIX := "[MenuKit]"
 ## Set by MKConfig / MKRoot at boot. `--mk-verbose` on the command line forces it true.
 static var verbose := false
 
-## [b]A testing seam, not a host feature.[/b] When valid, every [method warn] and [method error]
-## message is also handed to this [Callable] as
+## [b]A testing seam, not a host feature.[/b] When valid, every [method error], [method warn] and
+## [method debug] message is also handed to this [Callable] as
 ## [code](level: Level, message: String) -> void[/code], in addition to being pushed and printed.
+## [method info] is not observed — it reports normal operation, and nothing asserts against it.
+##
+## [method debug] reaches the observer even when [member verbose] is false, and that is deliberate:
+## some behaviours are DEFINED as "the panel keeps the widget as it is and says so" (an ENUM sync
+## with no matching option, a slider snapping an off-step write). The saying-so is the assertable
+## half, and gating it behind a command-line switch would leave it untested on every normal run.
 ##
 ## It exists because several of this package's contracts are stated as [i]counts of warnings[/i] —
 ## "the shipped default pages build with zero warnings" (ship gate 2), "a panel with no backend warns
@@ -89,6 +95,8 @@ static func info(message: String) -> void:
 static func debug(message: String) -> void:
 	if is_verbose():
 		print("%s DEBUG: %s" % [PREFIX, message])
+	# Outside the verbose guard on purpose — see the note on `observer`.
+	_observe(Level.DEBUG, message)
 
 
 static func is_verbose() -> bool:

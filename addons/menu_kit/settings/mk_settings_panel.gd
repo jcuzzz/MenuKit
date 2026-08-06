@@ -61,10 +61,33 @@ var _built := false
 ## never made.
 var _syncing := false
 
+## [b]A testing seam, not a host feature.[/b] When valid, this [Callable] answers
+## [code]() -> int[/code] with a [enum DisplayServer.WindowMode] IN PLACE OF
+## [method DisplayServer.window_get_mode], and installing one also makes [method _is_windowed] take
+## its real-display branch under the headless driver.
+##
+## It exists because the decision [method _is_windowed] documents — the WINDOW beats the store, the
+## store is consulted only when there is no window — is unobservable in this suite otherwise: headless
+## has no window to diverge from the store, so both orderings behave identically and the rule could be
+## inverted without a single assertion going red. The probe stages the divergence the rule is about.
+##
+## Production behaviour is untouched: with no probe installed, a real display still queries
+## [DisplayServer] and headless still falls back to the stored mode. Same convention as
+## [member MKSettingsService.override_backend_slot].
+var window_mode_probe := Callable()
+
 ## Row roots keyed by setting id, for [method _sync_control] after a revert.
 var _controls: Dictionary = {}
 ## The def behind each built row, keyed by id.
 var _defs: Dictionary = {}
+## The page each registered id was FIRST claimed by, so a duplicate id can name both resources.
+var _pages_of_id: Dictionary = {}
+## The page currently being built, for the same message. Null outside [method _build_page].
+var _building_page: MKSettingsPageDef
+## Unresolved [member MKSettingDef.requires_confirm] countdowns this panel raised, as
+## [code]{countdown, def, previous, layer}[/code]. See [method _resolve_orphaned_countdown] for why
+## the panel holds them rather than trusting the dialog to outlive its own owner.
+var _live_countdowns: Array = []
 ## Rows carrying [member MKSettingDef.visible_condition_id], as
 ## [code]{node: Control, condition: StringName}[/code].
 var _conditional_rows: Array = []
@@ -152,7 +175,11 @@ func _disconnect_backend() -> void:
 		_backend.setting_changed.disconnect(_on_setting_changed)
 
 
+## An unresolved countdown does not survive its owner. See [method _resolve_orphaned_countdown]: the
+## panel is the only thing that knows how to put the value back, so it resolves anything still live
+## BEFORE it lets go of the backend it would need to do so.
 func _exit_tree() -> void:
+	_resolve_live_countdowns()
 	_disconnect_backend()
 
 
@@ -194,6 +221,7 @@ func rebuild() -> void:
 func _clear() -> void:
 	_controls.clear()
 	_defs.clear()
+	_pages_of_id.clear()
 	_conditional_rows.clear()
 	_resolution_button = null
 	if _tabs != null and is_instance_valid(_tabs):
@@ -225,6 +253,10 @@ func _build_page(page: MKSettingsPageDef) -> void:
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	margin.add_child(column)
 
+	# Remembered for the duration of this page's rows so _register_control can name the page a
+	# duplicate id arrived on. Cleared at the end, so a registration from anywhere else cannot blame a
+	# page that had finished building.
+	_building_page = page
 	for i in page.rows.size():
 		var def := page.rows[i]
 		if def == null:
@@ -240,6 +272,31 @@ func _build_page(page: MKSettingsPageDef) -> void:
 		column.add_child(row)
 		if def.visible_condition_id != &"":
 			_conditional_rows.append({"node": row, "condition": def.visible_condition_id})
+	_building_page = null
+
+
+## Records a built control under its id, or refuses and warns when that id is already taken.
+##
+## [b]First registration wins, and the collision is named.[/b] [member _controls] and [member _defs]
+## are keyed by id alone, so two rows sharing one — the ordinary way a page is duplicated and edited —
+## used to overwrite each other silently: the LAST row registered received every external sync, every
+## revert and every visible_condition lookup, while the first sat on screen answering to nothing. Both
+## rows are still built (dropping one would hide the mistake rather than report it); only the tracking
+## is refused, and the warning names both pages and the id so the duplicate is findable without
+## diffing two resources by eye.
+func _register_control(def: MKSettingDef, control: Control) -> void:
+	var existing: MKSettingDef = _defs.get(def.id, null)
+	if existing != null and existing != def:
+		var first: MKSettingsPageDef = _pages_of_id.get(def.id, null)
+		MKLog.warn("%s: duplicate setting id '%s' — already registered by page '%s' (%s), seen again on page '%s' (%s). The FIRST row keeps the id; the later one is displayed but receives no syncs or reverts"
+			% [MKLog.context(def, "id"), def.id,
+				first.id if first != null else "<unknown>", MKLog.context(first),
+				_building_page.id if _building_page != null else "<unknown>",
+				MKLog.context(_building_page)])
+		return
+	_controls[def.id] = control
+	_defs[def.id] = def
+	_pages_of_id[def.id] = _building_page
 
 
 ## Builds one row, or returns null when the def cannot produce one (KEYBIND this phase, a CUSTOM
@@ -301,18 +358,14 @@ func _wrap(def: MKSettingDef, control: Control) -> Control:
 		# only appears over a 20px checkbox is one most users never find.
 		row.tooltip_text = def.tooltip
 		control.tooltip_text = def.tooltip
-	_controls[def.id] = control
-	_defs[def.id] = def
+	_register_control(def, control)
 	return row
 
 
 func _build_toggle(def: MKSettingDef) -> Control:
 	var check := CheckBox.new()
 	check.text = ""
-	# bool(null) is a script error, not a coercion: a def with no default_value and no stored value
-	# would break the row for the first host-authored TOGGLE. Same guard _build_text carries.
-	var current := _current(def)
-	check.button_pressed = bool(current) if current != null else false
+	check.button_pressed = _display_value(def)
 	check.disabled = _backend == null
 	check.toggled.connect(func(pressed: bool) -> void:
 		if _syncing:
@@ -329,10 +382,7 @@ func _build_slider_row(def: MKSettingDef) -> Control:
 	slider.min_value = def.min_value
 	slider.max_value = def.max_value
 	slider.step = def.step
-	# float(null) is a script error (see _build_toggle); an omitted default_value falls back to the
-	# slider's own minimum, which Range would clamp to anyway.
-	var current := _current(def)
-	slider.value = float(current) if current != null else def.min_value
+	slider.value = _display_value(def)
 	slider.editable = _backend != null
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -537,7 +587,7 @@ func _collect_resolution_choices(def: MKSettingDef, labels: Array[String], value
 
 func _build_text(def: MKSettingDef) -> Control:
 	var edit := LineEdit.new()
-	edit.text = String(_current(def)) if _current(def) != null else ""
+	edit.text = _display_value(def)
 	edit.editable = _backend != null
 	# Committed on Enter AND on focus loss. Writing per keystroke would fire a store write and an
 	# engine apply on every character; committing only on Enter loses the edit of anyone who tabs away,
@@ -558,8 +608,7 @@ func _build_text(def: MKSettingDef) -> Control:
 func _commit_text(def: MKSettingDef, edit: LineEdit) -> void:
 	if _syncing:
 		return
-	var stored: Variant = _current(def)
-	var as_text := String(stored) if stored != null else ""
+	var as_text: String = _display_value(def)
 	if edit.text == as_text:
 		return
 	_write(def, edit.text)
@@ -596,8 +645,7 @@ func _build_custom(def: MKSettingDef) -> Control:
 		inst.free()
 		return null
 	inst.call("_mk_bind", _backend, def)
-	_controls[def.id] = control
-	_defs[def.id] = def
+	_register_control(def, control)
 	return control
 
 
@@ -607,6 +655,31 @@ func _current(def: MKSettingDef) -> Variant:
 	if _backend == null:
 		return def.default_value
 	return _backend.get_value(def.id, def.default_value)
+
+
+## The store's value for [param def], coerced to what that row's control can be assigned.
+##
+## [b]ONE helper for the build path and [method _sync_control], and that is the whole point.[/b]
+## [code]bool(null)[/code] and [code]float(null)[/code] are SCRIPT ERRORS, not coercions. The build
+## path carried the guards; the sync path did not, so once every external write was routed into
+## [method _sync_control] a host calling [code]set_value(id, null)[/code] — a reset-to-unset, a load
+## of a file with a null in it — took the panel down on a TOGGLE or SLIDER row the build path had
+## already been taught to survive. Two copies of a coercion rule is how they diverge, so there is one.
+##
+## The fallbacks are the build path's, unchanged: TOGGLE false, SLIDER the def's own minimum (which
+## [Range] would clamp to anyway), TEXT the empty string. Types with no coercion of their own (ENUM,
+## and anything a CUSTOM row reads) get the stored value untouched — [method _index_of_value] is
+## type-gated and handles null by simply not matching.
+func _display_value(def: MKSettingDef) -> Variant:
+	var current: Variant = _current(def)
+	match def.type:
+		MKSettingDef.RowType.TOGGLE:
+			return bool(current) if current != null else false
+		MKSettingDef.RowType.SLIDER:
+			return float(current) if current != null else def.min_value
+		MKSettingDef.RowType.TEXT:
+			return String(current) if current != null else ""
+	return current
 
 
 ## The one write path. Store, then apply — in that order, because the store is the truth and the
@@ -651,20 +724,81 @@ func _start_revert_countdown(def: MKSettingDef, previous: Variant) -> void:
 		return
 	var countdown := MKRevertCountdown.new()
 	countdown.name = "RevertCountdown"
+	var entry := {"countdown": countdown, "def": def, "previous": previous, "layer": layer}
+	_live_countdowns.append(entry)
 	countdown.kept.connect(func() -> void:
+		_live_countdowns.erase(entry)
 		_dismiss_countdown(layer, countdown)
 	)
 	countdown.reverted.connect(func() -> void:
-		if _backend != null:
-			_backend.set_value(def.id, previous)
-			_backend.apply_one(def.id)
+		_live_countdowns.erase(entry)
+		_revert_value(def, previous)
 		# Put the CONTROL back too. The store and the engine are restored above, but a dropdown still
 		# reading the rejected value is the shape of this bug that users report as "it didn't revert".
 		_sync_control(def)
 		_dismiss_countdown(layer, countdown)
 	)
+	# The dialog leaving the tree without having resolved is the D14 hole this closes: see
+	# _resolve_orphaned_countdown. Connected AFTER the decision signals so a normal resolution has
+	# already cleared the entry by the time the unparenting reaches here.
+	countdown.tree_exited.connect(func() -> void: _resolve_orphaned_countdown(entry))
 	layer.push_modal(countdown)
 	countdown.start(REVERT_SECONDS)
+
+
+## Puts a [member MKSettingDef.requires_confirm] value back through the store and the engine. Split
+## out of the [signal MKRevertCountdown.reverted] handler because it is also the whole of what a
+## teardown revert can do — by then the widgets are dying, but the STORE is the part that outlives the
+## panel and the part D14 actually promises.
+func _revert_value(def: MKSettingDef, previous: Variant) -> void:
+	if _backend == null or not is_instance_valid(_backend):
+		return
+	_backend.set_value(def.id, previous)
+	_backend.apply_one(def.id)
+
+
+## [b]An unresolved countdown resolves as REVERTED when it or its panel goes away.[/b]
+##
+## D14's promise is that a display change nobody confirmed does not stick. But the dialog is only a
+## dialog: [code]MKRoot._show_page[/code] calls [method MKModalLayer.pop_all] on EVERY page change, so
+## clicking a nav tab while the countdown was up unparented it — its [method Node._process] stopped,
+## nothing ever emitted, the panel was freed a moment later, and the un-confirmed change stayed applied
+## forever. One click voided the entire promise, and leaked a Control doing it.
+##
+## Unconfirmed means NOT kept, so both departures resolve the same way: the value goes back. Reached
+## from two directions because the two orders both really happen —
+## [br]- the dialog leaves the tree first ([method MKModalLayer.pop_all], a host popping it), via its
+##   own [signal Node.tree_exited];
+## [br]- the panel dies first with the dialog still stacked, via [method _exit_tree].
+## Whichever arrives first erases the entry, so the other is a no-op.
+##
+## Re-entrancy is why the removal is written defensively. This runs INSIDE
+## [method MKModalLayer.pop_modal] on the pop_all route — the entry has already left the stack, so
+## [method MKModalLayer.remove_modal] finds nothing and reports false, which is exactly the tolerance
+## required rather than an error. The control sync is skipped once the panel is out of the tree: the
+## widgets are being freed and the store, restored above, is the load-bearing half.
+func _resolve_orphaned_countdown(entry: Dictionary) -> void:
+	if not _live_countdowns.has(entry):
+		return
+	_live_countdowns.erase(entry)
+	var def: MKSettingDef = entry["def"]
+	_revert_value(def, entry["previous"])
+	if is_inside_tree():
+		_sync_control(def)
+	var layer: MKModalLayer = entry["layer"]
+	var countdown: Variant = entry["countdown"]
+	if countdown == null or not is_instance_valid(countdown):
+		return
+	if layer != null and is_instance_valid(layer):
+		layer.remove_modal(countdown)
+	countdown.queue_free()
+
+
+func _resolve_live_countdowns() -> void:
+	# Iterated over a copy: _resolve_orphaned_countdown erases from _live_countdowns, and the
+	# remove_modal inside it can re-enter through tree_exited and erase another.
+	for entry in _live_countdowns.duplicate():
+		_resolve_orphaned_countdown(entry)
 
 
 func _dismiss_countdown(layer: MKModalLayer, countdown: Control) -> void:
@@ -677,6 +811,11 @@ func _dismiss_countdown(layer: MKModalLayer, countdown: Control) -> void:
 		# the stack — is_empty() false forever, scrim up over nothing, every later cancel swallowed.
 		# remove_modal takes this entry wherever it sits, and routes through pop_modal when it is the
 		# top so focus restoration still happens.
+		#
+		# Its false — "not on this stack" — is tolerated rather than reported: the layer may already
+		# have let go of this dialog (a pop_all on a page change, a host popping it) and the free below
+		# is still owed either way. See _resolve_orphaned_countdown, which reaches here re-entrantly
+		# from inside pop_modal.
 		layer.remove_modal(countdown)
 	countdown.queue_free()
 
@@ -696,16 +835,37 @@ func _find_modal_layer() -> MKModalLayer:
 
 
 ## Writes the store's current value back into a built control without echoing it as a user edit.
+##
+## [b]It is a DISPLAY sync, and it never writes back.[/b] Two places the widget can legitimately end
+## up disagreeing with the store, both deliberate:
+## [br]- A SLIDER snaps the assigned value to its [member Range.step] and clamps it to the row's
+##   range. An off-step external write therefore leaves the widget showing the SNAPPED value while
+##   the store keeps the host's exact one. MenuKit does not reconcile that by writing the snapped
+##   value back: fighting the host's store from a display sync is the worse failure — it would
+##   silently rewrite a value the host set on purpose, from a code path the host never called. The
+##   divergence is logged instead.
+## [br]- An ENUM whose stored value matches no option keeps its current selection. Selecting the
+##   first entry (which the BUILD path does, because a blank dropdown reads as broken) would be a
+##   live control claiming the store holds something it does not; the build path can afford it
+##   because nothing was on screen yet, and a sync cannot. Logged, for the same reason.
+##
+## Values are coerced through [method _display_value], so an external write of null lands as the same
+## fallback the build path uses rather than as a script error.
 func _sync_control(def: MKSettingDef) -> void:
 	var control: Variant = _controls.get(def.id, null)
 	if control == null or not is_instance_valid(control):
 		return
-	var value: Variant = _current(def)
+	var value: Variant = _display_value(def)
 	_syncing = true
 	if control is CheckBox:
-		(control as CheckBox).button_pressed = bool(value)
+		(control as CheckBox).button_pressed = value
 	elif control is HSlider:
-		(control as HSlider).value = float(value)
+		var slider := control as HSlider
+		var wanted := float(value)
+		slider.value = wanted
+		if not is_equal_approx(slider.value, wanted):
+			MKLog.debug("'%s' synced to %s but the slider snapped it to %s — the STORE keeps the exact value; the widget shows what its step and range allow"
+				% [def.id, wanted, slider.value])
 	elif control is OptionButton:
 		var button := control as OptionButton
 		var labels: Array[String] = []
@@ -717,8 +877,11 @@ func _sync_control(def: MKSettingDef) -> void:
 		var index := _index_of_value(values, value)
 		if index >= 0:
 			button.select(index)
+		else:
+			MKLog.debug("stored value %s for '%s' is not among its options — the row KEEPS its current selection rather than misrepresenting the store as one of them"
+				% [value, def.id])
 	elif control is LineEdit:
-		(control as LineEdit).text = String(value) if value != null else ""
+		(control as LineEdit).text = value
 	_syncing = false
 
 
@@ -754,6 +917,14 @@ func _index_of_value(values: Array, value: Variant) -> int:
 ## The changed row's CONTROL is re-synced, because the store is the truth and a widget that disagrees
 ## with it is the bug users report as "the setting didn't take": a host brightening the image through
 ## the backend used to leave the brightness slider sitting where the player left it.
+##
+## [b]This covers the row types this panel BUILDS — not [constant MKSettingDef.RowType.CUSTOM].[/b]
+## A custom row is a host scene the panel knows nothing about beyond
+## [code]_mk_bind(backend, def)[/code]; there is no widget here to write, so it owns its backend
+## relationship end to end. A custom row that wants liveness subscribes to
+## [signal MKSettingsBackend.setting_changed] itself and updates its own display — which is exactly
+## what the shipped [MKExampleCustomRow] does, so the pattern is demonstrated by the example rather
+## than only described here.
 ##
 ## Guarded by [member _syncing] so a sync cannot re-enter itself. A row's own write also arrives here
 ## and re-syncs the control it came from: that is a write of the value the control already holds, and
@@ -846,7 +1017,12 @@ func _update_resolution_enabled() -> void:
 ## page is open and untouched is therefore NOT noticed until one of those edges comes round; the
 ## re-show edge is there because leaving the page for gameplay and coming back is when that
 ## divergence actually bites.
+## [b]The probe.[/b] [member window_mode_probe], when a test installs one, both ANSWERS the window
+## query and puts this method on its real-display branch — see that member for why the rule below is
+## otherwise unobservable. Nothing installs one in production.
 func _is_windowed() -> bool:
+	if window_mode_probe.is_valid():
+		return int(window_mode_probe.call()) == DisplayServer.WINDOW_MODE_WINDOWED
 	if not _is_headless():
 		return DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_WINDOWED
 	if _backend != null:

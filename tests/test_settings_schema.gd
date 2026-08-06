@@ -54,6 +54,12 @@ func run_tests() -> void:
 	await _test_enum_matches_a_numeric_value_across_types()
 	await _test_slider_rows_carry_a_focus_ring()
 	await _test_null_default_rows_build()
+	await _test_custom_row_root_must_be_a_control()
+	await _test_external_null_write_does_not_break_a_built_row()
+	await _test_enum_sync_keeps_an_unmatched_selection()
+	await _test_slider_sync_snaps_the_widget_and_leaves_the_store()
+	await _test_duplicate_row_ids_are_named()
+	await _test_the_window_beats_the_store()
 
 	_clean()
 	_restore_autoload(parked)
@@ -267,6 +273,17 @@ func _test_custom_rows() -> void:
 		spin.value = 8.0
 		check_eq(backend.get_value(&"custom/value", 0.0), 8.0,
 			"and the custom row writes back through that same backend")
+
+		# The panel re-syncs the rows IT built and cannot write a widget it has never seen, so a CUSTOM
+		# row owns liveness itself. The shipped example subscribes to setting_changed, because an example
+		# is the thing people copy: without it, a host writing this id — a revert, a load, a reset button
+		# — moves the store while the control keeps showing the old number.
+		backend.set_value(&"custom/value", 3.0)
+		await step_frame()
+		check_eq(spin.value, 3.0,
+			"an EXTERNAL write moves the custom row's display too — the example subscribes to setting_changed rather than assuming the panel will sync it")
+		check_eq(backend.get_value(&"custom/value", 0.0), 3.0,
+			"and that sync echoed no write of its own back into the store")
 
 	check(not panel._controls.has(&"custom/unbound"),
 		"a CUSTOM root without _mk_bind is SKIPPED, never shown unbound")
@@ -820,6 +837,229 @@ func _test_null_default_rows_build() -> void:
 	await step_frame()
 
 
+## The Control check in [code]_build_custom[/code] must run BEFORE [code]_mk_bind[/code], and
+## asserting only "the row was skipped" passes with the two in either order — the panel skips a
+## non-Control root either way. So the probe scene's root RECORDS whether it was bound.
+##
+## Why the order is load-bearing: [code]_mk_bind[/code] is where a row reads the store, wires signals
+## and may register itself with the host. Running all of that on an instance the panel is about to
+## free leaves those side effects behind — a listener on the backend, an entry in a host registry —
+## with nothing on screen to show for them.
+func _test_custom_row_root_must_be_a_control() -> void:
+	var backend := _make_backend()
+	var probe_script: GDScript = load("res://tests/probes/mk_probe_non_control_row.gd")
+	probe_script.bind_calls = 0
+
+	var def := _def(&"custom/non_control", MKSettingDef.RowType.CUSTOM, "Non-control")
+	def.custom_scene = _scene_non_control_with_bind()
+
+	_watch_warnings()
+	var panel := await _make_panel(backend, [_page("nc", "NC", [def])])
+	var warnings := _stop_watching()
+
+	check(not panel._controls.has(&"custom/non_control"),
+		"a CUSTOM root that is not a Control is SKIPPED — there is no row shell that could hold it")
+	check_eq(_count_containing(warnings, "not a Control"), 1,
+		"and the skip is named, with the offending class")
+	check_eq(probe_script.bind_calls, 0,
+		"and _mk_bind was NEVER called: the Control check precedes the bind, so a scene the panel is about to free never gets to subscribe signals or register itself with a host")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## Every external write now routes through [code]_sync_control[/code], and a store can legitimately
+## hold a null — a host resetting an id, a load of a file with a null in it. [code]bool(null)[/code]
+## and [code]float(null)[/code] are SCRIPT ERRORS, not coercions, so the sync path needs the same
+## fallbacks the build path has always carried; they are one helper now precisely so they cannot
+## diverge again.
+func _test_external_null_write_does_not_break_a_built_row() -> void:
+	var backend := _make_backend()
+	backend.set_value(&"nullw/toggle", true)
+	backend.set_value(&"nullw/slider", 1.5)
+	backend.set_value(&"nullw/text", "before")
+
+	var toggle_def := _def(&"nullw/toggle", MKSettingDef.RowType.TOGGLE, "Toggle")
+	var slider_def := _slider_def(&"nullw/slider", 0.25, 2.0, 0.05)
+	var text_def := _def(&"nullw/text", MKSettingDef.RowType.TEXT, "Text")
+	var panel := await _make_panel(backend, [_page("nullw", "Nullw",
+		[toggle_def, slider_def, text_def])])
+
+	var toggle := _first(panel, CheckBox) as CheckBox
+	var slider := _first(panel, HSlider) as HSlider
+	var edit := _first(panel, LineEdit) as LineEdit
+	check(toggle.button_pressed, "the toggle starts on the stored true")
+	check_eq(slider.value, 1.5, "and the slider on the stored 1.5")
+
+	# The write that used to take the panel down at the two coercion sites.
+	backend.set_value(&"nullw/toggle", null)
+	backend.set_value(&"nullw/slider", null)
+	backend.set_value(&"nullw/text", null)
+	await step_frame()
+
+	check_eq(toggle.button_pressed, false,
+		"an external null lands on a built TOGGLE as the build path's fallback — unchecked, not a script error")
+	check_eq(slider.value, 0.25,
+		"and on a built SLIDER as the def's own minimum, which is the fallback the build path uses")
+	check_eq(edit.text, "", "and on a built LineEdit as the empty string")
+	check_eq(backend.get_value(&"nullw/slider", 999.0), null,
+		"and the sync echoed nothing back — the store keeps the null the host wrote")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## An ENUM whose stored value matches no option KEEPS its selection rather than jumping to the first
+## entry the way the build path does. A live control silently reselecting would be claiming the store
+## holds something it does not; the build path can afford that (nothing was on screen yet, and a blank
+## dropdown reads as broken) and a sync cannot. It is reported instead of being silent.
+func _test_enum_sync_keeps_an_unmatched_selection() -> void:
+	var backend := _make_backend()
+	backend.set_value(&"sync3/enum", 2)
+	var panel := await _make_panel(backend, [_page("sync3", "Sync3", [
+		_enum_def(&"sync3/enum", ["A", "B"], [1, 2]),
+	])])
+
+	var button := _first(panel, OptionButton) as OptionButton
+	check_eq(button.selected, 1, "the row starts on the stored value's option")
+
+	_watch_log()
+	backend.set_value(&"sync3/enum", 99)
+	await step_frame()
+	var messages := _stop_watching()
+
+	check_eq(button.selected, 1,
+		"a store value matching no option leaves the selection ALONE — it does not misrepresent the store as option 0")
+	check_eq(backend.get_value(&"sync3/enum", null), 99,
+		"and the store is not rewritten to match the widget either")
+	check_eq(_count_containing(messages, "sync3/enum"), 1,
+		"but the divergence is reported — a widget and a store disagreeing in silence is undebuggable")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## A [Range] snaps an assigned value to its step, so an off-step external write cannot be shown
+## exactly. The STORE keeps the host's value; the widget shows what its step allows; MenuKit does not
+## write the snapped value back. Reconciling would mean a display sync silently rewriting a value the
+## host set on purpose, from a code path the host never called.
+func _test_slider_sync_snaps_the_widget_and_leaves_the_store() -> void:
+	var backend := _make_backend()
+	backend.set_value(&"snap/slider", 0.0)
+	var panel := await _make_panel(backend, [_page("snap", "Snap", [
+		_slider_def(&"snap/slider", 0.0, 1.0, 0.1),
+	])])
+	var slider := _first(panel, HSlider) as HSlider
+
+	_watch_log()
+	backend.set_value(&"snap/slider", 0.33)
+	await step_frame()
+	var messages := _stop_watching()
+
+	check(is_equal_approx(slider.value, 0.3),
+		"the widget shows the SNAPPED value its step allows (got %s)" % slider.value)
+	check_eq(backend.get_value(&"snap/slider", 0.0), 0.33,
+		"and the store keeps the host's EXACT value — a display sync must not rewrite what the host set")
+	check_eq(_count_containing(messages, "snapped"), 1,
+		"with the divergence logged, because a widget that cannot show the stored value in silence is the same undebuggable state")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## Two rows sharing an id is the ordinary result of duplicating a page and editing half of it. The
+## tracking dictionaries are keyed by id alone, so one row used to silently take the other's place:
+## the survivor received every external sync, revert and condition lookup while the other sat on
+## screen answering to nothing. Both rows still build — dropping one would hide the mistake — and the
+## collision is named once, with BOTH pages, because "which two resources" is the whole question.
+func _test_duplicate_row_ids_are_named() -> void:
+	var backend := _make_backend()
+	var first := _def(&"dupe/value", MKSettingDef.RowType.TOGGLE, "First")
+	var second := _def(&"dupe/value", MKSettingDef.RowType.TOGGLE, "Second")
+
+	_watch_warnings()
+	var panel := await _make_panel(backend, [
+		_page("page_one", "One", [first]),
+		_page("page_two", "Two", [second]),
+	])
+	var warnings := _stop_watching()
+
+	check_eq(_all(panel, CheckBox).size(), 2, "both rows are still BUILT — a dropped row hides the mistake")
+	check_eq(panel._defs.get(&"dupe/value", null), first,
+		"the FIRST registration keeps the id; the later row is displayed but untracked")
+	var named := 0
+	for message in warnings:
+		if message.contains("dupe/value") and message.contains("page_one") \
+				and message.contains("page_two"):
+			named += 1
+	check_eq(named, 1,
+		"exactly one warning, naming the id and BOTH pages — anything less means diffing two resources by eye")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## [b]The window beats the store, and the divergence is staged rather than assumed.[/b]
+##
+## The store only knows about mode changes that went through this panel: alt+enter, a host calling
+## [method DisplayServer.window_set_mode], and a window manager forcing a mode all move the real
+## window and write nothing. Against a stale "windowed" the resolution row would render ENABLED while
+## [method DisplayServer.window_set_size] silently did nothing — the worst of the three possible
+## behaviours and the exact one this row exists to avoid.
+##
+## Headless has no window to diverge from the store, so both orderings behaved identically here and
+## the rule could be inverted without an assertion moving. [code]window_mode_probe[/code] supplies the
+## window's answer, which is the ONLY thing the test stubs — every other input, and the whole decision,
+## is the shipped code.
+func _test_the_window_beats_the_store() -> void:
+	var backend := _make_backend()
+	backend.set_value(MKSettingsPanel.ID_WINDOW_MODE, DisplayServer.WINDOW_MODE_WINDOWED)
+	var panel := await _make_panel(backend, [_page("video", "Video", [
+		_enum_def(MKSettingsPanel.ID_RESOLUTION, ["1280 x 720", "1920 x 1080"],
+			[Vector2i(1280, 720), Vector2i(1920, 1080)]),
+	])])
+
+	var button := panel._resolution_button
+	check(button != null, "the resolution row built")
+	if button == null:
+		panel.queue_free()
+		backend.queue_free()
+		await step_frame()
+		return
+	check(not button.disabled, "with no divergence, a stored windowed mode leaves it enabled")
+
+	# The window went fullscreen without telling the store — alt+enter.
+	panel.window_mode_probe = func() -> int: return DisplayServer.WINDOW_MODE_FULLSCREEN
+	await _reshow(panel)
+	check(button.disabled,
+		"the WINDOW says fullscreen while the store still says windowed, and the row is DISABLED — deciding by the store would leave it enabled over a window_set_size that does nothing")
+
+	# And the reverse: the store caught up to fullscreen, the window went back to windowed.
+	backend.set_value(MKSettingsPanel.ID_WINDOW_MODE, DisplayServer.WINDOW_MODE_FULLSCREEN)
+	panel.window_mode_probe = func() -> int: return DisplayServer.WINDOW_MODE_WINDOWED
+	await _reshow(panel)
+	check(not button.disabled,
+		"and a stored fullscreen against a WINDOWED window re-enables it — a store-first decision would leave a working row dead")
+
+	panel.window_mode_probe = Callable()
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## Hides and re-shows the panel, which is one of the three real edges enablement is re-derived on.
+func _reshow(panel: MKSettingsPanel) -> void:
+	panel.visible = false
+	await step_frame()
+	panel.visible = true
+	await step_frame()
+
+
 # --- Fixtures -----------------------------------------------------------------
 
 ## A real backend that counts which application call a row reached for. A subclass rather than a
@@ -922,6 +1162,19 @@ func _scene_without_bind() -> PackedScene:
 	return scene
 
 
+## A PackedScene whose root DOES implement _mk_bind but is a plain [Node]. The script is a real file
+## (tests/probes/) rather than a [GDScript] built in memory, because [method PackedScene.pack]
+## serialises a script by resource path and an unsaved one does not survive the round trip.
+func _scene_non_control_with_bind() -> PackedScene:
+	var root := Node.new()
+	root.name = "NonControlBound"
+	root.set_script(load("res://tests/probes/mk_probe_non_control_row.gd"))
+	var scene := PackedScene.new()
+	scene.pack(root)
+	root.free()
+	return scene
+
+
 # --- Observation --------------------------------------------------------------
 
 func _watch_warnings() -> void:
@@ -929,6 +1182,16 @@ func _watch_warnings() -> void:
 	MKLog.observer = func(level: MKLog.Level, message: String) -> void:
 		if level == MKLog.Level.WARN:
 			_warnings.append(message)
+
+
+## Records EVERY observed level, not just warnings. Some behaviours are defined as "keep the widget as
+## it is and say so" (an ENUM sync with no matching option, a slider snapping an off-step write); the
+## saying-so is at DEBUG level, because it is a divergence a developer needs and not a misconfiguration
+## the author must fix.
+func _watch_log() -> void:
+	_warnings = []
+	MKLog.observer = func(_level: MKLog.Level, message: String) -> void:
+		_warnings.append(message)
 
 
 func _stop_watching() -> Array[String]:

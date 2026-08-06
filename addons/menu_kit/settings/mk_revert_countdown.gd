@@ -120,16 +120,22 @@ func _process(delta: float) -> void:
 ## whole point of the dialog is that the safe outcome is the one requiring no working input, and a
 ## player whose screen just went black is pressing Escape, not reading buttons.
 ##
-## [b]Returns true — consumed — and the layer must not pop anything.[/b] Emitting [signal reverted]
-## resolves this dialog synchronously: the settings panel's handler puts the value back and calls
-## [method MKModalLayer.remove_modal] on this dialog before this method has returned. Reporting
-## "not consumed" then made [method MKModalLayer.handle_cancel] pop AGAIN — and the entry it popped
-## was whatever modal had been underneath, destroyed by one Escape press on a dialog it had nothing
-## to do with. So the removal is the panel's, exactly as the ownership note above says, and this
-## reports that the gesture is spent.
+## [b]Returns whether THIS call resolved the dialog[/b], which is the only honest answer and both
+## halves matter:
+## [br]- [b]A live dialog returns true — consumed — and the layer must not pop anything.[/b] Emitting
+##   [signal reverted] resolves this dialog synchronously: the settings panel's handler puts the value
+##   back and calls [method MKModalLayer.remove_modal] on it before this method has returned. Reporting
+##   "not consumed" then made [method MKModalLayer.handle_cancel] pop AGAIN — and the entry it popped
+##   was whatever modal had been underneath, destroyed by one Escape press on a dialog it had nothing
+##   to do with. The removal is the panel's, exactly as the ownership note above says.
+## [br]- [b]An already-resolved dialog returns false, and that is not a formality.[/b] Returning true
+##   unconditionally meant a resolved dialog still sitting on the stack — its owner gone, so nothing
+##   left to remove it — consumed EVERY Escape from then on: an unclosable scrim over nothing, the
+##   modal layer's own documented worst case. False routes the gesture to
+##   [method MKModalLayer.handle_cancel]'s pop, which clears the stale entry and self-heals the stack.
+##   Three Escapes in a row on such a corpse must reach whatever is beneath it, not vanish.
 func handle_cancel() -> bool:
-	_finish(false)
-	return true
+	return _finish(false)
 
 
 ## Called by [method MKModalLayer.clear_for_teardown]. Teardown emits no
@@ -145,9 +151,13 @@ func _mk_layer_teardown() -> void:
 
 
 ## The one place that resolves the dialog. [param keep] chooses which signal fires.
-func _finish(keep: bool) -> void:
+##
+## Returns whether THIS call performed the resolution — false when the latch had already been thrown.
+## [method handle_cancel] reports that value straight to the modal layer, which is how a stale stacked
+## corpse stops swallowing cancel gestures.
+func _finish(keep: bool) -> bool:
 	if _emitted:
-		return
+		return false
 	_emitted = true
 	_running = false
 	set_process(false)
@@ -155,6 +165,7 @@ func _finish(keep: bool) -> void:
 		kept.emit()
 	else:
 		reverted.emit()
+	return true
 
 
 func _on_keep() -> void:

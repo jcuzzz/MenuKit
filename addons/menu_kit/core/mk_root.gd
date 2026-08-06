@@ -140,11 +140,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed(&"ui_cancel"):
 		return
 	if _modal_layer != null and not _modal_layer.is_empty():
-		if _modal_layer.handle_cancel():
-			get_viewport().set_input_as_handled()
-		else:
-			_modal_layer.pop_modal()
-			get_viewport().set_input_as_handled()
+		# The return value is deliberately not branched on, because under this guard it cannot be false.
+		# [method MKModalLayer.handle_cancel] returns false ONLY for an empty stack, which this guard has
+		# already excluded; every non-empty route — a live top modal consuming the gesture, a top modal
+		# declining and being popped, a freed corpse being cleared — returns true. An earlier revision
+		# had a `pop_modal()` fallback here, and the only way to reach it would have been for the layer
+		# to report false with entries still stacked: a second pop that destroys a modal the gesture had
+		# nothing to do with. The self-heal for a stale entry lives in the layer, where it can tell the
+		# difference; a RESOLVED MKRevertCountdown declines its own cancel for exactly that reason and
+		# the layer, not this method, pops it.
+		_modal_layer.handle_cancel()
+		get_viewport().set_input_as_handled()
 		return
 	get_viewport().set_input_as_handled()
 	if not _back_stack.is_empty():

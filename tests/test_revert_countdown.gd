@@ -30,7 +30,10 @@ func run_tests() -> void:
 	await _test_panel_timeout_restores_the_previous_value()
 	await _test_panel_keep_retains_the_new_value()
 	await _test_cancel_through_the_layer_pops_only_the_countdown()
+	await _test_a_resolved_countdown_stops_swallowing_cancel()
 	await _test_dismissal_leaves_a_modal_stacked_above_it_alone()
+	await _test_a_page_change_reverts_an_unconfirmed_countdown()
+	await _test_freeing_the_panel_reverts_an_unconfirmed_countdown()
 	await _test_a_synced_control_raises_no_countdown()
 	await _test_untouched_text_row_raises_no_countdown()
 	_clean()
@@ -128,8 +131,14 @@ func _test_resolved_countdown_cannot_emit_again() -> void:
 
 	countdown.get_revert_button().pressed.emit()
 	check_eq(_reverted, 1, "a Revert press in the same resolution adds nothing")
+	# NOT consumed, and that is the contract: handle_cancel reports whether THIS call resolved the
+	# dialog. A resolved dialog still on a stack has no owner left to remove it, so claiming the gesture
+	# would swallow every Escape from then on — an unclosable scrim over nothing. Declining lets the
+	# layer pop the stale entry and self-heal; the layer half is
+	# _test_a_resolved_countdown_stops_swallowing_cancel.
 	var consumed := countdown.handle_cancel()
-	check(consumed, "a cancel gesture on a resolved dialog is still reported consumed")
+	check(not consumed,
+		"a cancel gesture on an ALREADY-resolved dialog is declined — it resolved nothing, and saying otherwise makes a stale entry swallow cancel forever")
 	check_eq(_reverted, 1, "and emits nothing either")
 	countdown.get_keep_button().pressed.emit()
 	check_eq(_kept, 0, "and Keep cannot overturn a decision that already went out")
@@ -313,6 +322,128 @@ func _test_cancel_through_the_layer_pops_only_the_countdown() -> void:
 
 	layer.pop_modal()
 	host_modal.queue_free()
+	await _drop_fixture(fixture)
+
+
+## [b]The layer half of the declined cancel.[/b] A countdown that resolved while still stacked — its
+## owner gone, so nothing left to call [method MKModalLayer.remove_modal] — used to consume every
+## Escape forever, because [code]handle_cancel[/code] returned true unconditionally. That is the modal
+## layer's own documented worst case: [code]is_empty()[/code] false forever, scrim up over nothing,
+## every later cancel swallowed, and a host modal parked underneath unreachable.
+##
+## Driven at the layer, with something beneath, because that is where the swallowing is visible: the
+## stale entry must be POPPED by the gesture it declines, and the next gesture must reach what was
+## under it.
+func _test_a_resolved_countdown_stops_swallowing_cancel() -> void:
+	var layer := MKModalLayer.new()
+	layer.name = "StaleLayer"
+	get_root().add_child(layer)
+	await step_frame()
+
+	var host_modal := _make_host_modal()
+	layer.push_modal(host_modal)
+	var countdown := _make_countdown_unparented()
+	layer.push_modal(countdown)
+	check_eq(layer.depth(), 2, "a countdown is stacked over a host modal")
+
+	# Resolved with NOBODY to remove it — the panel that owned it is gone. This is the corpse.
+	countdown.get_revert_button().pressed.emit()
+	check_eq(_reverted, 1, "the dialog resolved")
+	check_eq(layer.depth(), 2, "and nothing took it off the stack, because its owner is gone")
+
+	check(layer.handle_cancel(), "the first Escape is handled by the layer")
+	check_eq(layer.depth(), 1,
+		"and POPS the stale entry — the resolved dialog declines a gesture it cannot act on, so the layer self-heals instead of consuming it")
+	check_eq(layer.top(), host_modal, "leaving the modal beneath it reachable")
+
+	check(layer.handle_cancel(), "the next Escape is handled too")
+	check_eq(layer.depth(), 0,
+		"and reaches the host modal underneath — pre-fix, every Escape from here on vanished into the corpse")
+	check_eq(_reverted, 1, "and none of it re-emitted a decision")
+
+	countdown.queue_free()
+	host_modal.queue_free()
+	layer.queue_free()
+	await step_frame()
+	await step_frame()
+
+
+## [b]D14's promise survives a nav tab.[/b] [code]MKRoot._show_page[/code] pops the whole modal stack
+## on EVERY page change, so a live countdown was unparented: its [method Node._process] stopped, it
+## never emitted, nothing freed it, and the un-confirmed display change stayed applied forever. One
+## click on a nav tab voided the entire feature and leaked a Control doing it.
+##
+## Unconfirmed means NOT kept, so the departure resolves as a REVERT. The store is the assertion that
+## matters; the leaked-node gate in the harness is the other half, and a subsequent visit proves
+## nothing was left wedged.
+func _test_a_page_change_reverts_an_unconfirmed_countdown() -> void:
+	var fixture := await _make_panel_fixture()
+	var backend: MKJsonSettingsBackend = fixture["backend"]
+	var root: MKRoot = fixture["root"]
+	var button: OptionButton = fixture["option"]
+	var layer := root.get_modal_layer()
+
+	button.select(1)
+	button.item_selected.emit(1)
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 3,
+		"the change is applied immediately, as D14 requires")
+	var countdown := layer.top() as MKRevertCountdown
+	check(countdown != null, "and the countdown is up")
+	if countdown == null:
+		await _drop_fixture(fixture)
+		return
+
+	root.go_to_page(&"other")
+	await step_frame()
+	await step_frame()
+
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0,
+		"navigating away REVERTS the unconfirmed change — the stack pop is not a confirmation")
+	check_eq(button.selected, 0, "and the row that raised it goes back with the store")
+	check_eq(layer.depth(), 0, "the modal stack is empty")
+	check(not is_instance_valid(countdown),
+		"and the dialog was FREED, not merely unparented — an orphan whose _process is dead leaks a Control and holds a decision nobody can make")
+
+	button.select(1)
+	button.item_selected.emit(1)
+	check_eq(layer.depth(), 1,
+		"and a later change still raises its countdown — nothing was left wedged in the layer or the panel")
+	var again := layer.top() as MKRevertCountdown
+	if again != null:
+		again.get_keep_button().pressed.emit()
+	await step_frame()
+	await _drop_fixture(fixture)
+
+
+## The other teardown order, and it really happens: the panel is destroyed while the countdown is
+## STILL parented to the modal layer (a host tearing its options screen down, a rebuild). The panel is
+## the only thing that knows what the previous value was, so it resolves what it raised before it lets
+## go of the backend.
+func _test_freeing_the_panel_reverts_an_unconfirmed_countdown() -> void:
+	var fixture := await _make_panel_fixture()
+	var backend: MKJsonSettingsBackend = fixture["backend"]
+	var root: MKRoot = fixture["root"]
+	var panel: MKSettingsPanel = fixture["panel"]
+	var button: OptionButton = fixture["option"]
+	var layer := root.get_modal_layer()
+
+	button.select(1)
+	button.item_selected.emit(1)
+	var countdown := layer.top() as MKRevertCountdown
+	check(countdown != null, "the countdown is up and still stacked")
+	if countdown == null:
+		await _drop_fixture(fixture)
+		return
+
+	panel.queue_free()
+	await step_frame()
+	await step_frame()
+
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0,
+		"the panel reverted what it had raised on its way out — the backend outlives it, which is why the STORE is the load-bearing half")
+	check_eq(layer.depth(), 0, "and took the dialog off the stack")
+	check(not is_instance_valid(countdown), "and freed it")
+
 	await _drop_fixture(fixture)
 
 
@@ -542,7 +673,10 @@ func _make_panel_fixture() -> Dictionary:
 
 
 func _drop_fixture(fixture: Dictionary) -> void:
-	var panel: MKSettingsPanel = fixture["panel"]
+	# Untyped, and NOT cast. A typed assignment evaluates against a freed instance and raises "Trying
+	# to assign invalid previously freed instance" — reachable because one test frees the panel itself
+	# (that IS the test). Same reason MKModalLayer keeps its stack untyped.
+	var panel = fixture["panel"]
 	if is_instance_valid(panel):
 		panel.queue_free()
 	var root: MKRoot = fixture["root"]
@@ -563,6 +697,13 @@ func _make_root() -> MKRoot:
 	page.title = "Only"
 	page.scene = load("res://addons/menu_kit/panels/mk_welcome_page.tscn")
 	config.pages.append(page)
+	# A SECOND page, so a nav-tab move is stageable at all: _show_page pops the modal stack on every
+	# page change, and with one page there is nowhere to go and the D14 hole is unreachable.
+	var other := MKMenuPageDef.new()
+	other.id = &"other"
+	other.title = "Other"
+	other.scene = load("res://addons/menu_kit/panels/mk_welcome_page.tscn")
+	config.pages.append(other)
 	config.initial_page = &"only"
 	var root := MKRoot.new()
 	root.config = config
