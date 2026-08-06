@@ -35,6 +35,8 @@ func run_tests() -> void:
 	await _test_two_swaps_in_one_frame_frame_the_SECOND_content()
 	await _test_frame_content_in_the_swap_frame_is_silent_and_frames_next_frame()
 	await _test_content_assigned_off_tree_frames_when_it_enters_the_tree()
+	await _test_a_swap_while_detached_frames_when_the_node_re_enters()
+	await _test_a_reparent_before_the_deferred_pass_still_frames()
 	await _test_framing_is_idempotent_and_tracks_content_that_grows()
 	await _test_a_swap_keeps_the_zoom_the_user_chose()
 	await _test_clearing_the_slot_gives_the_next_content_a_fresh_fit()
@@ -316,6 +318,13 @@ func _test_content_assigned_off_tree_frames_when_it_enters_the_tree() -> void:
 	preview.preview_scene = content
 	check_eq(preview._distance, 3.0,
 		"off-tree nothing is measured — there is no tree to read a global transform in")
+	var off_tree_instance := preview.get_content()
+	check(off_tree_instance != null,
+		"the INSTANCE exists already, though: only the framing needed a tree")
+	# Array counter, for the lambda capture-by-value reason recorded above. Connected here, which is
+	# exactly where a host that built the node and set the export connects.
+	var changes: Array[int] = [0]
+	preview.preview_changed.connect(func() -> void: changes[0] += 1)
 	get_root().add_child(preview)
 	await step_frame()
 	await step_frame()
@@ -328,9 +337,95 @@ func _test_content_assigned_off_tree_frames_when_it_enters_the_tree() -> void:
 			% [preview._distance, in_tree_distance])
 	check(_pivot(preview).position.is_equal_approx(Vector3(0.0, 1.0, 0.0)),
 		"with the pivot on the subject's centre (got %s)" % _pivot(preview).position)
+	check_eq(changes[0], 0,
+		"and entering the tree emits NOTHING further: the content was already instanced by the off-tree assignment, so re-applying the export there would free it, build an identical one and report a second swap to a host that has seen one")
+	check_eq(preview.get_content(), off_tree_instance,
+		"the instance is the same object it always was — the entry pass frames it rather than replacing it")
 
 	await _drop(preview)
 	await _drop(reference)
+
+
+## [b]The class doc invites pooling and reparenting ("a host adds a preview by adding one node"), and
+## [code]_ready[/code] runs ONCE per node lifetime.[/b] So a preview that has already been shown, is
+## detached, is given new content while detached, and is added back had NO framing hook at all: the
+## off-tree swap skips the framing (measured: pivot at the origin, the new content still carrying its
+## authored offset, the distance left from the previous subject) and nothing re-ran it on the way back
+## in. It rendered wrong, silently. NOTIFICATION_ENTER_TREE is the hook; _ready still owns the first
+## entry, which is why the deferred pass is not doubled there.
+func _test_a_swap_while_detached_frames_when_the_node_re_enters() -> void:
+	var preview := await _make_preview()
+	preview.set_preview_scene(_mesh_scene())
+	await step_frame()
+	check(_pivot(preview).position.is_equal_approx(Vector3(0.0, 1.0, 0.0)),
+		"precondition: the first content framed normally (pivot at %s)" % _pivot(preview).position)
+
+	var root := get_root()
+	root.remove_child(preview)
+	await step_frame()
+	preview.set_preview_scene(_offset_csg_scene())
+	# Frames pass while it is still detached, so the pass the swap queued runs, finds itself off-tree and
+	# returns without measuring — the pooled shape, and what leaves the re-entry as the only hook left.
+	await step_frame()
+	await step_frame()
+	check(_pivot(preview).position.is_equal_approx(Vector3.ZERO),
+		"the off-tree swap RESETS the pivot rather than leaving the previous subject's centre on it (got %s)"
+			% _pivot(preview).position)
+	root.add_child(preview)
+	await step_frame()
+	await step_frame()
+
+	check(_pivot(preview).position.is_equal_approx(Vector3(0.0, 2.0, 0.0)),
+		"re-entering the tree frames the NEW content — the pivot reaches its centre (got %s)"
+			% _pivot(preview).position)
+	check(preview.get_content() != null
+			and preview.get_content().position.is_equal_approx(Vector3.ZERO),
+		"with the content shifted back under it exactly once, as an in-tree swap does (got %s)"
+			% (preview.get_content().position if preview.get_content() != null else Vector3.INF))
+	check_eq(_pivot(preview).get_child_count(), 1,
+		"and one child under the pivot — the detached swap freed the old instance as any swap does")
+	check(preview._distance != 3.0,
+		"at a real distance rather than the no-bounds fallback (got %s)" % preview._distance)
+
+	await _drop(preview)
+
+
+## [b]The other detached shape: the swap happens IN the tree, and the node is reparented before the
+## deferred pass runs.[/b] The queued pass finds itself off-tree and returns without measuring — which
+## is correct, and used to be the end of it. The re-entry hook is what picks the framing back up; a host
+## moving a preview between containers on the same frame it changed the selection is an ordinary
+## gesture, not a misuse.
+func _test_a_reparent_before_the_deferred_pass_still_frames() -> void:
+	var preview := await _make_preview()
+	preview.set_preview_scene(_mesh_scene())
+	await step_frame()
+
+	var root := get_root()
+	var holder := Control.new()
+	holder.name = "Holder"
+	root.add_child(holder)
+
+	# Assign, then reparent in the SAME frame — before the pass queued by the assignment has run.
+	preview.set_preview_scene(_csg_scene_at(4.0))
+	root.remove_child(preview)
+	# The queued pass runs here, off-tree, and returns without measuring — so the framing has to be
+	# picked up by the entry rather than by the interrupted pass.
+	await step_frame()
+	await step_frame()
+	holder.add_child(preview)
+	await step_frame()
+	await step_frame()
+
+	check(_pivot(preview).position.is_equal_approx(Vector3(0.0, 4.0, 0.0)),
+		"the reparented preview is framed on the way back in, rather than keeping the origin pivot the interrupted pass left (got %s)"
+			% _pivot(preview).position)
+	check(preview.get_content() != null
+			and preview.get_content().position.is_equal_approx(Vector3.ZERO),
+		"with a single content shift — the interrupted pass measured nothing, so nothing was applied twice")
+
+	await _drop(preview)
+	holder.queue_free()
+	await step_frame()
 
 
 ## [method MKPreviewViewport.frame_content] is the advertised call for content that changed size after

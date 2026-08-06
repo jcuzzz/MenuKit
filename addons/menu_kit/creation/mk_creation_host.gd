@@ -99,8 +99,9 @@ var _seeded_archetype: MKArchetype
 var _index := 0
 ## Set when [method MKProfileBackend.create_profile] refused the payload, and cleared by the next
 ## forward MOVEMENT — a commit or a non-last Skip; see [method _advance] for why movement, not
-## commit, is the rule. While it is set, both buttons that could reach [method _confirm] are
-## disabled — see [method _refresh_buttons].
+## commit, is the rule. The ONE exception is a step-state change on index 0, where the player has no
+## Back and movement is therefore unreachable — see [method _on_step_state_changed]. While it is set,
+## both buttons that could reach [method _confirm] are disabled — see [method _refresh_buttons].
 var _refusal_pending := false
 var _title_label: Label
 var _progress_label: Label
@@ -606,7 +607,24 @@ func _step_is_valid(index: int) -> bool:
 	return bool(node.call("_mk_step_is_valid"))
 
 
+## Re-polls validity on any step input change — and, in ONE scoped case, lifts a pending refusal.
+##
+## [b]The scoped lift: a flow whose refused step has no earlier step to walk back to.[/b] The general
+## rule is that forward MOVEMENT lifts the gate (see [method _advance]), and every lift site is behind
+## Next or Skip. On a SINGLE-step flow the last step is also the first: [code]is_last[/code] is true at
+## index 0, so the gate disables both Next and Skip, and Back is disabled at index 0 for having nowhere
+## to go — leaving Cancel as the only exit, permanently, after one refusal (measured: retyping the name
+## changed nothing). So on index 0 the step announcing a state change IS the fresh-attempt signal, and
+## it is the only one that flow can produce: the player changed the very step [method _confirm] is
+## about to submit.
+##
+## [b]Scoped to index 0 deliberately.[/b] Anywhere the player HAS a Back — including the last step of a
+## multi-step flow, where a state ping is the "step re-polling valid" the movement rule explicitly does
+## not accept — the gate keeps its price of a deliberate walk (Back, then forward), because there the
+## payload the backend refused was assembled by steps this ping says nothing about.
 func _on_step_state_changed() -> void:
+	if _refusal_pending and _index == 0:
+		_refusal_pending = false
 	_refresh_buttons()
 
 
@@ -650,7 +668,10 @@ func _advance(commit: bool) -> void:
 		# The same defensiveness for the OTHER door into _confirm. A commit clears the refusal three lines
 		# below, so this can only be a Skip on the last step — the gesture _refresh_buttons disables the
 		# Skip button for. Stated here as well because the button state is not the contract: the contract
-		# is that one refused payload cannot produce a second identical attempt.
+		# is that a refused payload cannot produce a second attempt on the same gesture that produced the
+		# first. An identical retry is still reachable — the gate PRICES it at a deliberate walk (Back,
+		# then forward again), which the recovery tests exercise; what it removes is the second press of
+		# the button the player is already standing on.
 		_refresh_buttons()
 		return
 	if commit:
@@ -697,11 +718,17 @@ func _confirm() -> void:
 		# spent) held the gate down forever, with Cancel as the only way off the screen — and it also had
 		# nothing to say about a refusal that was never a validity problem at all (a roster cap that the
 		# server has since freed), where every step already answered valid and the gate lifted without the
-		# player doing anything. So _advance's COMMIT is what lifts it: the player changed or re-affirmed
-		# something, which makes the next press a fresh attempt over a payload they just re-authored.
+		# player doing anything. So forward MOVEMENT is what lifts it (_advance): a commit, or a non-last
+		# Skip — the player walked toward Confirm again, which makes the next press a fresh attempt.
 		# Back alone deliberately does NOT lift it — Back commits nothing and is how the player reaches
 		# the field to fix, so lifting there would re-enable Confirm over the very payload that was
-		# refused. Walking forward again (Next, which recommits) is the gesture that lifts it.
+		# refused. It is the forward half of that walk that lifts it.
+		#
+		# [b]One exception, and it is a shape with no walk to price.[/b] On index 0 the player has no
+		# Back and no non-last Skip, so a single-step flow could reach no lift site at all and Cancel was
+		# its only exit after one refusal. There, a step_state_changed lifts it — see
+		# _on_step_state_changed for why that is the fresh-attempt signal in exactly that case and
+		# nowhere else.
 		_refusal_pending = true
 		_refresh_buttons()
 		return

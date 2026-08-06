@@ -121,6 +121,12 @@ var _fitted_once := false
 ## queued for content that has since been replaced can recognise itself as stale — see
 ## [method _queue_reframe].
 var _content_gen := 0
+## True once [method _ready] has run. Node._ready runs ONCE per node lifetime, so it cannot be the
+## re-framing hook for a node that leaves the tree and comes back (a pooled preview, a reparented
+## panel) — that is [method _notification]'s job, and this flag is how it tells a RE-entry from the
+## first one, where _ready's own pass is the one that frames. NOTIFICATION_ENTER_TREE arrives BEFORE
+## _ready on the first entry, which is what makes the single flag sufficient.
+var _readied := false
 
 
 func _ready() -> void:
@@ -150,11 +156,45 @@ func _ready() -> void:
 	# a no-op off-tree (look_at is refused there), so a node built and configured before it was added has
 	# not had one applied yet.
 	_apply_transforms()
-	if preview_scene != null:
-		# The export may have been deserialised — or assigned by a host — before this node was in the
-		# tree, where the framing pass cannot measure or point anything. Apply it now: this is the pass
-		# that produces the same fit an in-tree assignment gets.
+	if get_content() != null:
+		# The export was deserialised — or assigned by a host — before this node was in the tree, where
+		# the framing pass cannot measure or point anything. The INSTANCE is already there (the setter
+		# builds and parents it off-tree quite happily); only the framing was skipped, so only the framing
+		# is redone. Re-applying the whole export instead freed and re-instantiated identical content and
+		# emitted a second preview_changed, which a host connected before add_child saw as two swaps.
+		_queue_reframe(_content_gen, true)
+	elif preview_scene != null:
+		# A scene that produced no content (a non-Node3D root, reported at assignment) or a setter that
+		# never ran: re-apply, which is also the path that reports it once, in the tree.
 		set_preview_scene(preview_scene)
+	_readied = true
+
+
+## [b]Every tree entry after the first re-frames, not just the first one.[/b] [method Node._ready] runs
+## ONCE per node lifetime, so it cannot cover a preview that LEAVES the tree and comes back — a pooled
+## slot, a panel reparented into a different container, a character sheet moved between layers. Off-tree
+## the framing is skipped entirely (see [method _frame]), so a swap performed while detached leaves the
+## pivot at the origin with the new content unshifted; without this hook the node came back displaying
+## content centred on nothing, at the previous subject's distance, and said nothing about it. The pass
+## is generation-tagged like every other, so an entry followed by an immediate swap does not measure the
+## outgoing content.
+##
+## The first entry is deliberately skipped: NOTIFICATION_ENTER_TREE arrives BEFORE [method _ready], and
+## _ready runs the entry pass itself. Letting both fire was measured as a double pass on the first
+## entry — harmless in value (the framing writes are relative and the second reads a centre of ~zero)
+## but two passes where one is documented, and the shift is only idempotent while nothing else moves the
+## content between them.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_ENTER_TREE or not _readied:
+		return
+	if get_content() == null:
+		return
+	# Queued, not immediate: this notification arrives before the CONTENT's own tree entry (children are
+	# notified after their parent), so an immediate measurement would read global transforms of a subtree
+	# that is not registered yet. One deferred hop is enough — measured with the shipped CSG shape, whose
+	# mesh IS built by the time the pass runs. Silent about zero bounds: a re-entry is not the moment to
+	# accuse content of having none.
+	_queue_reframe(_content_gen, false)
 
 
 ## Displays [param scene], freeing whatever was there first. Null CLEARS the slot and is a legal,
@@ -207,6 +247,10 @@ func set_preview_scene(scene: PackedScene) -> void:
 	# _frame) so that re-framing the SAME content is idempotent, and accumulation is only meaningful
 	# against content that has already been shifted by it — a fresh instance has not, so its centring
 	# must start from zero or the previous subject's centre is added to it.
+	#
+	# It is also OUTSIDE the tree check below on purpose: a swap performed off-tree frames nothing, so
+	# this reset is the only thing that stops the previous subject's centre surviving into the re-entry
+	# pass that does the centring (see _notification).
 	_pivot.position = Vector3.ZERO
 	# Immediate pass: silent about zero bounds, because for deferred-built content zero IS the expected
 	# reading on this frame and a debug line here would fire for every CSG preview ever shown.
@@ -239,7 +283,9 @@ func _deferred_reframe(gen: int, report_no_bounds: bool, fit_distance: bool) -> 
 		return
 	# The node may also have been freed or removed from the tree between the queue and the call.
 	# Off-tree the global transforms _merge_bounds reads are meaningless, so there is nothing to measure
-	# and the next tree entry re-frames. _frame itself tolerates content that was freed or cleared.
+	# and the next tree entry re-frames — which is a real hook (see _notification), not a hope: _ready
+	# covers the FIRST entry and NOTIFICATION_ENTER_TREE every one after it. _frame itself tolerates
+	# content that was freed or cleared.
 	if not is_inside_tree() or not _built:
 		return
 	_frame(report_no_bounds, fit_distance)
@@ -286,8 +332,10 @@ func frame_content() -> void:
 ## tree, with an ERROR per attempt rather than a return value anything could branch on. A host that
 ## assigns [member preview_scene] on a node it has not added yet (the authored-export route, and what
 ## [method PackedScene.instantiate] does for a scene carrying the export) is doing something ordinary,
-## so it must not print four engine errors; [method _ready] re-applies the export once the node is in
-## the tree, which is where the framing this skipped actually happens. The clean run IS the assertion —
+## so it must not print four engine errors; the node's tree ENTRY is where the framing this skipped
+## actually happens — [method _ready] for the first entry, [method _notification]'s
+## NOTIFICATION_ENTER_TREE for every one after it, so a swap performed while detached (a pooled or
+## reparented preview) is framed on the way back in rather than never. The clean run IS the assertion —
 ## the test gate fails on any ERROR: line, so re-introducing the off-tree pass fails the suite.
 func _frame(report_no_bounds: bool, fit_distance := false) -> void:
 	_build()

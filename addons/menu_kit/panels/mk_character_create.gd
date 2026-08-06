@@ -78,6 +78,11 @@ func get_creation_host() -> MKCreationHost:
 ## empty array as an instruction would make the default configuration a dead page.
 func _resolve_steps(config: MKConfig) -> Array[MKCreationStepDef]:
 	if config != null and not config.creation_steps.is_empty():
+		# [b]Borrowed, not copied:[/b] this is the config resource's own live array, and the only caller
+		# hands it straight to MKCreationHost.configure, which reads it and appends the survivors to its
+		# own arrays without writing back. Verified rather than assumed, because a copy here would be a
+		# silent cost on every build and a mutation there would silently edit the author's .tres. Anything
+		# that starts mutating the resolved array must duplicate() it here first.
 		return config.creation_steps
 	var out: Array[MKCreationStepDef] = []
 	for entry in DEFAULT_STEPS:

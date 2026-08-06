@@ -42,6 +42,8 @@ func run_tests() -> void:
 	await _test_a_skipped_optional_step_cannot_brick_the_refusal_gate()
 	await _test_a_flow_with_no_forward_commit_still_recovers_from_a_refusal()
 	await _test_the_refusal_gate_also_closes_a_last_step_skip()
+	await _test_a_single_step_flow_recovers_by_editing_the_step()
+	await _test_a_multi_step_last_step_ping_does_not_lift_the_gate()
 	await _test_skip_never_commits_and_a_skipped_last_step_still_confirms()
 	await _test_back_keeps_committed_keys_and_a_recommit_overwrites()
 	await _test_a_pointbuy_shaped_step_with_no_schema_is_dropped_quietly()
@@ -276,9 +278,11 @@ func _test_refusal_stays_on_the_last_step_and_says_so() -> void:
 ## payload the backend had just rejected: the player pressed it again and got the identical message,
 ## with nothing on screen pointing at the field that had gone stale.
 ##
-## What lifts it is a forward COMMIT, not a validity poll. Back is how the player REACHES the field to
-## fix, and it commits nothing — lifting there would re-enable Confirm over the exact payload that was
-## refused. Walking forward again recommits, and that is the gesture that says "this is a new attempt".
+## What lifts it is forward MOVEMENT — a commit, or a non-last Skip — not a validity poll. Back is how
+## the player REACHES the field to fix, and it commits nothing: lifting there would re-enable Confirm
+## over the exact payload that was refused. Walking forward again is the gesture that says "this is a
+## new attempt". (The one exception is a flow whose refused step is index 0, where there is no Back and
+## therefore no walk to make — see the single-step test below.)
 func _test_a_refusal_closes_confirm_until_the_player_commits_forward_again() -> void:
 	var backend := _spy_backend()
 	backend.refuse = true
@@ -477,6 +481,78 @@ func _test_the_refusal_gate_also_closes_a_last_step_skip() -> void:
 		"with Skip live again — the gate is a pause on a repeat attempt, not a removal of the gesture")
 	await _press(host._skip_button)
 	check_eq(backend.created.size(), 2, "and it confirms, as a skipped last step always did")
+
+	await _drop(host, backend)
+
+
+## [b]A ONE-step flow had no lift site at all, so one refusal ended it.[/b] At index 0 the step is also
+## the last, so the gate disables Next AND Skip; Back is disabled at index 0 for having nowhere to go.
+## Every forward-movement lift lives behind those two buttons — measured: the player retypes the name,
+## the gate stays down, and Cancel is the only way off the screen for a refusal (a name taken a second
+## ago) that retyping is the whole fix for.
+##
+## So on index 0 the step announcing a change IS the fresh attempt: it is the only signal that flow can
+## produce, and it is about the very step Confirm is about to submit.
+func _test_a_single_step_flow_recovers_by_editing_the_step() -> void:
+	var backend := _spy_backend()
+	backend.refuse = true
+	MKProbeCreationStep.reset()
+	var host := await _make_host([_step(&"name", ["name"], {"name": "Taken"})], [], backend, null)
+
+	check_eq(host.get_step_count(), 1, "precondition: a one-step flow, where the first step is the last")
+	check(host._back_button.disabled, "precondition: Back is disabled at index 0 — there is nowhere behind")
+
+	await _confirm(host)
+	check_eq(backend.created.size(), 1, "precondition: the attempt was refused")
+	check(host._next_button.disabled, "so Confirm is gated")
+	check(host._refusal_pending, "with the refusal pending")
+
+	# The player edits the field — the ONLY gesture this flow offers that says anything.
+	var step_node := host._step_nodes[0] as MKProbeCreationStep
+	step_node.commit_values = {"name": "Retyped"}
+	backend.refuse = false
+	step_node.set_valid(true)
+
+	check(not host._refusal_pending,
+		"editing the step lifts the gate — in a flow with no Back and no non-last Skip this is the only fresh-attempt signal there is")
+	check(not host._next_button.disabled, "and Confirm is live again")
+
+	var confirmed: Array = []
+	host.creation_confirmed.connect(func(profile: Dictionary) -> void: confirmed.append(profile))
+	await _confirm(host)
+	check_eq(backend.created.size(), 2, "the retry reaches the backend")
+	check_eq(confirmed.size(), 1, "and creates the character, rather than Cancel being the only exit")
+	if backend.created.size() == 2:
+		check_eq((backend.created[1] as Dictionary).get("name", ""), "Retyped",
+			"over the edited payload — the recommit ran on the way into _confirm")
+
+	await _drop(host, backend)
+
+
+## The scoping half of the exception above: on a MULTI-step flow's last step the player HAS a Back, so
+## the walk the gate prices is available and a state ping must not buy its way past it. A step agreeing
+## with itself again says nothing about the payload the backend rejected — which the earlier steps
+## wrote and this ping cannot speak for.
+func _test_a_multi_step_last_step_ping_does_not_lift_the_gate() -> void:
+	var backend := _spy_backend()
+	backend.refuse = true
+	MKProbeCreationStep.reset()
+	var host := await _make_host([
+		_step(&"name", ["name"], {"name": "Taken"}),
+		_step(&"tail", ["tail"], {"tail": 1}),
+	], [], backend, null)
+
+	await _press(host._next_button)
+	check_eq(host.current_step_index(), 1, "precondition: on the LAST step of a two-step flow")
+	await _confirm(host)
+	check(host._refusal_pending, "precondition: refused and gated")
+
+	var last_step := host._step_nodes[1] as MKProbeCreationStep
+	last_step.set_valid(false)
+	last_step.set_valid(true)
+	check(host._refusal_pending,
+		"a ping on the last step of a MULTI-step flow does NOT lift it — the player has a Back, so the deliberate walk is still available and still the price")
+	check(host._next_button.disabled, "and Confirm stays gated")
 
 	await _drop(host, backend)
 
