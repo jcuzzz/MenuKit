@@ -621,9 +621,10 @@ func _test_zoom_clamps_at_both_bounds_and_survives_an_inverted_pair() -> void:
 ## wheel and the swap re-clamp ordered the pair — so on an inverted pair the SAME gesture parked the
 ## camera in two different places depending on which branch ran: a detached clear took the ordered
 ## form and landed on the fallback 3, an in-tree clear then ran _frame's null branch and the plain
-## form pushed it out to 6 (clampf applies its minimum last, so an inverted pair returns the min for
-## every input). Both are the same gesture on the same slot, so both must answer the same. Pinned
-## against a single [code]_clamp_zoom[/code] helper rather than against one of the two answers.
+## form pushed it out to 6 (clampf raises to its minimum FIRST, then lowers to its maximum — measured
+## on 4.7: clampf(3, 6, 1) is 6 — so an inverted pair collapses inputs onto one of the two ends).
+## Both are the same gesture on the same slot, so both must answer the same. Pinned against a single
+## [code]_clamp_zoom[/code] helper rather than against one of the two answers.
 func _test_an_inverted_pair_parks_a_clear_at_one_distance_whichever_branch_runs() -> void:
 	var preview := await _make_preview()
 	# Inverted on purpose, and with the fallback distance INSIDE the range either way round, so the two

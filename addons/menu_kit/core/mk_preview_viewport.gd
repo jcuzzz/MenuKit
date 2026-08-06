@@ -477,15 +477,17 @@ func _zoom_by(amount: float) -> void:
 ## class goes through it — the wheel, the fit, the swap re-clamp and both fallback-distance parks.
 ##
 ## [b]It orders the pair rather than trusting it.[/b] The two are independent exports and nothing stops
-## a host (or an editor drag) from leaving zoom_min above zoom_max; a plain
-## [code]clampf(value, zoom_min, zoom_max)[/code] on an inverted pair returns the MAX for every input,
-## because clampf applies its minimum last. That is not merely an odd number: three of the sites used
-## the plain form and three used this one, so an inverted pair made a clear park at a different
-## distance from a fit or a wheel notch, and the same gesture landed in two places depending on which
-## branch ran (measured with zoom_min 5 / zoom_max 1: a DETACHED clear parked at the fallback 3,
-## which is inside the range either way, while an IN-TREE clear ran _frame's null branch on top of it
-## and the plain form pushed it out to 5). Ordering here makes the inverted pair merely a range spelled backwards, and makes all
-## six sites agree by construction rather than by six copies of the same two calls.
+## a host (or an editor drag) from leaving zoom_min above zoom_max. A plain
+## [code]clampf(value, zoom_min, zoom_max)[/code] on an inverted pair collapses every input onto one
+## of the two ends — clampf raises to its minimum FIRST, then lowers to its maximum, so an inverted
+## pair answers zoom_min for inputs below zoom_min and zoom_max for everything at or above it
+## (measured on 4.7: clampf(3, 5, 1) is 5; clampf(8, 5, 1) is 1). That is not merely an odd number:
+## three of the sites used the plain form and three used this one, so the same gesture landed at two
+## different distances depending on which branch ran (measured with zoom_min 5 / zoom_max 1: a
+## DETACHED clear parked at the fallback 3, inside the ordered range, while an IN-TREE clear ran
+## _frame's null branch and the plain form pushed it out to 5). Ordering here makes the inverted pair
+## merely a range spelled backwards, and makes all six sites agree by construction rather than by six
+## copies of the same two calls.
 func _clamp_zoom(value: float) -> float:
 	return clampf(value, minf(zoom_min, zoom_max), maxf(zoom_min, zoom_max))
 

@@ -74,10 +74,17 @@ signal creation_cancelled()
 signal built()
 
 ## Shown on the last step when [method MKProfileBackend.create_profile] returns an empty dictionary.
-## Inline on the host rather than as a modal, deliberately: the fix is on this screen (change the
-## name), so a dialog the player must dismiss before they can reach the field adds a gesture and hides
-## the field behind a scrim.
-const REFUSAL_MESSAGE := "Could not create the character. The name may have just been taken, or the roster may be full."
+## Inline on the host rather than as a modal, deliberately: the fix is USUALLY on this screen (change
+## the name), so a dialog the player must dismiss before they can reach the field adds a gesture and
+## hides the field behind a scrim.
+##
+## The text names NO cause on purpose. Refusals are silent by the backend contract — a taken name, a
+## full roster and the read-only newer-store latch all answer the same empty dictionary — and a
+## message enumerating specific causes is wrong whenever the real one is not on its list (measured,
+## round 8: under the latch the roster is empty and the name irrelevant, so the old two-cause text was
+## wrong twice in one sentence). "Cannot say WHICH and does not guess" applies to the player's message
+## no less than to the host's logic; the log carries the specific warn where one exists.
+const REFUSAL_MESSAGE := "Could not create the character. Adjust it and try again, or cancel."
 
 const NO_BACKEND_MESSAGE := "No profile backend is assigned, so nothing can be saved."
 
