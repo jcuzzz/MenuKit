@@ -32,6 +32,28 @@ signal setting_changed(id: StringName, value: Variant)
 ## no-autoload path.
 @abstract func apply_all() -> void
 
+## Push ONE stored value at the engine — the instant-apply counterpart of [method apply_all]
+## (plan §4.3, D14).
+##
+## Deliberately non-abstract and a no-op by default. Application is optional: a backend that only
+## stores values is a legitimate implementation (the host consumes them off
+## [signal setting_changed]), and making this abstract would force every such backend to write an
+## empty override just to satisfy the contract.
+##
+## [b]Why this exists instead of calling [method apply_all] per change.[/b] A slider drag emits a
+## write per pixel, and re-pushing every window mode, resolution, bus volume and InputMap binding on
+## each of those is slow and produces visible window flicker on the display rows. Panels therefore
+## call [method set_value] then this.
+##
+## Implementations must treat an unrecognised id as normal operation and stay silent: plain values
+## like FOV and mouse sensitivity are the majority of ids and are the host's to consume, so warning on
+## them would make correct usage noisy.
+##
+## The parameter is underscored here only because this base body ignores it; overrides name it [code]id[/code].
+func apply_one(_id: StringName) -> void:
+	pass
+
+
 ## Capture stock [InputMap] bindings [b]before[/b] any override is applied — the source of truth for
 ## "Reset to Defaults". Must run before [method load], or the defaults captured are the user's
 ## overrides and the recovery path silently becomes a no-op.

@@ -1,0 +1,43 @@
+[gd_resource type="Resource" script_class="MKSettingsPageDef" load_steps=4 format=3]
+
+; The shipped Audio page (plan §3.1, §4.3) — MASTER ONLY, and that is not a placeholder.
+;
+; Gate 2 cold-drops addons/menu_kit/ alone into an EMPTY Godot project and demands zero warnings,
+; while §4.3 mandates that a volume row naming a bus the project does not define must warn. An empty
+; project has exactly one bus: Master. So a four-bus page inside the addon would fire three warnings
+; in precisely the configuration the acceptance test runs, making that gate unpassable against the
+; shipped defaults.
+;
+; The demo carries the richer page (Music / SFX / UI) alongside the bus layout that backs it. Adding a
+; bus row is authoring one more sub-resource here with id "audio/bus/<BusName>" — the bus name is part
+; of the id rather than a fixed list precisely so a host never edits addon code to add one.
+;
+; Values are LINEAR 0..1. MKJsonSettingsBackend converts to dB and mutes the bus at exactly 0, since
+; linear_to_db(0) is -inf and leaves a bus doing pointless work.
+
+[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
+[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
+
+[sub_resource type="Resource" id="row_master"]
+script = ExtResource("2_rowdef")
+id = &"audio/bus/Master"
+label = "Master Volume"
+type = 2
+default_value = 1.0
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+options = Array[String]([])
+option_values = []
+tooltip = "Overall output level. 0 mutes the Master bus outright."
+action_name = &""
+requires_confirm = false
+visible_condition_id = &""
+custom_scene = null
+
+[resource]
+script = ExtResource("1_pagedef")
+id = &"audio"
+title = "Audio"
+icon = null
+rows = Array[ExtResource("2_rowdef")]([SubResource("row_master")])

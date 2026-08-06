@@ -64,6 +64,8 @@ var _pause_policy: MKPausePolicy
 ## True when the settings backend came from the autoload rather than this node, so teardown does not
 ## free something it does not own.
 var _adopted_settings := false
+## Non-null only in the standalone no-service configuration. See [method _boot_own_brightness].
+var _brightness_controller: MKBrightnessController
 
 var _page_id: StringName = &""
 var _back_stack: Array[StringName] = []
@@ -368,6 +370,12 @@ func get_settings_backend() -> MKSettingsBackend:
 	return _settings_backend
 
 
+## This scene's own brightness controller, or null — null is the [b]normal[/b] result when the
+## settings service owns one (plan §4.3). Ask the service first when you need "the live controller".
+func get_brightness_controller() -> MKBrightnessController:
+	return _brightness_controller
+
+
 func get_network_backend() -> MKNetworkBackend:
 	return _network_backend
 
@@ -578,7 +586,51 @@ func _boot_own_settings_backend() -> MKSettingsBackend:
 	backend.snapshot_input_defaults()
 	backend.load()
 	backend.apply_all()
+	_boot_own_brightness(backend)
 	return backend
+
+
+## The standalone brightness tier (plan §4.3) — reached only from [method _boot_own_settings_backend],
+## i.e. only when no settings service owns the store.
+##
+## [b]Be honest about this tier: it is closer to the floor than to the autoload behaviour.[/b] This
+## controller is a child of a [b]per-scene[/b] [MKRoot], so it dies with the root: brightness gaps
+## across every scene transition and reaches gameplay only if the game scene also hosts an [MKRoot].
+## The [code]MKSettingsService[/code] autoload is the supported configuration for brightness, and
+## [code]INTEGRATION.md[/code] says so. This exists so the no-autoload configuration is not a dead
+## slider, not because it is equivalent.
+##
+## [b]Two controllers must never coexist[/b] — each applies its own gamma pass and the image would be
+## corrected twice. The adopt path never reaches this method, and the belt-and-braces check below
+## also covers the case where a service exists but is inert (unassigned settings slot) while still
+## owning a controller of its own.
+func _boot_own_brightness(backend: MKSettingsBackend) -> void:
+	if config == null or not config.manage_brightness:
+		return
+	var service := get_node_or_null(SETTINGS_SERVICE_PATH)
+	if service != null and service.has_method("get_brightness_controller") \
+			and service.call("get_brightness_controller") != null:
+		return
+	_brightness_controller = MKBrightnessController.new()
+	_brightness_controller.name = "BrightnessController"
+	add_child(_brightness_controller)
+	_brightness_controller.set_brightness(
+		float(backend.get_value(MKBrightnessController.SETTING_ID, 1.0)))
+	backend.setting_changed.connect(_on_brightness_setting_changed)
+
+
+func _on_brightness_setting_changed(id: StringName, value: Variant) -> void:
+	if id != MKBrightnessController.SETTING_ID:
+		return
+	if _brightness_controller == null or not is_instance_valid(_brightness_controller):
+		return
+	if not (value is float or value is int):
+		# The store is JSON-backed, so a hand-edited file can hold a string here. Warn rather than
+		# crash inside a signal handler at boot.
+		MKLog.warn("%s: brightness value '%s' is not a number — ignoring"
+			% [MKLog.context(config, "settings_backend"), value])
+		return
+	_brightness_controller.set_brightness(float(value))
 
 
 ## Instantiates a slot's script as a child Node, handing it its params first.

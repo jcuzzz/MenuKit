@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="MKConfig" load_steps=11 format=3]
+[gd_resource type="Resource" script_class="MKConfig" load_steps=13 format=3]
 
 ; The host's copy-me starting point. Every value here is chosen so that copying addons/menu_kit/
 ; alone into an empty Godot project boots with zero errors and zero warnings (ship gate 2) —
@@ -8,6 +8,13 @@
 ; slot hides the server browser entirely, which is the right first impression for a single-player
 ; Doom-like — and MKStubNetworkBackend still ships as the reference implementation a host or the
 ; demo can point a slot at. "Shipped default" means available, not active.
+;
+; The Settings page (added Phase 3) is the second page the addon ships, and it is held to the same
+; bar as the first: gate 2 cold-drops addons/menu_kit/ alone into an empty project and requires this
+; page to BOOT AND OPEN with zero errors and zero warnings. That is why the panel's own default pages
+; are the addon's settings/defaults/*.tres — a Master-only Audio page and a Controls page with no
+; KEYBIND rows — because an empty project has one audio bus and only ui_* actions, and a row naming a
+; missing bus or an absent action warns by design. The richer pages are the host's to author.
 ;
 ; MKSceneMenuBackend's params are empty: it names no scene, because an addon file naming the demo
 ; would break the isolation rule and fail gate 1 by construction. Unassigned params are valid
@@ -19,6 +26,7 @@
 [ext_resource type="Resource" path="res://addons/menu_kit/themes/default_palette.tres" id="4_palette"]
 [ext_resource type="Resource" path="res://addons/menu_kit/themes/default_backdrop_catalog.tres" id="5_backdrops"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/panels/mk_welcome_page.tscn" id="6_welcome"]
+[ext_resource type="PackedScene" path="res://addons/menu_kit/settings/mk_settings_panel.tscn" id="11_settings_panel"]
 [ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_scene_menu_backend.gd" id="7_menu"]
 [ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_json_profile_backend.gd" id="8_profile"]
 [ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_json_settings_backend.gd" id="9_settings"]
@@ -53,6 +61,15 @@ scene = ExtResource("6_welcome")
 visible = true
 order = 0
 
+[sub_resource type="Resource" id="page_settings"]
+script = ExtResource("2_pagedef")
+id = &"settings"
+title = "Settings"
+icon = null
+scene = ExtResource("11_settings_panel")
+visible = true
+order = 1
+
 [resource]
 script = ExtResource("1_config")
 menu_backend = SubResource("slot_menu")
@@ -63,7 +80,7 @@ pause_policy = SubResource("slot_pause")
 palette = ExtResource("4_palette")
 backdrop_catalog = ExtResource("5_backdrops")
 backdrop_id = &""
-pages = Array[Resource]([SubResource("page_welcome")])
+pages = Array[Resource]([SubResource("page_welcome"), SubResource("page_settings")])
 initial_page = &"welcome"
 manage_mouse_mode = true
 manage_brightness = true

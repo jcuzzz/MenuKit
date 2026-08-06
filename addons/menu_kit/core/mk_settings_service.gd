@@ -39,6 +39,12 @@ extends Node
 const CONFIG_PATH_SETTING := "menu_kit/config_path"
 const DEFAULT_CONFIG_PATH := "res://addons/menu_kit/default_config.tres"
 
+## Alias of [constant MKBrightnessController.SETTING_ID], which is the single source of truth for
+## the id. Both owners of a controller (this node and [code]MKRoot[/code]'s standalone tier) read it
+## from the controller rather than each spelling it out — a mismatch there is a slider that stores a
+## value nothing reads.
+const BRIGHTNESS_SETTING := MKBrightnessController.SETTING_ID
+
 ## [b]A testing seam, not a host feature.[/b] Registering a real autoload needs an editor session, so
 ## a headless test cannot reach this class through the shipped path; assigning this before the node
 ## enters the tree supplies the slot directly and skips config resolution entirely. Everything after
@@ -51,6 +57,9 @@ var override_backend_slot: MKBackendSlot
 
 var _backend: MKSettingsBackend
 var _config: MKConfig
+## Created in [method _boot_brightness]. See that method for why this node owns it rather than
+## [MKRoot].
+var _brightness: MKBrightnessController
 
 
 ## Boots the store. Every failure here is recoverable and warns rather than crashing: a misconfigured
@@ -82,6 +91,16 @@ func _ready() -> void:
 	_backend.load()
 	_backend.apply_all()
 
+	_boot_brightness()
+
+
+## The live [MKBrightnessController], or null when none was created (no config resolved, or
+## [code]MKConfig.manage_brightness[/code] false). [b][MKRoot] calls exactly this name[/b] to detect
+## that brightness is already owned and skip building its own standalone controller — two
+## controllers would stack two gamma passes and the image would be corrected twice.
+func get_brightness_controller() -> MKBrightnessController:
+	return _brightness
+
 
 ## The live backend, or null when none is configured. [b][MKRoot] calls exactly this name[/b] to
 ## adopt the instance instead of building a second one (plan §4.2).
@@ -94,6 +113,50 @@ func get_settings_backend() -> MKSettingsBackend:
 ## otherwise unanswerable from a bug report when a host has repointed the setting.
 func get_config() -> MKConfig:
 	return _config
+
+
+## Creates and wires the brightness controller (plan §4.3), and this is the node that must do it.
+##
+## [b]Why here and not [MKRoot].[/b] This is the same argument that put InputMap overrides in this
+## class: brightness is a persisted setting that must apply on a boot which never opens a menu. A
+## controller hanging off a per-scene [MKRoot] would not exist on a straight-into-gameplay boot, so
+## the player would calibrate in the menu, press Play, and watch the image snap back — with no error
+## anywhere. Ship gate 4c tests exactly that boot. This node is an autoload, so it survives every
+## scene swap and the correction is continuous.
+##
+## Wiring is deliberately through [signal MKSettingsBackend.setting_changed] rather than a direct
+## call from the settings panel: the panel is not the only writer (a host writing the value itself,
+## or a load, must move the image too), and routing every writer through the store keeps one source
+## of truth for the applied value.
+##
+## Skipped entirely when no [MKConfig] was resolved — that is the [member override_backend_slot]
+## testing seam, which supplies a backend without a config and therefore cannot answer
+## [code]manage_brightness[/code]. Defaulting to "on" there would create a controller the shipped
+## path would not.
+func _boot_brightness() -> void:
+	if _config == null or not _config.manage_brightness:
+		return
+	_brightness = MKBrightnessController.new()
+	_brightness.name = "BrightnessController"
+	add_child(_brightness)
+	_brightness.set_brightness(float(_backend.get_value(BRIGHTNESS_SETTING, 1.0)))
+	_backend.setting_changed.connect(_on_setting_changed)
+
+
+## Forwards only the brightness row. Every other setting is applied by the backend itself; this node
+## does not become a second application path.
+func _on_setting_changed(id: StringName, value: Variant) -> void:
+	if id != BRIGHTNESS_SETTING:
+		return
+	if _brightness == null or not is_instance_valid(_brightness):
+		return
+	# Guarded rather than cast blindly: the store is JSON-backed and a hand-edited file can hold a
+	# string here. A warn beats a hard crash inside a signal handler at boot.
+	if not (value is float or value is int):
+		MKLog.warn("%s: brightness value '%s' is not a number — ignoring"
+			% [MKLog.context(_config, "settings"), value])
+		return
+	_brightness.set_brightness(float(value))
 
 
 func _resolve_slot_from_config() -> MKBackendSlot:

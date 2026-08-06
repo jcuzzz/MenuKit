@@ -1,0 +1,93 @@
+[gd_resource type="Resource" script_class="MKSettingsPageDef" load_steps=10 format=3]
+
+; THE RICH PAGE. This is the shipped documentation of "add buses and author a richer page host-side"
+; (plan §3.1, §4.3).
+;
+; The addon's own Audio page defines a MASTER ROW ONLY, and that is not a simplification — it is what
+; makes ship gate 2 passable. Gate 2 cold-drops addons/menu_kit/ alone into an EMPTY Godot project,
+; which has exactly one bus, and demands zero warnings; §4.3 simultaneously mandates that a setting
+; naming a missing bus warns rather than silently no-op'ing. A four-bus page inside the addon would
+; therefore fire three warnings in the one configuration the acceptance test runs. Master always
+; exists, so the addon default is silent by construction, and the richer version lives here.
+;
+; What a host copies to get this page:
+;   1. an AudioBusLayout defining the buses  -> demo/default_bus_layout.tres
+;   2. project.godot [audio] buses/default_bus_layout pointing at it
+;   3. one SLIDER row per bus, id "audio/bus/<BusName>"
+;
+; The id prefix is the whole binding: MKJsonSettingsBackend._apply_audio() strips "audio/bus/" and
+; resolves the remainder with AudioServer.get_bus_index(). The name must match the layout exactly,
+; case included. Values are LINEAR 0..1; the backend converts to dB and mutes the bus outright at 0,
+; so a slider dragged to the bottom is silent rather than merely very quiet.
+
+[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
+[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
+
+[sub_resource type="Resource" id="row_volume_header"]
+script = ExtResource("2_rowdef")
+id = &"audio/header_volume"
+label = "Volume"
+type = 0
+
+[sub_resource type="Resource" id="row_bus_master"]
+script = ExtResource("2_rowdef")
+id = &"audio/bus/Master"
+label = "Master"
+type = 2
+default_value = 0.8
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+tooltip = "The only bus an empty Godot project guarantees — the addon's shipped page stops here."
+
+[sub_resource type="Resource" id="row_bus_music"]
+script = ExtResource("2_rowdef")
+id = &"audio/bus/Music"
+label = "Music"
+type = 2
+default_value = 0.7
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+
+[sub_resource type="Resource" id="row_bus_sfx"]
+script = ExtResource("2_rowdef")
+id = &"audio/bus/SFX"
+label = "Sound Effects"
+type = 2
+default_value = 0.8
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+
+[sub_resource type="Resource" id="row_bus_ui"]
+script = ExtResource("2_rowdef")
+id = &"audio/bus/UI"
+label = "Interface"
+type = 2
+default_value = 0.6
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+tooltip = "MenuKit's own hover and click hooks are meant for this bus. No audio files ship."
+
+[sub_resource type="Resource" id="row_behaviour_header"]
+script = ExtResource("2_rowdef")
+id = &"audio/header_behaviour"
+label = "Behaviour"
+type = 0
+
+[sub_resource type="Resource" id="row_mute_unfocused"]
+script = ExtResource("2_rowdef")
+id = &"audio/mute_on_focus_loss"
+label = "Mute When Unfocused"
+type = 1
+default_value = true
+tooltip = "A plain value the host consumes — MenuKit stores it and does not watch window focus."
+
+[resource]
+script = ExtResource("1_pagedef")
+id = &"audio"
+title = "Audio"
+icon = null
+rows = Array[Resource]([SubResource("row_volume_header"), SubResource("row_bus_master"), SubResource("row_bus_music"), SubResource("row_bus_sfx"), SubResource("row_bus_ui"), SubResource("row_behaviour_header"), SubResource("row_mute_unfocused")])

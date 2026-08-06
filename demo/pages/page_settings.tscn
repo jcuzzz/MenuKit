@@ -1,6 +1,21 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=6 format=3]
 
-[ext_resource type="Script" path="res://demo/pages/demo_page.gd" id="1_page"]
+; The demo's Settings page: the real schema-driven MKSettingsPanel, not the demo_page.gd placeholder
+; it replaced.
+;
+; The panel is INSTANCED here rather than subclassed, and its `pages` export is overridden with the
+; demo's own page defs. That is the whole point of the data-driven design: adding "Mouse Sensitivity"
+; is authoring one .tres, and swapping the addon's Master-only Audio page for the demo's four-bus one
+; is a single array entry — no addon edit, and both survive a version upgrade.
+;
+; The root stays a plain Control so the page keeps a full-rect anchor of its own regardless of how the
+; panel scene anchors itself; MKRoot instantiates a page and expects it to fill the content area.
+
+[ext_resource type="PackedScene" path="res://addons/menu_kit/settings/mk_settings_panel.tscn" id="1_panel"]
+[ext_resource type="Resource" path="res://demo/demo_pages/settings_video.tres" id="2_video"]
+[ext_resource type="Resource" path="res://demo/demo_pages/settings_audio.tres" id="3_audio"]
+[ext_resource type="Resource" path="res://demo/demo_pages/settings_controls.tres" id="4_controls"]
+[ext_resource type="Resource" path="res://demo/demo_pages/settings_gameplay.tres" id="5_gameplay"]
 
 [node name="PageSettings" type="Control"]
 layout_mode = 3
@@ -9,7 +24,12 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-script = ExtResource("1_page")
-title = "Settings"
-body = "The real schema-driven panel lands in Phase 3. For now this page exists to push a sub-panel onto the back stack."
-push_page_id = &"sub"
+
+[node name="MKSettingsPanel" parent="." instance=ExtResource("1_panel")]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+pages = Array[Resource]([ExtResource("2_video"), ExtResource("3_audio"), ExtResource("4_controls"), ExtResource("5_gameplay")])

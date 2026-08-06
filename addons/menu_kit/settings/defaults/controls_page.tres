@@ -1,0 +1,126 @@
+[gd_resource type="Resource" script_class="MKSettingsPageDef" load_steps=9 format=3]
+
+; The shipped Controls page (plan §3.1, §4.3) — NO KEYBIND ROWS, for the same reason the Audio page
+; ships Master-only.
+;
+; A KEYBIND row names an InputMap action through action_name, an empty project defines only the ui_*
+; actions, and §4.8 mandates that an absent action warns. Addon-shipped rebind rows would therefore
+; fire warnings in exactly the empty-project configuration gate 2 requires to be silent. The demo
+; carries the rebind rows beside the demo actions its own project.godot defines.
+;
+; Every row here is a PLAIN value: MenuKit stores and persists it, and the host's camera and input
+; code consume it off MKSettingsBackend.setting_changed. MenuKit owns no camera, so it cannot own
+; sensitivity — but it can own the slider, the persistence, and the reset path, which is the whole
+; division of labour the backend abstraction exists for.
+
+[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
+[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
+
+[sub_resource type="Resource" id="row_mouse_header"]
+script = ExtResource("2_rowdef")
+id = &""
+label = "Mouse"
+type = 0
+default_value = null
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+options = Array[String]([])
+option_values = []
+tooltip = ""
+action_name = &""
+requires_confirm = false
+visible_condition_id = &""
+custom_scene = null
+
+[sub_resource type="Resource" id="row_mouse_sensitivity"]
+script = ExtResource("2_rowdef")
+id = &"controls/mouse_sensitivity"
+label = "Mouse Sensitivity"
+type = 2
+default_value = 1.0
+min_value = 0.1
+max_value = 5.0
+step = 0.05
+options = Array[String]([])
+option_values = []
+tooltip = "Multiplier applied by your game's camera to relative mouse motion."
+action_name = &""
+requires_confirm = false
+visible_condition_id = &""
+custom_scene = null
+
+[sub_resource type="Resource" id="row_invert_y"]
+script = ExtResource("2_rowdef")
+id = &"controls/invert_y"
+label = "Invert Vertical Look"
+type = 1
+default_value = false
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+options = Array[String]([])
+option_values = []
+tooltip = "Applies to both mouse and gamepad look."
+action_name = &""
+requires_confirm = false
+visible_condition_id = &""
+custom_scene = null
+
+[sub_resource type="Resource" id="row_gamepad_header"]
+script = ExtResource("2_rowdef")
+id = &""
+label = "Gamepad"
+type = 0
+default_value = null
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+options = Array[String]([])
+option_values = []
+tooltip = ""
+action_name = &""
+requires_confirm = false
+visible_condition_id = &""
+custom_scene = null
+
+[sub_resource type="Resource" id="row_gamepad_sensitivity"]
+script = ExtResource("2_rowdef")
+id = &"controls/gamepad_sensitivity"
+label = "Gamepad Sensitivity"
+type = 2
+default_value = 1.0
+min_value = 0.1
+max_value = 5.0
+step = 0.05
+options = Array[String]([])
+option_values = []
+tooltip = "Multiplier applied to right-stick look."
+action_name = &""
+requires_confirm = false
+visible_condition_id = &""
+custom_scene = null
+
+[sub_resource type="Resource" id="row_gamepad_deadzone"]
+script = ExtResource("2_rowdef")
+id = &"controls/gamepad_deadzone"
+label = "Gamepad Deadzone"
+type = 2
+default_value = 0.2
+min_value = 0.0
+max_value = 0.9
+step = 0.01
+options = Array[String]([])
+option_values = []
+tooltip = "Stick movement below this fraction is ignored. Raise it if the view drifts at rest."
+action_name = &""
+requires_confirm = false
+visible_condition_id = &""
+custom_scene = null
+
+[resource]
+script = ExtResource("1_pagedef")
+id = &"controls"
+title = "Controls"
+icon = null
+rows = Array[ExtResource("2_rowdef")]([SubResource("row_mouse_header"), SubResource("row_mouse_sensitivity"), SubResource("row_invert_y"), SubResource("row_gamepad_header"), SubResource("row_gamepad_sensitivity"), SubResource("row_gamepad_deadzone")])

@@ -20,6 +20,19 @@ const PREFIX := "[MenuKit]"
 ## Set by MKConfig / MKRoot at boot. `--mk-verbose` on the command line forces it true.
 static var verbose := false
 
+## [b]A testing seam, not a host feature.[/b] When valid, every [method warn] and [method error]
+## message is also handed to this [Callable] as
+## [code](level: Level, message: String) -> void[/code], in addition to being pushed and printed.
+##
+## It exists because several of this package's contracts are stated as [i]counts of warnings[/i] —
+## "the shipped default pages build with zero warnings" (ship gate 2), "a panel with no backend warns
+## ONCE for the page rather than once per row", "a missing audio bus is named" — and none of them is
+## assertable from a test without an observation point. The alternative was to leave the most
+## regression-prone half of §4.3 covered only by a human reading a log.
+##
+## Default is an empty [Callable], so nothing shipped pays for it and no host is expected to set it.
+static var observer := Callable()
+
 static var _cli_checked := false
 
 
@@ -53,11 +66,20 @@ static func context(res, field := "") -> String:
 static func error(message: String) -> void:
 	push_error("%s %s" % [PREFIX, message])
 	printerr("%s ERROR: %s" % [PREFIX, message])
+	_observe(Level.ERROR, message)
 
 
 static func warn(message: String) -> void:
 	push_warning("%s %s" % [PREFIX, message])
 	print("%s WARN: %s" % [PREFIX, message])
+	_observe(Level.WARN, message)
+
+
+## Feeds [member observer] without letting a bad one break logging: a test that leaves a freed object
+## in the seam must not turn every later warning into a crash inside somebody else's error path.
+static func _observe(level: Level, message: String) -> void:
+	if observer.is_valid():
+		observer.call(level, message)
 
 
 static func info(message: String) -> void:

@@ -20,6 +20,13 @@ window/stretch/aspect="expand"
 
 enabled=PackedStringArray("res://addons/menu_kit/plugin.cfg")
 
+[audio]
+
+; DEMO provisioning (plan §3.1). The four-bus layout backs demo/demo_pages/settings_audio.tres.
+; Nothing in addons/menu_kit/ requires it: the shipped Audio page is Master-only precisely so the
+; addon cold-drops into an empty project — which has no bus layout at all — without warning.
+buses/default_bus_layout="res://demo/default_bus_layout.tres"
+
 [autoload]
 
 ; Registered here so EVERY headless gate run loads the service the way a real host does.

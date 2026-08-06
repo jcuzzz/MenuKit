@@ -1,0 +1,102 @@
+[gd_resource type="Resource" script_class="MKSettingsPageDef" load_steps=11 format=3]
+
+; The demo's Video page. It mirrors the addon's shipped default (addons/menu_kit/settings/defaults/
+; video_page.tres) rather than extending it — Video is the one page that needs no host provisioning,
+; because DisplayServer is always available (plan §3.1). It is carried here anyway so the demo owns
+; its whole settings surface in one folder and a reader can diff a demo page against its addon twin.
+;
+; Two rows carry requires_confirm (D14): window mode and resolution are the changes that can leave a
+; user unable to see the menu they just changed, so the revert countdown puts the old value back
+; unless they confirm.
+;
+; The resolution row is a CURATED list, not an enumeration: Godot 4.7 exposes screen_get_size() and
+; nothing that lists supported modes (plan §4.3, F4). The panel filters these to what fits the
+; current screen and disables the row outside windowed mode, because window_set_size is a no-op in
+; fullscreen and borderless — applying it there looks like it worked and changes nothing.
+
+[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
+[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
+
+[sub_resource type="Resource" id="row_display_header"]
+script = ExtResource("2_rowdef")
+id = &"video/header_display"
+label = "Display"
+type = 0
+
+[sub_resource type="Resource" id="row_window_mode"]
+script = ExtResource("2_rowdef")
+id = &"video/window_mode"
+label = "Window Mode"
+type = 3
+default_value = 0
+options = Array[String](["Windowed", "Fullscreen", "Exclusive Fullscreen"])
+option_values = [0, 3, 4]
+tooltip = "Exclusive fullscreen can reduce input latency on some systems."
+requires_confirm = true
+
+[sub_resource type="Resource" id="row_resolution"]
+script = ExtResource("2_rowdef")
+id = &"video/resolution"
+label = "Resolution"
+type = 3
+default_value = Vector2i(1920, 1080)
+options = Array[String](["1280 x 720", "1600 x 900", "1920 x 1080", "2560 x 1440", "3840 x 2160"])
+option_values = [Vector2i(1280, 720), Vector2i(1600, 900), Vector2i(1920, 1080), Vector2i(2560, 1440), Vector2i(3840, 2160)]
+tooltip = "Only applies in windowed mode."
+requires_confirm = true
+
+[sub_resource type="Resource" id="row_vsync"]
+script = ExtResource("2_rowdef")
+id = &"video/vsync"
+label = "V-Sync"
+type = 3
+default_value = 1
+options = Array[String](["Off", "On", "Adaptive", "Mailbox"])
+option_values = [0, 1, 2, 3]
+tooltip = "Adaptive disables V-Sync when the frame rate drops below the refresh rate."
+
+[sub_resource type="Resource" id="row_max_fps"]
+script = ExtResource("2_rowdef")
+id = &"video/max_fps"
+label = "Max FPS"
+type = 2
+default_value = 0
+min_value = 0.0
+max_value = 240.0
+step = 10.0
+tooltip = "0 means unlimited."
+
+[sub_resource type="Resource" id="row_camera_header"]
+script = ExtResource("2_rowdef")
+id = &"video/header_camera"
+label = "Camera"
+type = 0
+
+[sub_resource type="Resource" id="row_fov"]
+script = ExtResource("2_rowdef")
+id = &"video/fov"
+label = "Field of View"
+type = 2
+default_value = 75.0
+min_value = 60.0
+max_value = 120.0
+step = 1.0
+tooltip = "A plain value the host applies to its own camera — MenuKit stores it and does not own a camera."
+
+[sub_resource type="Resource" id="row_brightness"]
+script = ExtResource("2_rowdef")
+id = &"video/brightness"
+label = "Brightness"
+type = 2
+default_value = 1.0
+min_value = 0.5
+max_value = 2.0
+step = 0.05
+tooltip = "Adjust until the darkest band of the reference gradient is barely visible."
+
+[resource]
+script = ExtResource("1_pagedef")
+id = &"video"
+title = "Video"
+icon = null
+rows = Array[Resource]([SubResource("row_display_header"), SubResource("row_window_mode"), SubResource("row_resolution"), SubResource("row_vsync"), SubResource("row_max_fps"), SubResource("row_camera_header"), SubResource("row_fov"), SubResource("row_brightness")])

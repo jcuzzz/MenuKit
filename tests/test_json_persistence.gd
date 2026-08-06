@@ -17,6 +17,7 @@ func run_tests() -> void:
 	_clean(SETTINGS_PATH)
 	_clean(PROFILES_PATH)
 	await _test_settings_round_trip()
+	await _test_settings_type_changing_write()
 	await _test_settings_corrupt_recovery()
 	await _test_profiles_round_trip()
 	await _test_profiles_corrupt_recovery()
@@ -45,6 +46,26 @@ func _test_settings_round_trip() -> void:
 
 	backend.free()
 	reloaded.free()
+
+
+## Regression: writing a value of a DIFFERENT type over a stored one must not error. The dedup
+## compared int == String directly, which is a script error ("Invalid operands in operator '=='") —
+## reachable from a hand-edited store or any host that changes a value's type. Found by the Phase 3
+## test leg; the fix gates the dedup on typeof equality first.
+func _test_settings_type_changing_write() -> void:
+	var backend := _make_settings()
+	backend.set_value(&"probe/shifty", 3)
+	var announced: Array = []
+	backend.setting_changed.connect(func(id: StringName, value: Variant) -> void:
+		announced.append([id, value]))
+	backend.set_value(&"probe/shifty", "three")
+	check_eq(backend.get_value(&"probe/shifty", null), "three",
+		"a type-changing write lands instead of erroring in the dedup comparison")
+	check_eq(announced.size(), 1, "the type-changing write announces exactly once")
+	# The dedup itself must survive the fix: an identical same-type rewrite stays silent.
+	backend.set_value(&"probe/shifty", "three")
+	check_eq(announced.size(), 1, "an identical rewrite is still deduplicated after the type guard")
+	backend.free()
 
 
 ## Truncating mid-object is the realistic corruption: a power cut during a write, not random bytes.

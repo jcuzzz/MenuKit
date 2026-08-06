@@ -173,13 +173,18 @@ static func _style_line_edit(theme: Theme, pal: MKPalette) -> void:
 ## bundles no art (plan §2.1) and a drawn-in-code grabber would be the one control that cannot be
 ## re-skinned from the palette.
 static func _style_slider(theme: Theme, pal: MKPalette) -> void:
+	# The groove's on-screen thickness IS the stylebox's content margins — a zero-margin StyleBoxFlat
+	# renders a 0px-tall track, leaving the grabber floating in space (caught by eyeball on the first
+	# Phase 3 capture; every headless assertion passed). spacing_xs per side gives a visible track
+	# that still scales with the palette.
+	var groove := pal.spacing_xs
 	for type in [&"HSlider", &"VSlider"]:
 		theme.set_stylebox(&"slider", type,
-			flat(pal, pal.surface_sunken, pal.border, pal.border_width, 0, 0))
+			flat(pal, pal.surface_sunken, pal.border, pal.border_width, groove, groove))
 		theme.set_stylebox(&"grabber_area", type,
-			flat(pal, pal.accent, pal.accent, 0, 0, 0))
+			flat(pal, pal.accent, pal.accent, 0, groove, groove))
 		theme.set_stylebox(&"grabber_area_highlight", type,
-			flat(pal, pal.accent_hover, pal.accent_hover, 0, 0, 0))
+			flat(pal, pal.accent_hover, pal.accent_hover, 0, groove, groove))
 
 
 static func _style_checks(theme: Theme, pal: MKPalette) -> void:

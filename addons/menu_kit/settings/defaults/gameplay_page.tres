@@ -1,0 +1,130 @@
+[gd_resource type="Resource" script_class="MKSettingsPageDef" load_steps=9 format=3]
+
+; The shipped Gameplay page (plan §3.1, §4.3): subtitles, difficulty, and one live exemplar of every
+; remaining row type — KEYBIND excepted, because an empty project defines only the ui_* actions and a
+; row naming an absent action must warn (gate 2). The demo carries the KEYBIND example.
+;
+; This page is the panel's own regression surface as much as it is a settings page. Every row type the
+; builder supports is exercised by the shipped defaults, so a cold drop renders all of them and a
+; break in any one is visible in the first screenshot rather than in whichever host hits it first.
+;
+; The subtitle-size row demonstrates visible_condition_id: it exists only while gameplay/subtitles is
+; true, and the panel updates that live off setting_changed rather than at build time — a "show
+; advanced" toggle that needs the page reopened to take effect reads as a bug.
+;
+; The CUSTOM row points at mk_example_custom_row.tscn, which implements the _mk_bind contract. It is
+; shipped and live rather than merely documented, so the escape hatch for the closed row-type enum has
+; something that fails loudly the day it stops working.
+
+[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
+[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
+[ext_resource type="PackedScene" path="res://addons/menu_kit/settings/mk_example_custom_row.tscn" id="3_example"]
+
+[sub_resource type="Resource" id="row_header"]
+script = ExtResource("2_rowdef")
+id = &""
+label = "Presentation"
+type = 0
+default_value = null
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+options = Array[String]([])
+option_values = []
+tooltip = ""
+action_name = &""
+requires_confirm = false
+visible_condition_id = &""
+custom_scene = null
+
+[sub_resource type="Resource" id="row_subtitles"]
+script = ExtResource("2_rowdef")
+id = &"gameplay/subtitles"
+label = "Subtitles"
+type = 1
+default_value = true
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+options = Array[String]([])
+option_values = []
+tooltip = "Shows spoken dialogue as text."
+action_name = &""
+requires_confirm = false
+visible_condition_id = &""
+custom_scene = null
+
+[sub_resource type="Resource" id="row_subtitle_size"]
+script = ExtResource("2_rowdef")
+id = &"gameplay/subtitle_size"
+label = "Subtitle Size"
+type = 2
+default_value = 1.0
+min_value = 0.5
+max_value = 2.0
+step = 0.05
+options = Array[String]([])
+option_values = []
+tooltip = "Scale applied to subtitle text. Visible only while subtitles are on."
+action_name = &""
+requires_confirm = false
+visible_condition_id = &"gameplay/subtitles"
+custom_scene = null
+
+[sub_resource type="Resource" id="row_difficulty"]
+script = ExtResource("2_rowdef")
+id = &"gameplay/difficulty"
+label = "Difficulty"
+type = 3
+default_value = 1
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+options = Array[String](["Easy", "Normal", "Hard", "Nightmare"])
+option_values = [0, 1, 2, 3]
+tooltip = "Read by your game. MenuKit stores the choice and assigns it no meaning."
+action_name = &""
+requires_confirm = false
+visible_condition_id = &""
+custom_scene = null
+
+[sub_resource type="Resource" id="row_player_name"]
+script = ExtResource("2_rowdef")
+id = &"gameplay/player_name"
+label = "Display Name"
+type = 5
+default_value = "Player"
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+options = Array[String]([])
+option_values = []
+tooltip = "Commits on Enter and when the field loses focus."
+action_name = &""
+requires_confirm = false
+visible_condition_id = &""
+custom_scene = null
+
+[sub_resource type="Resource" id="row_custom_example"]
+script = ExtResource("2_rowdef")
+id = &"gameplay/example_custom_value"
+label = "Custom Row Example"
+type = 6
+default_value = 5.0
+min_value = 0.0
+max_value = 10.0
+step = 1.0
+options = Array[String]([])
+option_values = []
+tooltip = "Rendered by mk_example_custom_row.tscn — the reference implementation of _mk_bind."
+action_name = &""
+requires_confirm = false
+visible_condition_id = &""
+custom_scene = ExtResource("3_example")
+
+[resource]
+script = ExtResource("1_pagedef")
+id = &"gameplay"
+title = "Gameplay"
+icon = null
+rows = Array[ExtResource("2_rowdef")]([SubResource("row_header"), SubResource("row_subtitles"), SubResource("row_subtitle_size"), SubResource("row_difficulty"), SubResource("row_player_name"), SubResource("row_custom_example")])

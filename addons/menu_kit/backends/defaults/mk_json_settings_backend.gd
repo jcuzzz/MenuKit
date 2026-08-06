@@ -106,7 +106,11 @@ func get_value(id: StringName, default_value: Variant) -> Variant:
 ## [signal MKSettingsBackend.setting_changed] without guarding against its own echo.
 func set_value(id: StringName, value: Variant) -> void:
 	var key := String(id)
-	if _values.has(key) and _values[key] == value:
+	# Same-type check BEFORE ==: comparing an int against an incoming String raises a script error
+	# ("Invalid operands in operator '=='"), and a type-changing write is reachable from any
+	# hand-edited store. is_same-style typeof gating keeps the dedup without the crash; a changed
+	# TYPE is by definition a changed value and falls through to the write.
+	if _values.has(key) and typeof(_values[key]) == typeof(value) and _values[key] == value:
 		return
 	_values[key] = value
 	setting_changed.emit(id, value)
@@ -347,11 +351,35 @@ func is_headless_display() -> bool:
 	return DisplayServer.get_name() == "headless"
 
 
+## Pushes exactly ONE stored value at the engine — the instant-apply path a settings panel uses on
+## every change (plan §4.3, D14).
+##
+## This does not re-implement anything: it dispatches to the same per-id helpers [method apply_all]
+## walks, so there is one place that knows what "window mode 2" does. Two copies of that knowledge is
+## how apply-on-change and apply-at-boot drift into disagreeing, which surfaces as "the setting only
+## takes effect after a restart".
+##
+## Unrecognised ids are a silent no-op on purpose: plain values (FOV, mouse sensitivity) are the
+## majority and are the host's to consume off [signal MKSettingsBackend.setting_changed], so warning
+## on them would make correct usage noisy.
+func apply_one(id: StringName) -> void:
+	match id:
+		ID_MAX_FPS:
+			_apply_max_fps()
+		ID_VSYNC:
+			_apply_vsync()
+		ID_WINDOW_MODE:
+			_apply_window_mode()
+		ID_RESOLUTION:
+			_apply_resolution()
+		_:
+			var name := String(id)
+			if name.begins_with(BUS_VOLUME_PREFIX):
+				_apply_bus(name)
+
+
 func _apply_display() -> void:
-	if _values.has(String(ID_MAX_FPS)):
-		# Engine.max_fps is not a DisplayServer call and is meaningful headless, so it is applied
-		# outside the guard below.
-		Engine.max_fps = int(_values[String(ID_MAX_FPS)])
+	_apply_max_fps()
 
 	if is_headless_display():
 		if _values.has(String(ID_WINDOW_MODE)) or _values.has(String(ID_RESOLUTION)) \
@@ -359,23 +387,48 @@ func _apply_display() -> void:
 			MKLog.debug("headless display driver — skipping window mode, resolution and vsync")
 		return
 
-	if _values.has(String(ID_VSYNC)):
-		DisplayServer.window_set_vsync_mode(int(_values[String(ID_VSYNC)]) as DisplayServer.VSyncMode)
+	_apply_vsync()
+	_apply_window_mode()
+	_apply_resolution()
 
-	if _values.has(String(ID_WINDOW_MODE)):
-		DisplayServer.window_set_mode(int(_values[String(ID_WINDOW_MODE)]) as DisplayServer.WindowMode)
 
-	if _values.has(String(ID_RESOLUTION)):
-		var size := _as_vector2i(_values[String(ID_RESOLUTION)])
-		if size.x <= 0 or size.y <= 0:
-			MKLog.warn("%s: '%s' is %s, which is not a usable window size — ignoring it"
-				% [_context(), ID_RESOLUTION, _values[String(ID_RESOLUTION)]])
-		elif DisplayServer.window_get_mode() != DisplayServer.WINDOW_MODE_WINDOWED:
-			# window_set_size is a no-op in fullscreen and borderless (plan §4.3), so applying it
-			# there would look like it worked and change nothing.
-			MKLog.debug("window is not in windowed mode — skipping resolution %s" % size)
-		else:
-			DisplayServer.window_set_size(size)
+## [member Engine.max_fps] is not a [DisplayServer] call and is meaningful headless, so it sits
+## outside the headless guard every other display helper carries.
+func _apply_max_fps() -> void:
+	if not _values.has(String(ID_MAX_FPS)):
+		return
+	Engine.max_fps = int(_values[String(ID_MAX_FPS)])
+
+
+## Each display helper re-checks [method is_headless_display] itself rather than trusting its caller.
+## [method apply_all] guards them as a group, but [method apply_one] reaches them individually — and a
+## guard that only exists at one of two entry points is the shape of bug that passes every test run
+## with a window and fails the headless suite.
+func _apply_vsync() -> void:
+	if is_headless_display() or not _values.has(String(ID_VSYNC)):
+		return
+	DisplayServer.window_set_vsync_mode(int(_values[String(ID_VSYNC)]) as DisplayServer.VSyncMode)
+
+
+func _apply_window_mode() -> void:
+	if is_headless_display() or not _values.has(String(ID_WINDOW_MODE)):
+		return
+	DisplayServer.window_set_mode(int(_values[String(ID_WINDOW_MODE)]) as DisplayServer.WindowMode)
+
+
+func _apply_resolution() -> void:
+	if is_headless_display() or not _values.has(String(ID_RESOLUTION)):
+		return
+	var size := _as_vector2i(_values[String(ID_RESOLUTION)])
+	if size.x <= 0 or size.y <= 0:
+		MKLog.warn("%s: '%s' is %s, which is not a usable window size — ignoring it"
+			% [_context(), ID_RESOLUTION, _values[String(ID_RESOLUTION)]])
+	elif DisplayServer.window_get_mode() != DisplayServer.WINDOW_MODE_WINDOWED:
+		# window_set_size is a no-op in fullscreen and borderless (plan §4.3), so applying it
+		# there would look like it worked and change nothing.
+		MKLog.debug("window is not in windowed mode — skipping resolution %s" % size)
+	else:
+		DisplayServer.window_set_size(size)
 
 
 func _apply_audio() -> void:
@@ -383,19 +436,28 @@ func _apply_audio() -> void:
 		var name := String(key)
 		if not name.begins_with(BUS_VOLUME_PREFIX):
 			continue
-		var bus := name.substr(BUS_VOLUME_PREFIX.length())
-		var index := AudioServer.get_bus_index(bus)
-		if index < 0:
-			# Named, not silent: a volume slider that moves nothing is otherwise diagnosed by
-			# reading source (plan §4.3, §4.8).
-			MKLog.warn("%s: no audio bus named '%s' — '%s' applies to nothing"
-				% [_context(), bus, name])
-			continue
-		var linear := float(_values[key])
-		AudioServer.set_bus_volume_db(index, linear_to_db(clampf(linear, 0.0, 1.0)))
-		# linear_to_db(0) is -inf, which Godot accepts but which leaves the bus doing pointless work;
-		# the explicit mute is also what a "is it off?" check reads.
-		AudioServer.set_bus_mute(index, linear <= 0.0)
+		_apply_bus(name)
+
+
+## Applies one [code]audio/bus/<BusName>[/code] value. [param name] is the full id; the bus name is
+## its suffix, because the addon ships a Master-only page while a host adds buses freely (plan §4.3)
+## and a fixed list would make that a code change.
+func _apply_bus(name: String) -> void:
+	if not _values.has(name):
+		return
+	var bus := name.substr(BUS_VOLUME_PREFIX.length())
+	var index := AudioServer.get_bus_index(bus)
+	if index < 0:
+		# Named, not silent: a volume slider that moves nothing is otherwise diagnosed by
+		# reading source (plan §4.3, §4.8).
+		MKLog.warn("%s: no audio bus named '%s' — '%s' applies to nothing"
+			% [_context(), bus, name])
+		return
+	var linear := float(_values[name])
+	AudioServer.set_bus_volume_db(index, linear_to_db(clampf(linear, 0.0, 1.0)))
+	# linear_to_db(0) is -inf, which Godot accepts but which leaves the bus doing pointless work;
+	# the explicit mute is also what a "is it off?" check reads.
+	AudioServer.set_bus_mute(index, linear <= 0.0)
 
 
 func _apply_input_overrides() -> void:

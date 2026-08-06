@@ -11,5 +11,6 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_page")
 title = "Play"
-body = "The shell boots here. Open a modal and press Escape: the modal is popped and the page underneath is left alone."
+body = "The shell boots here. Open a modal and press Escape: the modal is popped and the page underneath is left alone. Open the sub-panel and press Escape: the back stack pops instead."
+push_page_id = &"sub"
 show_modal_button = true

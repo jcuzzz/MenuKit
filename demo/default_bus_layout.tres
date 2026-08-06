@@ -1,0 +1,42 @@
+[gd_resource type="AudioBusLayout" format=3]
+
+; DEMO PROVISIONING — not an addon requirement.
+;
+; An empty Godot project ships exactly one bus: Master. That is why the ADDON's Audio page defines a
+; Master row and nothing else (plan §3.1, §4.3): a missing bus warns by design, so a four-bus page
+; inside addons/menu_kit/ would fire three warnings in the exact cold-drop configuration ship gate 2
+; requires to be silent.
+;
+; The richer page lives in demo/demo_pages/settings_audio.tres, and this layout is what backs it. It
+; is referenced from project.godot's [audio] section, which is host territory — the addon never reads
+; it and never needs it.
+;
+; The bus NAMES are the contract: MKJsonSettingsBackend resolves volume ids as
+; "audio/bus/<BusName>", so renaming a bus here without renaming its setting id leaves a slider that
+; moves nothing (and warns saying so).
+
+[resource]
+bus/0/name = &"Master"
+bus/0/solo = false
+bus/0/mute = false
+bus/0/bypass_fx = false
+bus/0/volume_db = 0.0
+bus/0/send = &""
+bus/1/name = &"Music"
+bus/1/solo = false
+bus/1/mute = false
+bus/1/bypass_fx = false
+bus/1/volume_db = 0.0
+bus/1/send = &"Master"
+bus/2/name = &"SFX"
+bus/2/solo = false
+bus/2/mute = false
+bus/2/bypass_fx = false
+bus/2/volume_db = 0.0
+bus/2/send = &"Master"
+bus/3/name = &"UI"
+bus/3/solo = false
+bus/3/mute = false
+bus/3/bypass_fx = false
+bus/3/volume_db = 0.0
+bus/3/send = &"Master"
