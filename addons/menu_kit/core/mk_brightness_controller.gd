@@ -89,12 +89,22 @@ const _GAMMA_PARAM := &"gamma"
 var _brightness := 1.0
 var _overlay: ColorRect
 var _material: ShaderMaterial
-## True once this node enabled adjustment on an Environment, so teardown undoes only what it did —
-## clearing a flag the host set itself would be a silent visual regression in the host's game.
+## True once this node has taken over an [Environment]'s adjustment — i.e. written its brightness,
+## with or without having had to enable the flag. Teardown undoes only what it did, and only while
+## this is set: writing over an Environment this node never touched would be a silent visual
+## regression in the host's game.
 var _adjustment_owned := false
 var _adjusted_env: Environment
-## One warning per node, not one per slider frame. A dragged slider emits dozens of writes a second
-## and an unresolvable Environment would turn the log into a wall.
+## The Environment's own adjustment state at the moment this node took it over, restored on teardown
+## and on a mode switch. Captured as a PAIR: a host that already had adjustment enabled keeps its
+## flag, but its brightness was being overwritten and never put back, which is the half of this that
+## the "only the flag we set" rule used to miss entirely.
+var _prior_adjustment_enabled := false
+var _prior_adjustment_brightness := 1.0
+## One warning per disappearance, not one per slider frame: the latch is cleared again the moment an
+## Environment resolves, so a host whose Environment comes and goes with scene loads is told each
+## time it goes — but a dragged slider over an unresolvable one, which emits dozens of writes a
+## second, still warns once.
 var _env_warned := false
 
 
@@ -208,13 +218,17 @@ func _apply_environment() -> void:
 		return
 	_env_warned = false
 	if env != _adjusted_env:
-		# Switched worlds. Release the previous one first, or a scene change leaves adjustment
-		# enabled forever on an Environment nothing is driving any more.
+		# Switched worlds. Release the previous one first — restoring ITS state — or a scene change
+		# leaves an Environment nothing is driving any more stuck on this node's adjustment.
 		_release_environment()
 		_adjusted_env = env
+		# Capture before the first write, and only on takeover: re-capturing on every slider frame
+		# would remember this node's own last value as the host's.
+		_prior_adjustment_enabled = env.adjustment_enabled
+		_prior_adjustment_brightness = env.adjustment_brightness
+		_adjustment_owned = true
 	if not env.adjustment_enabled:
 		env.adjustment_enabled = true
-		_adjustment_owned = true
 	env.adjustment_brightness = _brightness
 
 
@@ -244,11 +258,18 @@ func _release_current_mode() -> void:
 	_release_environment()
 
 
+## Puts the Environment back the way this node found it: BOTH halves of the state it took over.
+##
+## The brightness matters as much as the flag. A host that already ran with adjustment_enabled kept
+## its flag under the old rule and lost its brightness permanently — this node's last slider value
+## simply stayed in the resource, so quitting the menu left the game at the calibration value with
+## nothing on screen to say why. A host that had it OFF gets the flag cleared as before, and the
+## brightness restored too, because a remembered value under a cleared flag costs nothing and leaves
+## the resource byte-identical to how it arrived.
 func _release_environment() -> void:
 	if _adjusted_env != null and _adjustment_owned:
-		# Only the flag this node set. adjustment_brightness is left where it is: restoring a
-		# remembered value would fight a host that changed it meanwhile, and with the flag off it is
-		# inert anyway.
-		_adjusted_env.adjustment_enabled = false
+		_adjusted_env.adjustment_brightness = _prior_adjustment_brightness
+		if not _prior_adjustment_enabled:
+			_adjusted_env.adjustment_enabled = false
 	_adjusted_env = null
 	_adjustment_owned = false

@@ -23,10 +23,16 @@ func run_tests() -> void:
 	await _test_timeout_reverts_exactly_once()
 	await _test_keep_button()
 	await _test_cancel_reverts()
+	await _test_resolved_countdown_cannot_emit_again()
 	await _test_invalid_duration_falls_back()
 	await _test_ticks_while_the_tree_is_paused()
+	await _test_layer_teardown_disposes_the_dialog()
 	await _test_panel_timeout_restores_the_previous_value()
 	await _test_panel_keep_retains_the_new_value()
+	await _test_cancel_through_the_layer_pops_only_the_countdown()
+	await _test_dismissal_leaves_a_modal_stacked_above_it_alone()
+	await _test_a_synced_control_raises_no_countdown()
+	await _test_untouched_text_row_raises_no_countdown()
 	_clean()
 
 
@@ -92,13 +98,41 @@ func _test_keep_button() -> void:
 
 
 ## Escape means revert: the safe outcome is the one that needs no working input.
+##
+## And it reports the gesture CONSUMED. Emitting reverted resolves the dialog synchronously — the
+## panel's handler removes it from the layer before handle_cancel has returned — so reporting "not
+## consumed" made the layer pop a second time, taking whatever modal was underneath. The layer half
+## of that is asserted in _test_cancel_through_the_layer_pops_only_the_countdown; this pins the
+## contract at the dialog.
 func _test_cancel_reverts() -> void:
 	var countdown := _make_countdown()
 	countdown.start(10.0)
 	var consumed := countdown.handle_cancel()
-	check(not consumed,
-		"handle_cancel reports it did NOT consume the gesture, which is what makes the layer pop it")
+	check(consumed,
+		"handle_cancel reports the gesture CONSUMED — the dialog is already resolved and the layer must not pop anything")
 	check_eq(_reverted, 1, "and the decision is revert")
+
+	countdown.queue_free()
+	await step_frame()
+
+
+## The emit-once latch, driven through the public surfaces that can collide in one resolution: the
+## timeout fires, and the player's Revert press lands on the same frame. Without the latch that is two
+## [signal MKRevertCountdown.reverted] emissions, and the panel would revert a revert — restoring a
+## value the user had already been put back to, over whatever they changed next.
+func _test_resolved_countdown_cannot_emit_again() -> void:
+	var countdown := _make_countdown()
+	countdown.start(0.05)
+	await _advance_until(func() -> bool: return not countdown.is_running(), 120)
+	check_eq(_reverted, 1, "the timeout resolved it once")
+
+	countdown.get_revert_button().pressed.emit()
+	check_eq(_reverted, 1, "a Revert press in the same resolution adds nothing")
+	var consumed := countdown.handle_cancel()
+	check(consumed, "a cancel gesture on a resolved dialog is still reported consumed")
+	check_eq(_reverted, 1, "and emits nothing either")
+	countdown.get_keep_button().pressed.emit()
+	check_eq(_kept, 0, "and Keep cannot overturn a decision that already went out")
 
 	countdown.queue_free()
 	await step_frame()
@@ -144,6 +178,31 @@ func _test_ticks_while_the_tree_is_paused() -> void:
 
 	countdown.queue_free()
 	await step_frame()
+
+
+## [method MKModalLayer.clear_for_teardown] emits no modal_popped and the panel that owns this dialog
+## is destroyed in the same teardown, so nobody is left to free it. The dialog disposes of itself
+## through [code]_mk_layer_teardown[/code]; without that hook, every quit-while-open leaks one Control
+## — and the harness's leaked-node gate is the second half of this assertion.
+func _test_layer_teardown_disposes_the_dialog() -> void:
+	var layer := MKModalLayer.new()
+	layer.name = "TeardownLayer"
+	get_root().add_child(layer)
+	await step_frame()
+
+	var countdown := _make_countdown_unparented()
+	layer.push_modal(countdown)
+	check_eq(layer.depth(), 1, "the countdown is stacked")
+
+	layer.clear_for_teardown()
+	check_eq(layer.depth(), 0, "teardown empties the stack")
+	check_eq(_reverted, 0, "without resolving the dialog — teardown is not a decision")
+
+	layer.queue_free()
+	await step_frame()
+	await step_frame()
+	check(not is_instance_valid(countdown),
+		"and the dialog freed ITSELF: unparented by the teardown and never popped, nothing else would")
 
 
 # --- Panel integration --------------------------------------------------------
@@ -219,7 +278,200 @@ func _test_panel_keep_retains_the_new_value() -> void:
 	await _drop_fixture(fixture)
 
 
+## Escape on the countdown, driven through the REAL ladder: [code]MKRoot[/code] hands the gesture to
+## [method MKModalLayer.handle_cancel], which hands it to the top modal.
+##
+## The dialog resolves synchronously and the panel removes it, so a dialog reporting "not consumed"
+## had the layer pop a SECOND time — and with anything stacked beneath, that second pop destroyed a
+## modal the player's Escape had nothing to do with. A host dialog is parked underneath here for
+## exactly that reason: with an empty stack the bug is invisible, which is how it survived a round.
+func _test_cancel_through_the_layer_pops_only_the_countdown() -> void:
+	var fixture := await _make_panel_fixture()
+	var backend: MKJsonSettingsBackend = fixture["backend"]
+	var root: MKRoot = fixture["root"]
+	var button: OptionButton = fixture["option"]
+	var layer := root.get_modal_layer()
+
+	var host_modal := _make_host_modal()
+	layer.push_modal(host_modal)
+	check_eq(layer.depth(), 1, "a host modal is open beneath the settings row")
+
+	button.select(1)
+	button.item_selected.emit(1)
+	check_eq(layer.depth(), 2, "the requires_confirm change stacks the countdown ON TOP of it")
+	check(layer.top() is MKRevertCountdown, "which is the top of the stack")
+
+	var handled := layer.handle_cancel()
+	await step_frame()
+
+	check(handled, "the layer reports the gesture handled")
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0,
+		"Escape reverted the setting")
+	check_eq(layer.depth(), 1, "and removed exactly ONE modal")
+	check_eq(layer.top(), host_modal,
+		"the host's dialog is still open — a second pop here would have destroyed it")
+
+	layer.pop_modal()
+	host_modal.queue_free()
+	await _drop_fixture(fixture)
+
+
+## The countdown resolves on a TIMER, so anything pushed over it in those ten seconds is still on top
+## when it lapses. Dismissal must therefore take THIS entry from wherever it sits
+## ([method MKModalLayer.remove_modal]) rather than popping the top: popping would dismiss the modal
+## above and leave the countdown wedged in the stack forever — is_empty() false, scrim up over
+## nothing, every later cancel gesture swallowed.
+func _test_dismissal_leaves_a_modal_stacked_above_it_alone() -> void:
+	var fixture := await _make_panel_fixture()
+	var backend: MKJsonSettingsBackend = fixture["backend"]
+	var root: MKRoot = fixture["root"]
+	var button: OptionButton = fixture["option"]
+	var layer := root.get_modal_layer()
+
+	button.select(1)
+	button.item_selected.emit(1)
+	var countdown := layer.top() as MKRevertCountdown
+	check(countdown != null, "the countdown is up")
+	if countdown == null:
+		await _drop_fixture(fixture)
+		return
+
+	var host_modal := _make_host_modal()
+	layer.push_modal(host_modal)
+	check_eq(layer.depth(), 2, "and a host modal opens OVER it while it counts")
+
+	countdown.start(0.1)
+	await _advance_until(func() -> bool: return layer.depth() < 2, 120)
+	await step_frame()
+
+	check_eq(layer.depth(), 1, "the lapse removes exactly one entry")
+	check_eq(layer.top(), host_modal,
+		"and it is the COUNTDOWN that left — the modal above it is untouched")
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0,
+		"with the revert itself still performed")
+
+	layer.pop_modal()
+	host_modal.queue_free()
+	await _drop_fixture(fixture)
+
+
+## A control written from the STORE must not be mistaken for a user edit. Programmatic writes emit the
+## same signals as input, so without the panel's _syncing guard an external write to a
+## requires_confirm row raises a countdown for a change the user never made — and, worse, writes the
+## value straight back.
+##
+## Driven on a SLIDER because assigning [member Range.value] genuinely emits value_changed; an
+## OptionButton.select() does not, so the same test on the window-mode row would pass against a panel
+## with no guard at all.
+func _test_a_synced_control_raises_no_countdown() -> void:
+	var fixture := await _make_panel_fixture()
+	var backend: MKJsonSettingsBackend = fixture["backend"]
+	var root: MKRoot = fixture["root"]
+	var panel: MKSettingsPanel = fixture["panel"]
+	var layer := root.get_modal_layer()
+
+	var slider := _first_slider(panel)
+	check(slider != null, "the fixture carries a requires_confirm SLIDER row")
+	if slider == null:
+		await _drop_fixture(fixture)
+		return
+	check_eq(layer.depth(), 0, "nothing is stacked before the write")
+
+	backend.set_value(&"video/gamma_probe", 0.8)
+	await step_frame()
+
+	check_eq(slider.value, 0.8, "the store's write reached the widget")
+	check_eq(layer.depth(), 0,
+		"and raised NO countdown — the panel wrote that control, the user did not")
+	check_eq(backend.get_value(&"video/gamma_probe", 0.0), 0.8,
+		"and the sync echoed no write of its own")
+
+	await _drop_fixture(fixture)
+
+
+## A TEXT row commits on focus loss, which fires on every tab-through of an untouched field. On a
+## requires_confirm row an unconditional write there raises a revert countdown over a field the user
+## only passed through.
+func _test_untouched_text_row_raises_no_countdown() -> void:
+	var fixture := await _make_panel_fixture()
+	var backend: MKJsonSettingsBackend = fixture["backend"]
+	var root: MKRoot = fixture["root"]
+	var panel: MKSettingsPanel = fixture["panel"]
+	var layer := root.get_modal_layer()
+
+	var edit := _first_line_edit(panel)
+	check(edit != null, "the fixture carries a requires_confirm TEXT row")
+	if edit == null:
+		await _drop_fixture(fixture)
+		return
+
+	edit.grab_focus()
+	await step_frame()
+	edit.release_focus()
+	edit.focus_exited.emit()
+	await step_frame()
+
+	check_eq(layer.depth(), 0,
+		"tabbing through an untouched field commits nothing, so no countdown is raised")
+
+	edit.text = "typed"
+	edit.focus_exited.emit()
+	await step_frame()
+	check_eq(String(backend.get_value(&"gameplay/label_probe", "")), "typed",
+		"while a field the user actually changed still commits on focus loss")
+	check_eq(layer.depth(), 1, "and that one DOES raise the countdown its def asked for")
+
+	# Resolved rather than popped: the panel owns the dismissal AND the free, so unwinding the stack
+	# behind its back would unparent the dialog and leak it (the gate counts that as a failure).
+	var raised := layer.top() as MKRevertCountdown
+	if raised != null:
+		raised.get_keep_button().pressed.emit()
+	await step_frame()
+	await _drop_fixture(fixture)
+
+
 # --- Fixtures -----------------------------------------------------------------
+
+## A stand-in for a dialog the HOST pushed: this layer never frees what it did not create, so a plain
+## Control is exactly what a host modal looks like to it.
+func _make_host_modal() -> Control:
+	var modal := Control.new()
+	modal.name = "HostModal"
+	return modal
+
+
+func _first_slider(node: Node) -> HSlider:
+	for child in node.get_children():
+		var slider := child as HSlider
+		if slider != null:
+			return slider
+		var found := _first_slider(child)
+		if found != null:
+			return found
+	return null
+
+
+func _first_line_edit(node: Node) -> LineEdit:
+	for child in node.get_children():
+		var edit := child as LineEdit
+		if edit != null:
+			return edit
+		var found := _first_line_edit(child)
+		if found != null:
+			return found
+	return null
+
+
+## The same dialog as [method _make_countdown], but left for the caller to parent — the modal layer
+## adopts what it is pushed, and a dialog already parented to the root would only be reparented.
+func _make_countdown_unparented() -> MKRevertCountdown:
+	_kept = 0
+	_reverted = 0
+	var countdown := MKRevertCountdown.new()
+	countdown.kept.connect(func() -> void: _kept += 1)
+	countdown.reverted.connect(func() -> void: _reverted += 1)
+	return countdown
+
 
 func _make_countdown() -> MKRevertCountdown:
 	_kept = 0
@@ -252,10 +504,30 @@ func _make_panel_fixture() -> Dictionary:
 	def.option_values = [0, 3]
 	def.requires_confirm = true
 
+	# Two more requires_confirm rows, of the types whose COMMIT gestures fire without user input: a
+	# Range emits value_changed on a programmatic write, and a LineEdit emits focus_exited on every
+	# tab-through. Both are ways a countdown gets raised over a change nobody made.
+	var slider_def := MKSettingDef.new()
+	slider_def.id = &"video/gamma_probe"
+	slider_def.label = "Gamma Probe"
+	slider_def.type = MKSettingDef.RowType.SLIDER
+	slider_def.min_value = 0.0
+	slider_def.max_value = 2.0
+	slider_def.step = 0.05
+	slider_def.default_value = 1.0
+	slider_def.requires_confirm = true
+
+	var text_def := MKSettingDef.new()
+	text_def.id = &"gameplay/label_probe"
+	text_def.label = "Label Probe"
+	text_def.type = MKSettingDef.RowType.TEXT
+	text_def.default_value = ""
+	text_def.requires_confirm = true
+
 	var page := MKSettingsPageDef.new()
 	page.id = &"video"
 	page.title = "Video"
-	page.rows = [def] as Array[MKSettingDef]
+	page.rows = [def, slider_def, text_def] as Array[MKSettingDef]
 
 	var panel := MKSettingsPanel.new()
 	panel.pages = [page] as Array[MKSettingsPageDef]

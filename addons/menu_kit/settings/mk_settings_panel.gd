@@ -42,6 +42,11 @@ const ID_BRIGHTNESS := &"video/brightness"
 ## reach for (plan §1.2's rule for what earns a palette field).
 const LABEL_COLUMN_WIDTH := 260.0
 
+## How far the slider focus ring is grown beyond the slider's own rect (see
+## [method _add_focus_ring]). A layout rhythm like [constant LABEL_COLUMN_WIDTH]; the ring's COLOUR
+## and thickness come from the palette, through the [constant MKTheme.FOCUS_RING] variation.
+const FOCUS_RING_GROW := 4.0
+
 ## The pages to build, in tab order. Assigned in the scene, or by a host at runtime followed by
 ## [method rebuild].
 @export var pages: Array[MKSettingsPageDef] = []
@@ -75,6 +80,11 @@ func _ready() -> void:
 	if _backend == null:
 		_backend = _resolve_backend()
 	_connect_backend()
+	# Re-showing this page is one of the three edges the resolution row's enabled state is
+	# re-evaluated on (see _is_windowed): a window mode changed out of band while the player was in
+	# gameplay is only noticed when the settings page comes back up.
+	if not visibility_changed.is_connected(_on_visibility_changed):
+		visibility_changed.connect(_on_visibility_changed)
 	rebuild()
 
 
@@ -341,6 +351,8 @@ func _build_slider_row(def: MKSettingDef) -> Control:
 		_write(def, value)
 	)
 
+	_add_focus_ring(slider)
+
 	var row := _wrap(def, slider)
 	if row == null:
 		return null
@@ -350,6 +362,36 @@ func _build_slider_row(def: MKSettingDef) -> Control:
 	if def.id != ID_BRIGHTNESS:
 		return row
 	return _with_brightness_swatch(def, row, slider)
+
+
+## Gives [param slider] a visible focus indicator, because [HSlider] has no focus StyleBox of its
+## own: the engine's Slider theme defines the groove, the grabber and its highlight and nothing that
+## changes when focus arrives. A keyboard or gamepad player traversing a settings page therefore had
+## no way to tell which slider the arrow keys were about to move — the D12 promise with the one
+## control type that cannot honour it.
+##
+## The ring is a [Panel] child of the slider carrying [constant MKTheme.FOCUS_RING], the variation
+## the generated Theme has always defined and nothing consumed. Variation mechanics only: no
+## [code]add_theme_*_override[/code] (ship gate 1), so a host swapping [MKPalette] restyles this ring
+## with everything else.
+##
+## Parented to the slider (not the row) so the ring tracks the CONTROL's rect rather than the whole
+## labelled line, and grown by [constant FOCUS_RING_GROW] so it traces the groove instead of sitting
+## on it. [constant Control.MOUSE_FILTER_IGNORE] so it never eats a drag on the slider beneath it.
+func _add_focus_ring(slider: HSlider) -> void:
+	var ring := Panel.new()
+	ring.name = "FocusRing"
+	MKTheme.set_variation(ring, MKTheme.FOCUS_RING)
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ring.offset_left = -FOCUS_RING_GROW
+	ring.offset_top = -FOCUS_RING_GROW
+	ring.offset_right = FOCUS_RING_GROW
+	ring.offset_bottom = FOCUS_RING_GROW
+	ring.visible = false
+	slider.add_child(ring)
+	slider.focus_entered.connect(func() -> void: ring.visible = true)
+	slider.focus_exited.connect(func() -> void: ring.visible = false)
 
 
 ## Brightness gets a reference gradient beneath the slider (plan §4.3): a brightness control with no
@@ -500,17 +542,27 @@ func _build_text(def: MKSettingDef) -> Control:
 	# Committed on Enter AND on focus loss. Writing per keystroke would fire a store write and an
 	# engine apply on every character; committing only on Enter loses the edit of anyone who tabs away,
 	# which is most people.
-	edit.text_submitted.connect(func(text: String) -> void:
-		if _syncing:
-			return
-		_write(def, text)
-	)
-	edit.focus_exited.connect(func() -> void:
-		if _syncing:
-			return
-		_write(def, edit.text)
-	)
+	#
+	# Both routes go through _commit_text, which drops a commit that would write the value already in
+	# the store: focus_exited fires on every tab-through of an untouched field, and on a
+	# requires_confirm TEXT row an unconditional write there raises a revert countdown over a change
+	# the user never made.
+	edit.text_submitted.connect(func(_text: String) -> void: _commit_text(def, edit))
+	edit.focus_exited.connect(func() -> void: _commit_text(def, edit))
 	return edit
+
+
+## Writes a TEXT row's field, unless nothing changed. Compared against the STORE rather than against
+## a remembered last-commit, so a [method _sync_control] that rewrote the field from outside (a
+## revert, a host write) leaves the row agreeing with the store instead of poised to re-commit.
+func _commit_text(def: MKSettingDef, edit: LineEdit) -> void:
+	if _syncing:
+		return
+	var stored: Variant = _current(def)
+	var as_text := String(stored) if stored != null else ""
+	if edit.text == as_text:
+		return
+	_write(def, edit.text)
 
 
 ## [constant MKSettingDef.RowType.CUSTOM]: instantiate the host's scene and hand it the backend.
@@ -534,13 +586,16 @@ func _build_custom(def: MKSettingDef) -> Control:
 			% [MKLog.context(def, "custom_scene"), def.id])
 		inst.free()
 		return null
-	inst.call("_mk_bind", _backend, def)
+	# The Control check precedes the bind: _mk_bind is where a row reads the store, wires signals and
+	# may register itself with the host, and running all of that on an instance this method is about
+	# to free leaves those side effects behind with nothing on screen to show for them.
 	var control := inst as Control
 	if control == null:
 		MKLog.warn("%s: CUSTOM row '%s' root is a %s, not a Control — skipping it"
 			% [MKLog.context(def, "custom_scene"), def.id, inst.get_class()])
 		inst.free()
 		return null
+	inst.call("_mk_bind", _backend, def)
 	_controls[def.id] = control
 	_defs[def.id] = def
 	return control
@@ -616,8 +671,12 @@ func _dismiss_countdown(layer: MKModalLayer, countdown: Control) -> void:
 	if countdown == null or not is_instance_valid(countdown):
 		return
 	if layer != null and is_instance_valid(layer):
-		# remove_modal, not pop_modal: another modal may have been stacked above this one, and popping
-		# the top would dismiss the wrong thing while leaving this entry wedged in the stack forever.
+		# remove_modal, not pop_modal, and the case is reachable: the countdown resolves on a timer, so
+		# anything pushed over it in those ten seconds (a host dialog, a confirm from another row) is
+		# still on top when it lapses. pop_modal would then dismiss THAT and leave this entry wedged in
+		# the stack — is_empty() false forever, scrim up over nothing, every later cancel swallowed.
+		# remove_modal takes this entry wherever it sits, and routes through pop_modal when it is the
+		# top so focus restoration still happens.
 		layer.remove_modal(countdown)
 	countdown.queue_free()
 
@@ -663,24 +722,48 @@ func _sync_control(def: MKSettingDef) -> void:
 	_syncing = false
 
 
+## The index of [param value] among an enum row's [code]option_values[/code], or -1.
+##
+## [b]Type-gated, and that is not defensive tidiness.[/b] GDScript's [code]==[/code] does not return
+## false across unrelated types — [code]Vector2i == String[/code] raises "Invalid operands", a SCRIPT
+## ERROR mid-build. The resolution row's values are [Vector2i] and its stored value can be anything a
+## hand-edited JSON file holds, so a bare comparison loop takes the whole page down for a store the
+## backend itself was careful to tolerate.
+##
+## The numeric branch is the one cross-type comparison that means something: JSON has a single number
+## type, so an int authored as an [code]option_value[/code] can arrive back as a float (and the
+## reverse). Same-type values compare directly and everything else is simply not a match.
 func _index_of_value(values: Array, value: Variant) -> int:
+	var value_is_number := typeof(value) in [TYPE_INT, TYPE_FLOAT]
 	for i in values.size():
-		if values[i] == value:
-			return i
-	# Second pass on the numeric forms. JSON has one number type, so an int written as a window mode
-	# reads back as a float and `==` across the two is true — but a Vector2i and its decoded form are
-	# not, and a strict-only search silently selects nothing for exactly the reserved rows that matter.
-	for i in values.size():
-		if typeof(values[i]) in [TYPE_INT, TYPE_FLOAT] and typeof(value) in [TYPE_INT, TYPE_FLOAT]:
-			if float(values[i]) == float(value):
+		var candidate: Variant = values[i]
+		if typeof(candidate) == typeof(value):
+			if candidate == value:
 				return i
+			continue
+		if value_is_number and typeof(candidate) in [TYPE_INT, TYPE_FLOAT] \
+				and float(candidate) == float(value):
+			return i
 	return -1
 
 
 # --- Reactions ----------------------------------------------------------------
 
+## Every write to the store — this panel's own rows, a host writing directly, a load — lands here.
+##
+## The changed row's CONTROL is re-synced, because the store is the truth and a widget that disagrees
+## with it is the bug users report as "the setting didn't take": a host brightening the image through
+## the backend used to leave the brightness slider sitting where the player left it.
+##
+## Guarded by [member _syncing] so a sync cannot re-enter itself. A row's own write also arrives here
+## and re-syncs the control it came from: that is a write of the value the control already holds, and
+## the backend's own dedup means the resulting control signal (if any) writes nothing back.
 func _on_setting_changed(id: StringName, _value: Variant) -> void:
 	_update_conditional_rows()
+	if not _syncing:
+		var def: MKSettingDef = _defs.get(id, null)
+		if def != null:
+			_sync_control(def)
 	if id == ID_WINDOW_MODE:
 		# Deferred: this signal fires from set_value, which runs BEFORE apply_one pushes the mode at the
 		# DisplayServer. Querying the window now would read the mode we are leaving, so the row's
@@ -691,6 +774,17 @@ func _on_setting_changed(id: StringName, _value: Variant) -> void:
 ## Rows carrying a [member MKSettingDef.visible_condition_id] follow their controlling value live,
 ## rather than only at build time — a "Show advanced" toggle that needs a page reopen to take effect
 ## reads as a bug.
+##
+## [b]The fallback is the CONTROLLING row's own default_value, never a hardcoded false.[/b] An
+## untouched setting is absent from the store (seeding a control writes nothing), so on a fresh
+## install every condition resolves to its default — and a hardcoded false made a default-TRUE
+## controller disagree with its own dependent row. The shipped Gameplay page is exactly that shape:
+## Subtitles defaults on, so a first-run player saw the box CHECKED with the Subtitle Size row
+## missing, and the only gesture that revealed it was toggling Subtitles off and back on.
+##
+## Null-safe by construction: an unknown condition id (a typo, or a controller built on a page this
+## panel does not carry) and a def that authored no default both fall back to false, which is the
+## only safe reading of "nothing here says this row should be visible".
 func _update_conditional_rows() -> void:
 	for entry in _conditional_rows:
 		var node: Variant = entry["node"]
@@ -699,8 +793,17 @@ func _update_conditional_rows() -> void:
 		var condition: StringName = entry["condition"]
 		var shown := false
 		if _backend != null:
-			shown = bool(_backend.get_value(condition, false))
+			var raw: Variant = _backend.get_value(condition, _condition_default(condition))
+			shown = raw != null and bool(raw)
 		(node as Control).visible = shown
+
+
+## The value a [member MKSettingDef.visible_condition_id] resolves to while its controlling setting is
+## unset: that row's [member MKSettingDef.default_value]. Null when the id names no row this panel
+## built, or when the row authored no default.
+func _condition_default(condition: StringName) -> Variant:
+	var def: MKSettingDef = _defs.get(condition, null)
+	return def.default_value if def != null else null
 
 
 ## The resolution row is DISABLED outside windowed mode (plan §4.3): [method
@@ -722,22 +825,42 @@ func _update_resolution_enabled() -> void:
 		_resolution_button.tooltip_text = note if base.is_empty() else base + "\n" + note
 
 
-## Prefers the STORED window mode over a [DisplayServer] query.
+## [b]The WINDOW is the source of truth, not the store.[/b]
 ##
-## The store is the value the user just chose, and it is correct regardless of when the engine gets
-## around to applying it; the query is only correct after. Preferring the store makes this immune to
-## the ordering between [method MKSettingsBackend.set_value] and
-## [method MKSettingsBackend.apply_one] rather than merely working around it.
+## The store only knows about mode changes that went through this panel. Alt+Enter, a host calling
+## [method DisplayServer.window_set_mode] itself, and a window manager forcing a mode all move the
+## real window without writing anything — and against a stored "windowed" the resolution row would
+## then render ENABLED while [method DisplayServer.window_set_size] silently did nothing. That is the
+## worst of the three possible behaviours and the exact one this row exists to avoid, so a divergence
+## must be decided in favour of the window.
+##
+## The stored value is consulted [b]only under the headless driver[/b], where there is no window for
+## the query to be about: [method DisplayServer.window_get_mode] answers for a dummy, so trusting it
+## would disable the row for the whole test suite and make every assertion about enablement a
+## statement about the stub. Absent a stored mode, headless reports windowed.
+##
+## [b]The remaining gap, stated rather than papered over.[/b] Nothing polls. Enablement is
+## re-evaluated at build, on a [code]video/window_mode[/code] [signal
+## MKSettingsBackend.setting_changed] (deferred — see [method _on_setting_changed]), and on this
+## panel's own [signal CanvasItem.visibility_changed]. A mode change that happens while the settings
+## page is open and untouched is therefore NOT noticed until one of those edges comes round; the
+## re-show edge is there because leaving the page for gameplay and coming back is when that
+## divergence actually bites.
 func _is_windowed() -> bool:
+	if not _is_headless():
+		return DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_WINDOWED
 	if _backend != null:
 		var stored: Variant = _backend.get_value(ID_WINDOW_MODE, null)
 		if stored != null and typeof(stored) in [TYPE_INT, TYPE_FLOAT]:
 			return int(stored) == DisplayServer.WINDOW_MODE_WINDOWED
-	if _is_headless():
-		# No real window to be non-windowed. Reporting true keeps the row usable in the test suite
-		# instead of disabling it against a dummy DisplayServer.
-		return true
-	return DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_WINDOWED
+	return true
+
+
+## Re-checks the resolution row whenever this panel is shown again. See [method _is_windowed] for why
+## this edge exists and what it does not cover.
+func _on_visibility_changed() -> void:
+	if is_visible_in_tree():
+		_update_resolution_enabled()
 
 
 ## Asked here rather than delegated to [method MKJsonSettingsBackend.is_headless_display], because the

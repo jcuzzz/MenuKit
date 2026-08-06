@@ -47,6 +47,32 @@ func run_tests() -> void:
 			check(theme.has_stylebox(state, variation),
 				"%s defines a '%s' stylebox" % [variation, state])
 
+	# A slider's groove has no size of its own: its on-screen thickness IS the stylebox's content
+	# margins, so a zero-margin StyleBoxFlat renders a 0px-tall track with the grabber floating in
+	# space. That shipped once and was caught by eyeball on a capture while every headless assertion
+	# passed — this is the assertion that would have caught it.
+	for slider_type in [&"HSlider", &"VSlider"]:
+		var groove := theme.get_stylebox(&"slider", slider_type) as StyleBoxFlat
+		check(groove != null, "%s defines a groove stylebox" % slider_type)
+		if groove == null:
+			continue
+		check_eq(groove.content_margin_top, float(palette.spacing_xs),
+			"%s's groove is spacing_xs thick, not zero — the margin IS the visible track" % slider_type)
+		check_eq(groove.content_margin_bottom, float(palette.spacing_xs),
+			"%s's groove is thick on both sides" % slider_type)
+		var fill := theme.get_stylebox(&"grabber_area", slider_type) as StyleBoxFlat
+		check(fill != null and fill.content_margin_top == float(palette.spacing_xs),
+			"%s's filled portion matches the groove, so the track does not change height at the grabber"
+				% slider_type)
+
+	# MKFocusRing is drawn on controls that cannot own a focus StyleBox — the settings panel's sliders.
+	# It must be a BORDER over a transparent fill: an opaque ring would cover its own subject.
+	var ring := theme.get_stylebox(&"panel", MKTheme.FOCUS_RING) as StyleBoxFlat
+	check(ring != null, "MKFocusRing is a StyleBoxFlat")
+	if ring != null:
+		check(ring.border_width_top > 0, "with a real border, which is the entire ring")
+		check_eq(ring.bg_color.a, 0.0, "and a transparent fill, so it never obscures the control inside")
+
 	# --- the live re-skin path ---
 	var config := ResourceLoader.load(CONFIG_PATH) as MKConfig
 	check(config != null, "default config loads")

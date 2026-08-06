@@ -120,11 +120,16 @@ func _process(delta: float) -> void:
 ## whole point of the dialog is that the safe outcome is the one requiring no working input, and a
 ## player whose screen just went black is pressing Escape, not reading buttons.
 ##
-## Returns false — "I did not consume it" — which is what makes the layer pop this dialog. The
-## dialog reports the decision and the stack owns the removal, exactly as [MKConfirmDialog] does.
+## [b]Returns true — consumed — and the layer must not pop anything.[/b] Emitting [signal reverted]
+## resolves this dialog synchronously: the settings panel's handler puts the value back and calls
+## [method MKModalLayer.remove_modal] on this dialog before this method has returned. Reporting
+## "not consumed" then made [method MKModalLayer.handle_cancel] pop AGAIN — and the entry it popped
+## was whatever modal had been underneath, destroyed by one Escape press on a dialog it had nothing
+## to do with. So the removal is the panel's, exactly as the ownership note above says, and this
+## reports that the gesture is spent.
 func handle_cancel() -> bool:
 	_finish(false)
-	return false
+	return true
 
 
 ## Called by [method MKModalLayer.clear_for_teardown]. Teardown emits no

@@ -601,9 +601,16 @@ func _boot_own_settings_backend() -> MKSettingsBackend:
 ## slider, not because it is equivalent.
 ##
 ## [b]Two controllers must never coexist[/b] — each applies its own gamma pass and the image would be
-## corrected twice. The adopt path never reaches this method, and the belt-and-braces check below
-## also covers the case where a service exists but is inert (unassigned settings slot) while still
-## owning a controller of its own.
+## corrected twice. The adopt path never reaches this method, so the check below is about the ONE
+## remaining route: [code]/root/MKSettingsService[/code] is resolved duck-typed (get_node_or_null plus
+## has_method), so the node answering that name need not be the shipped service. A host-supplied one
+## that owns a brightness controller while returning null from [code]get_settings_backend()[/code]
+## sends this scene down the build-your-own path with a controller already live, and without the check
+## that scene would add the second gamma pass.
+##
+## The shipped [code]MKSettingsService[/code] cannot reach that state — its [code]_boot_brightness[/code]
+## runs only after a backend booted, so an inert service owns no controller either — which is why this
+## is a check against a host's node, not a second guess about our own.
 func _boot_own_brightness(backend: MKSettingsBackend) -> void:
 	if config == null or not config.manage_brightness:
 		return

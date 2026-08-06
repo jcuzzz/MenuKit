@@ -43,9 +43,16 @@ func run_tests() -> void:
 	await _test_custom_rows()
 	await _test_invalid_defs_are_skipped()
 	await _test_visible_condition_is_live()
+	await _test_visible_condition_defaults_to_the_controlling_row()
+	await _test_shipped_gameplay_page_shows_its_dependent_row()
 	await _test_shipped_default_pages_build_silently()
 	await _test_no_backend_renders_disabled()
 	await _test_resolution_row()
+	await _test_resolution_enabled_rechecks_on_reshow()
+	await _test_external_write_syncs_the_control()
+	await _test_row_interaction_applies_one()
+	await _test_enum_matches_a_numeric_value_across_types()
+	await _test_slider_rows_carry_a_focus_ring()
 	await _test_null_default_rows_build()
 
 	_clean()
@@ -341,6 +348,91 @@ func _test_visible_condition_is_live() -> void:
 	await step_frame()
 
 
+## The fallback for an UNSET controlling value is that row's own default_value.
+##
+## An untouched setting is absent from the store (seeding a control writes nothing), so on a fresh
+## install every condition resolves through this path — and resolving it as a hardcoded false is how
+## a default-TRUE controller shipped with its dependent row hidden while its own box read checked.
+func _test_visible_condition_defaults_to_the_controlling_row() -> void:
+	var backend := _make_backend()
+	var controller := _def(&"cond2/advanced", MKSettingDef.RowType.TOGGLE, "Advanced")
+	controller.default_value = true
+
+	var dependent := _slider_def(&"cond2/size", 0.0, 4.0, 1.0)
+	dependent.visible_condition_id = &"cond2/advanced"
+
+	# Controlled by an id no row on this panel declares: nothing says it should be shown, so it is not.
+	var orphan := _slider_def(&"cond2/orphan", 0.0, 4.0, 1.0)
+	orphan.visible_condition_id = &"cond2/nobody"
+
+	# A controller that authored NO default: bool(null) is a script error, so this pins the null guard
+	# as well as the policy.
+	var defaultless := _def(&"cond2/plain", MKSettingDef.RowType.TOGGLE, "Plain")
+	defaultless.default_value = null
+	var dependent_on_null := _slider_def(&"cond2/null_dep", 0.0, 4.0, 1.0)
+	dependent_on_null.visible_condition_id = &"cond2/plain"
+
+	var panel := await _make_panel(backend, [_page("cond2", "Cond2",
+		[controller, dependent, orphan, defaultless, dependent_on_null])])
+
+	check_eq(backend.get_value(&"cond2/advanced", null), null,
+		"the store is genuinely EMPTY for the controlling id — this is the first-run path, not a seeded one")
+
+	var sliders := _all(panel, HSlider)
+	check_eq(sliders.size(), 3, "all three dependent rows built")
+	if sliders.size() < 3:
+		panel.queue_free()
+		backend.queue_free()
+		return
+
+	check(_row_root(panel, sliders[0] as Control).visible,
+		"a dependent row is VISIBLE at build when its controller defaults to true and the store is empty")
+	check(not _row_root(panel, sliders[1] as Control).visible,
+		"a condition naming no built row resolves false rather than guessing")
+	check(not _row_root(panel, sliders[2] as Control).visible,
+		"and a controller with no default_value resolves false without a bool(null) script error")
+
+	# The live path still wins over the default the moment the store says otherwise.
+	backend.set_value(&"cond2/advanced", false)
+	check(not _row_root(panel, sliders[0] as Control).visible,
+		"an explicit stored false hides it again — the default is a fallback, not an override")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## The shipped Gameplay page, on a FRESH store, is the case the fallback above exists for: Subtitles
+## defaults on, so Subtitle Size must be on screen the first time a player opens the page. Asserted
+## against the real resource rather than a fixture, because the defect was in the shipped data's
+## interaction with the panel and a fixture-only test is what let it ship.
+func _test_shipped_gameplay_page_shows_its_dependent_row() -> void:
+	var backend := _make_backend()
+	var page := load("res://addons/menu_kit/settings/defaults/gameplay_page.tres") as MKSettingsPageDef
+	check(page != null, "the shipped Gameplay page loads")
+	if page == null:
+		backend.queue_free()
+		return
+	var panel := await _make_panel(backend, [page])
+
+	var toggle: Variant = panel._controls.get(&"gameplay/subtitles", null)
+	var dependent: Variant = panel._controls.get(&"gameplay/subtitle_size", null)
+	check(toggle is CheckBox and dependent is HSlider, "both shipped rows built")
+	if not (toggle is CheckBox and dependent is HSlider):
+		panel.queue_free()
+		backend.queue_free()
+		return
+
+	check((toggle as CheckBox).button_pressed,
+		"Subtitles reads CHECKED on a fresh store, from its default_value")
+	check(_row_root(panel, dependent as Control).visible,
+		"and Subtitle Size is VISIBLE — a checked toggle beside a missing dependent row is the first thing a cold drop shows")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
 ## Ship gate 2 in miniature: the four shipped pages are what a cold drop builds, and §3.1 keeps them
 ## deliberately provision-free (Master-only audio, no KEYBIND rows) so that build is SILENT.
 ##
@@ -426,8 +518,17 @@ func _test_no_backend_renders_disabled() -> void:
 ## Asserting "1920x1080 was filtered out on a 1280x720 screen" is therefore impossible in this suite
 ## WITHOUT lying about which branch ran; that filtering and the native-size insertion are a phase
 ## exit criterion on a real display. What is asserted here is the value logic underneath: the curated
-## list reaches the dropdown, a non-Vector2i entry is dropped with a warning, and the STORED window
-## mode — not a DisplayServer query — drives the row's enabled state.
+## list reaches the dropdown, a non-Vector2i entry is dropped with a warning, and the stored window
+## mode — the branch [code]_is_windowed[/code] takes under the headless driver, where there is no
+## window for a DisplayServer query to be about — drives the row's enabled state.
+##
+## [b]The deferral in [code]_on_setting_changed[/code] is deliberately NOT covered here, and this says
+## so rather than pretending.[/b] It exists because setting_changed fires from set_value, BEFORE
+## apply_one pushes the mode at the DisplayServer, so an immediate query would read the mode being
+## left. Headless there is no such query — the stored value is already correct at signal time — so
+## turning the call_deferred into a direct call changes nothing this suite can observe, and an
+## assertion claiming otherwise would be measuring the frame count, not the ordering. It belongs to
+## the human pass on a real display, with the rest of the DisplayServer branch.
 func _test_resolution_row() -> void:
 	var backend := _make_backend()
 	backend.set_value(MKSettingsPanel.ID_WINDOW_MODE, 0)
@@ -486,6 +587,210 @@ func _test_resolution_row() -> void:
 	await step_frame()
 
 
+## The re-show edge of the resolution row's enablement (see [code]MKSettingsPanel._is_windowed[/code]).
+##
+## [b]Headless boundary, stated precisely.[/b] With a real display the row's enabled state is decided
+## by [method DisplayServer.window_get_mode], so the divergence this edge exists for — alt+enter, a
+## host calling window_set_mode, a window manager forcing a mode — cannot be staged here: the headless
+## driver has no window to diverge, which is exactly why the stored value is consulted under it. That
+## branch selection and the visible correction of a stale row on a real display are a phase exit
+## criterion on the human pass.
+##
+## What IS assertable, and is: the panel re-evaluates on being shown again at all. The row is put into
+## a state the current inputs do not justify, the panel is hidden and re-shown, and the re-evaluation
+## must have corrected it. Drop the visibility_changed wiring and this fails.
+func _test_resolution_enabled_rechecks_on_reshow() -> void:
+	var backend := _make_backend()
+	backend.set_value(MKSettingsPanel.ID_WINDOW_MODE, 0)
+	var resolution := _enum_def(MKSettingsPanel.ID_RESOLUTION,
+		["1280 x 720", "1920 x 1080"], [Vector2i(1280, 720), Vector2i(1920, 1080)])
+	var panel := await _make_panel(backend, [_page("video", "Video", [resolution])])
+
+	var button := panel._resolution_button
+	check(button != null, "the resolution row built")
+	if button == null:
+		panel.queue_free()
+		backend.queue_free()
+		return
+	check(not button.disabled, "and starts enabled, matching the inputs")
+
+	# Stands in for a mode change the panel never saw: the row is left in a state nothing re-derives
+	# on its own.
+	button.disabled = true
+	panel.visible = false
+	await step_frame()
+	check(button.disabled, "hiding the panel re-derives nothing — there is nobody looking at it")
+
+	panel.visible = true
+	await step_frame()
+	check(not button.disabled,
+		"showing it again re-evaluates enablement, which is the edge that catches a mode changed while the player was in gameplay")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## A write that did not come from a row must still move that row's widget. The panel is not the only
+## writer — a host writing the value itself, a load, the revert path — and a store the widget
+## disagrees with is the bug reported as "the setting didn't take": brightening the image through the
+## backend used to leave the brightness slider sitting exactly where the player had left it.
+func _test_external_write_syncs_the_control() -> void:
+	var backend := _make_backend()
+	backend.set_value(&"sync/slider", 0.25)
+	backend.set_value(&"sync/toggle", false)
+	backend.set_value(&"sync/text", "before")
+	backend.set_value(&"sync/enum", 1)
+
+	var panel := await _make_panel(backend, [_page("sync", "Sync", [
+		_slider_def(&"sync/slider", 0.0, 1.0, 0.01),
+		_def(&"sync/toggle", MKSettingDef.RowType.TOGGLE, "Toggle"),
+		_def(&"sync/text", MKSettingDef.RowType.TEXT, "Text"),
+		_enum_def(&"sync/enum", ["A", "B"], [1, 2]),
+	])])
+
+	var slider := _first(panel, HSlider) as HSlider
+	check_eq(slider.value, 0.25, "the slider starts on the stored value")
+	check(_find_label(panel, "0.25") != null, "with its readout agreeing")
+
+	backend.set_value(&"sync/slider", 0.75)
+	check_eq(slider.value, 0.75, "a write straight through the backend moves the WIDGET")
+	check(_find_label(panel, "0.75") != null,
+		"and the readout beside it follows — a brightened image beside a slider still reading 0.25 is the reported shape of this bug")
+
+	backend.set_value(&"sync/toggle", true)
+	check((_first(panel, CheckBox) as CheckBox).button_pressed, "the CheckBox follows too")
+	backend.set_value(&"sync/text", "after")
+	check_eq((_first(panel, LineEdit) as LineEdit).text, "after", "and the LineEdit")
+	backend.set_value(&"sync/enum", 2)
+	check_eq((_first(panel, OptionButton) as OptionButton).selected, 1, "and the OptionButton")
+
+	check_eq(backend.get_value(&"sync/slider", 0.0), 0.75,
+		"and none of it echoed a write back — _syncing suppresses the control's own signal")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## A row interaction must call apply_one for THAT id and never apply_all. A slider drag emits a write
+## per pixel; re-pushing every window mode, bus volume and InputMap binding on each of those is slow
+## and shows up as window flicker on the display rows. The backend half of this is covered in
+## test_apply_one.gd — this pins the panel's call SITE, which that suite cannot see.
+func _test_row_interaction_applies_one() -> void:
+	_clean()
+	var backend := ProbeBackend.new()
+	backend._mk_configure({"file_path": STORE_PATH})
+	get_root().add_child(backend)
+
+	var panel := await _make_panel(backend, [_page("probe2", "Probe2", [
+		_slider_def(&"probe2/slider", 0.0, 1.0, 0.1),
+		_def(&"probe2/toggle", MKSettingDef.RowType.TOGGLE, "Toggle"),
+	])])
+	backend.applied_one.clear()
+	backend.applied_all = 0
+
+	(_first(panel, HSlider) as HSlider).value = 0.5
+	check_eq(backend.applied_one, [&"probe2/slider"] as Array[StringName],
+		"moving a slider applies exactly its own id")
+	check_eq(backend.applied_all, 0,
+		"and never apply_all — one drag would otherwise re-push every setting in the store, per pixel")
+
+	(_first(panel, CheckBox) as CheckBox).button_pressed = true
+	check_eq(backend.applied_one.size(), 2, "a second row applies once more")
+	check_eq(backend.applied_one[1], &"probe2/toggle", "for its own id")
+	check_eq(backend.applied_all, 0, "still no apply_all")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## Cross-type value matching on an ENUM row, both directions of the one comparison that is allowed to
+## cross: JSON has a single number type, so an int authored as an option_value comes back as a float
+## and vice versa. And the comparison must be TYPE-GATED — [code]Vector2i == String[/code] is a script
+## error, not false, so an unmatched hand-edited store would take the whole page down mid-build. The
+## gate fails any test whose output carries a script error, which is what makes that half assertable.
+func _test_enum_matches_a_numeric_value_across_types() -> void:
+	var backend := _make_backend()
+	# Stored as an INT against FLOAT option_values.
+	backend.set_value(&"cross/mode", 1)
+	# ...and the reverse: a float against int option_values.
+	backend.set_value(&"cross/level", 2.0)
+	# A string where the row's values are Vector2i — the hand-edited-store case.
+	backend.set_value(&"cross/size", "1920x1080")
+
+	var panel := await _make_panel(backend, [_page("cross", "Cross", [
+		_enum_def(&"cross/mode", ["Zero", "One"], [0.0, 1.0]),
+		_enum_def(&"cross/level", ["A", "B", "C"], [0, 1, 2]),
+		_enum_def(&"cross/size", ["720", "1080"], [Vector2i(1280, 720), Vector2i(1920, 1080)]),
+	])])
+
+	var buttons := _all(panel, OptionButton)
+	check_eq(buttons.size(), 3, "all three ENUM rows built — a script error mid-build would cost the page")
+	if buttons.size() < 3:
+		panel.queue_free()
+		backend.queue_free()
+		return
+	check_eq((buttons[0] as OptionButton).selected, 1,
+		"an int in the store selects the entry whose option_value is the equivalent float")
+	check_eq((buttons[1] as OptionButton).selected, 2,
+		"and a float in the store selects the equivalent int entry")
+	check_eq((buttons[2] as OptionButton).selected, 0,
+		"an unmatchable value falls back to the first entry rather than comparing across types")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## Sliders get a focus indicator, because [HSlider] has none: the engine's Slider theme styles the
+## groove, the grabber and its highlight, and nothing that changes when focus arrives. A keyboard or
+## gamepad player had no way to tell which slider the arrow keys were about to move — the D12 promise
+## failing on the one control type that cannot honour it by itself.
+##
+## The ring is the MKFocusRing type variation, which the generated Theme has always defined and which
+## nothing consumed until now, so this is theme mechanics rather than a theme override (gate 1).
+##
+## [b]Headless boundary.[/b] That the ring is legible on screen is an eyeball question and was checked
+## by capture. What is asserted here: the ring exists, it carries the variation, and it tracks focus.
+func _test_slider_rows_carry_a_focus_ring() -> void:
+	var backend := _make_backend()
+	var panel := await _make_panel(backend, [_page("ring", "Ring", [
+		_slider_def(&"ring/value", 0.0, 1.0, 0.1),
+	])])
+
+	var slider := _first(panel, HSlider) as HSlider
+	check(slider != null, "the slider row built")
+	if slider == null:
+		panel.queue_free()
+		backend.queue_free()
+		return
+	var ring := slider.get_node_or_null("FocusRing") as Panel
+	check(ring != null, "the slider carries a focus ring of its own")
+	if ring == null:
+		panel.queue_free()
+		backend.queue_free()
+		return
+	check_eq(ring.theme_type_variation, MKTheme.FOCUS_RING,
+		"styled by the MKFocusRing VARIATION — a palette swap must restyle it with everything else")
+	check_eq(ring.mouse_filter, Control.MOUSE_FILTER_IGNORE,
+		"and it never eats a drag on the slider beneath it")
+	check(not ring.visible, "hidden while the slider is not focused")
+
+	slider.grab_focus()
+	await step_frame()
+	check(ring.visible, "focusing the slider shows the ring — the only feedback a gamepad player gets")
+
+	slider.release_focus()
+	await step_frame()
+	check(not ring.visible, "and leaving it hides the ring again")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
 ## Regression: a TOGGLE or SLIDER def whose author omitted default_value (it defaults to null) must
 ## still build — bool(null)/float(null) are SCRIPT ERRORS, not coercions, and the shipped pages all
 ## author defaults, so only a host's first hand-written row ever hit this. Found by the Phase 3 test
@@ -516,6 +821,22 @@ func _test_null_default_rows_build() -> void:
 
 
 # --- Fixtures -----------------------------------------------------------------
+
+## A real backend that counts which application call a row reached for. A subclass rather than a
+## stub: the panel must be observed against the backend it actually ships with, and everything except
+## the counting is inherited behaviour.
+class ProbeBackend extends MKJsonSettingsBackend:
+	var applied_one: Array[StringName] = []
+	var applied_all := 0
+
+	func apply_one(id: StringName) -> void:
+		applied_one.append(id)
+		super(id)
+
+	func apply_all() -> void:
+		applied_all += 1
+		super()
+
 
 func _make_backend() -> MKJsonSettingsBackend:
 	_clean()
