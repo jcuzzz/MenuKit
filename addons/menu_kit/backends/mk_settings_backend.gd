@@ -54,10 +54,79 @@ func apply_one(_id: StringName) -> void:
 	pass
 
 
+## Push ONE action's binding at the live [InputMap] — the rebind counterpart of [method apply_one]
+## (plan §4.4).
+##
+## [b]Why a rebind cannot wait for the next [method apply_all].[/b] A player who has just pressed a
+## key expects that key to work, immediately and without leaving the settings page. Storing the
+## binding and applying it later is the shape of bug that reads as "rebinding does nothing".
+##
+## [b]Why the base body delegates to [method apply_all] instead of being abstract.[/b] The base class
+## cannot know how to target a single action — it does not own the store's shape, and an override set
+## is a subclass concern. Delegating is CORRECT but heavier than it needs to be: it re-pushes every
+## window, bus and binding value for one key change. Subclasses SHOULD override this with a targeted
+## implementation ([MKJsonSettingsBackend] does).
+##
+## It is deliberately [b]not[/b] [code]@abstract[/code]: every host subclass already in existence
+## satisfies the current contract, and adding an abstract method would break each one at parse time
+## for a capability the base can supply a working (if broad) answer to.
+##
+## The parameter is underscored here only because this base body ignores it; overrides name it
+## [code]action[/code].
+func apply_action(_action: StringName) -> void:
+	apply_all()
+
+
 ## Capture stock [InputMap] bindings [b]before[/b] any override is applied — the source of truth for
 ## "Reset to Defaults". Must run before [method load], or the defaults captured are the user's
 ## overrides and the recovery path silently becomes a no-op.
 @abstract func snapshot_input_defaults() -> void
+
+
+## The input-store half of the contract (plan §4.4): what the rebind rows read and write.
+##
+## All six are non-abstract with inert bodies, for the same reason [method apply_one] and
+## [method apply_action] are: a store-only backend that predates Phase 4 is a legitimate
+## implementation, and turning these abstract would break every such host subclass at parse time.
+## The inert answers are chosen so a rebind row over such a backend degrades VISIBLY rather than
+## wrongly: no events means every row reads "Unbound", [code]false[/code] from
+## [method has_action_override] keeps each Reset disabled, and the writes drop silently —
+## exactly the same face the panel shows for a null backend, which is the honest one.
+##
+## Overriding [method set_action_events] without the read side (or vice versa) produces rows that
+## capture but never display, so implement the six together ([MKJsonSettingsBackend] is the
+## reference).
+
+## The events bound to [param action]: its override when one exists, its stock bindings otherwise.
+func get_action_events(_action: StringName) -> Array[InputEvent]:
+	return []
+
+
+## Records [param events] as the user's override for [param action]. Store-only: call
+## [method apply_action] to push it at the live [InputMap].
+func set_action_events(_action: StringName, _events: Array) -> void:
+	pass
+
+
+## The stock bindings captured by [method snapshot_input_defaults] — what "Reset to Defaults"
+## restores, and what the panel derives the reserved-event list from.
+func get_default_action_events(_action: StringName) -> Array[InputEvent]:
+	return []
+
+
+## Drops [param action]'s override and restores its stock bindings.
+func reset_action_to_default(_action: StringName) -> void:
+	pass
+
+
+## Drops every override at once — the global recovery net (plan §4.4).
+func reset_all_actions_to_defaults() -> void:
+	pass
+
+
+## Whether [param action] currently carries a user override — what enables a row's Reset button.
+func has_action_override(_action: StringName) -> bool:
+	return false
 
 
 ## Optional parameterization hook (plan §4.1). Returns the keys consumed from [param params].

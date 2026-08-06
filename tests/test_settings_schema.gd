@@ -44,7 +44,7 @@ func run_tests() -> void:
 	await _test_row_types_build_and_write()
 	await _test_enum_option_values()
 	await _test_defaults_seed_empty_store()
-	await _test_keybind_row_is_skipped()
+	await _test_keybind_row_builds()
 	await _test_custom_rows()
 	await _test_invalid_defs_are_skipped()
 	await _test_visible_condition_is_live()
@@ -224,25 +224,35 @@ func _test_defaults_seed_empty_store() -> void:
 	await step_frame()
 
 
-## KEYBIND is Phase 4. The row is skipped with a named warning rather than rendered dead, and the
-## addon ships no KEYBIND row precisely so this never fires in the cold drop (plan §3.1).
-func _test_keybind_row_is_skipped() -> void:
+## KEYBIND landed in Phase 4: a row naming a real action BUILDS (as an [MKRebindRow], registered like
+## any other control), silently. The authoring error — a KEYBIND def with no action_name — is what
+## keeps the old warn-and-skip contract: there is no binding to show or capture into, so that row is
+## absent and the warning names the resource. Capture, conflict and reset behaviour belongs to the
+## dedicated rebind suite; this test owns only the panel's build contract.
+func _test_keybind_row_builds() -> void:
 	var backend := _make_backend()
 	var keybind := _def(&"input/jump", MKSettingDef.RowType.KEYBIND, "Jump")
 	keybind.action_name = &"ui_accept"
+	var actionless := _def(&"input/broken", MKSettingDef.RowType.KEYBIND, "Broken")
 
 	_watch_warnings()
 	var panel := await _make_panel(backend, [_page("keys", "Keys", [
 		keybind,
+		actionless,
 		_def(&"input/invert", MKSettingDef.RowType.TOGGLE, "Invert"),
 	])])
 	var warnings := _stop_watching()
 
-	check(panel.is_built(), "the page still builds around a KEYBIND row")
-	check(not panel._controls.has(&"input/jump"), "the KEYBIND row produced no control")
-	check(panel._controls.has(&"input/invert"), "while the rows around it built normally")
-	check_eq(_count_containing(warnings, "input/jump"), 1,
-		"the skip is named once, so a missing row is not diagnosed by reading source")
+	check(panel.is_built(), "the page builds around KEYBIND rows")
+	check(panel._controls.get(&"input/jump") is MKRebindRow,
+		"a KEYBIND row naming a real action builds an MKRebindRow and registers it")
+	check_eq(_count_containing(warnings, "input/jump"), 0,
+		"and building it warns nothing — the Phase 3 skip warning is gone")
+	check(not panel._controls.has(&"input/broken"),
+		"a KEYBIND row naming NO action is the remaining skip case")
+	check_eq(_count_containing(warnings, "input/broken"), 1,
+		"and that skip is named once, so a missing row is not diagnosed by reading source")
+	check(panel._controls.has(&"input/invert"), "while the rows around them built normally")
 
 	panel.queue_free()
 	backend.queue_free()

@@ -182,8 +182,23 @@ func _restore_default_events(action: StringName) -> void:
 		MKLog.warn("%s: no boot snapshot for action '%s' — call snapshot_input_defaults() before load()"
 			% [_context(), action])
 		return
+	_write_action_to_input_map(action, _input_defaults[String(action)])
+
+
+## The ONE erase-then-re-add implementation in this class. Three callers reach it — the boot sweep
+## ([method _apply_input_overrides]), the reset restore ([method _restore_default_events]) and the
+## targeted [method apply_action] — and each of them is a full replacement of an action's event list,
+## never an addition: [method InputMap.action_add_event] appends, so re-adding without the erase
+## leaves the OLD key still bound alongside the new one and the rebound action fires on both.
+##
+## It deliberately does [b]no[/b] [method InputMap.has_action] check and issues no warning. The three
+## callers disagree about what an absent action means — the boot sweep names it (a stored rebind for
+## an action the project dropped is worth reporting once), the reset restore stays silent (there is
+## nothing the user did wrong) — and folding those into one policy here would change two shipped
+## behaviours to unify a two-line loop. Callers verify the action first.
+func _write_action_to_input_map(action: StringName, rows: Variant) -> void:
 	InputMap.action_erase_events(action)
-	for event in _deserialize_events(_input_defaults[String(action)]):
+	for event in _deserialize_events(rows):
 		InputMap.action_add_event(action, event)
 
 
@@ -378,6 +393,46 @@ func apply_one(id: StringName) -> void:
 				_apply_bus(name)
 
 
+## Pushes exactly ONE action's binding at the live [InputMap] — the instant-apply path a rebind row
+## uses after every commit (plan §4.4).
+##
+## Targeted rather than the base class's [method MKSettingsBackend.apply_all] delegation: rebinding
+## seven movement keys in a row would otherwise re-push the window mode, the resolution and every bus
+## volume seven times, and on a windowed build the resolution re-push is a visible flicker for a key
+## change that has nothing to do with the display.
+##
+## [b]Both directions are applied, and the "no override" branch is the load-bearing one.[/b] A row's
+## Reset (and the page's global Reset All) DROPS the action's override rather than storing a new one,
+## so an implementation that only walked [member _input_overrides] would leave the live [InputMap]
+## running the binding the user just asked to undo while the row redrew as default — the exact
+## failure [method _restore_default_events] documents, reintroduced at a second call site. So: an
+## override applies the override, and its absence re-applies the boot snapshot.
+##
+## Runs unconditionally, headless included, like every other input application in this class
+## (see [method apply_all]): [InputMap] is real under the headless driver, unlike [DisplayServer].
+##
+## An action this project does not define is warned about and the live map is left ALONE — the same
+## warn-and-keep behaviour [method _apply_input_overrides] has, for the same reason: erasing an
+## action MenuKit cannot name is a worse outcome than a log line.
+func apply_action(action: StringName) -> void:
+	var key := String(action)
+	if not InputMap.has_action(action):
+		MKLog.warn("%s: stored rebind names action '%s', which this project does not define"
+			% [_context(), action])
+		return
+	if _input_overrides.has(key):
+		_write_action_to_input_map(action, _input_overrides[key])
+		return
+	if not _input_defaults.has(key):
+		# No snapshot for this action: snapshot_input_defaults() never ran, or ran before the action
+		# existed. Same policy as _restore_default_events — leave the live binding alone rather than
+		# erasing it into nothing, and name the host contract (§4.2) that was breached.
+		MKLog.warn("%s: no boot snapshot for action '%s' — call snapshot_input_defaults() before load()"
+			% [_context(), action])
+		return
+	_write_action_to_input_map(action, _input_defaults[key])
+
+
 func _apply_display() -> void:
 	_apply_max_fps()
 
@@ -469,9 +524,7 @@ func _apply_input_overrides() -> void:
 			MKLog.warn("%s: stored rebind names action '%s', which this project does not define"
 				% [_context(), action])
 			continue
-		InputMap.action_erase_events(action)
-		for event in _deserialize_events(_input_overrides[key]):
-			InputMap.action_add_event(action, event)
+		_write_action_to_input_map(action, _input_overrides[key])
 
 
 ## Renames the unreadable file aside and warns. Picks the first free [code]<n>[/code] rather than

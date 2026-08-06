@@ -16,6 +16,78 @@ window/size/viewport_height=1080
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[input]
+
+; DEMO provisioning (plan §3.1), exactly like the bus layout above. These seven actions exist so the
+; demo has something real to rebind — demo/demo_pages/settings_controls.tres carries one KEYBIND row
+; per action — and so Phase 6's gameplay demo has a movement scheme to drive.
+;
+; NOTHING in addons/menu_kit/ references them (plan §3.1, gate 2). The addon's own Controls page is
+; sensitivity-and-deadzone only, because a KEYBIND row naming an absent action warns and an empty
+; project defines only the ui_* actions — so addon-shipped rebind rows would make the cold drop noisy
+; in exactly the configuration that gate requires to be silent. A host adopting MenuKit defines its
+; own actions here and authors its own rows, which is the same job this section demonstrates.
+;
+; Keyboard events are keyed by PHYSICAL keycode and carry keycode 0, matching the persisted format
+; MKJsonSettingsBackend writes (plan §4.4): a physical binding stays under the same finger on an
+; AZERTY layout, which is the whole reason for that decision. A default authored by keycode here
+; would round-trip through a rebind and a reset into a DIFFERENT key on those layouts.
+;
+; demo_jump is bound to Space DELIBERATELY, and the overlap with ui_accept is the point: Phase 4's
+; acceptance gate is that Space binds without complaint. MenuKit reserves only the non-keyboard
+; ui_cancel bindings (the gamepad-B menu-back hazard) and lets keyboard Escape be unbindable by
+; mechanism instead — see MKSettingsPanel._reserved_input_events.
+
+; ui_cancel is restated with its stock Escape PLUS a gamepad B binding the engine default lacks.
+; Two reasons, both load-bearing: the demo advertises gamepad menu navigation (plan §4.7), and the
+; rebind rows' reserved-event list is DERIVED from the boot-default non-keyboard ui_cancel bindings
+; (MKSettingsPanel._reserved_input_events) — without a pad binding here that list is empty and the
+; joypad-B "reserved by the menu" refusal, a Phase 4 acceptance criterion, is inert in the demo.
+; A host wanting the guard gives ui_cancel its pad binding the same way (or widens
+; extra_reserved_events); Escape here keeps the engine's own keycode form since it is the engine's
+; binding restated, not a rebindable demo action.
+ui_cancel={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":4194305,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+, Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":1,"pressure":0.0,"pressed":false,"script":null)
+]
+}
+demo_move_forward={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":87,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+demo_move_back={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":83,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+demo_move_left={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":65,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+demo_move_right={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":68,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+demo_jump={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":32,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+demo_interact={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":69,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+demo_fire={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"button_mask":0,"position":Vector2(0, 0),"global_position":Vector2(0, 0),"factor":1.0,"button_index":1,"canceled":false,"pressed":false,"double_click":false,"script":null)
+]
+}
+
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/menu_kit/plugin.cfg")

@@ -53,6 +53,15 @@ const FOCUS_RING_GROW := 4.0
 ## [method rebuild].
 @export var pages: Array[MKSettingsPageDef] = []
 
+## Extra events a [constant MKSettingDef.RowType.KEYBIND] row must REFUSE to bind, appended to the
+## ones [method _reserved_input_events] derives. Exported so a host can widen the list — a game whose
+## menu is also opened by Start, or by a second gamepad face button, has a hazard MenuKit cannot know
+## about — without forking the panel.
+##
+## See [method _reserved_input_events] for why the derived part of the list is so short, and why
+## keyboard Escape is deliberately NOT on it.
+@export var extra_reserved_events: Array[InputEvent] = []
+
 var _backend: MKSettingsBackend
 var _tabs: TabContainer
 var _built := false
@@ -98,6 +107,11 @@ var _live_countdowns: Array = []
 var _conditional_rows: Array = []
 ## The resolution row's [OptionButton], if one was built. Its enabled state tracks the window mode.
 var _resolution_button: OptionButton
+## Every built [MKRebindRow], across all pages, in build order. Held separately from [member
+## _controls] because the global "Reset All Bindings" button must refresh EVERY rebind row — including
+## one whose id lost the [method _register_control] race to a duplicate and is therefore absent from
+## [member _controls] while still being on screen and still showing a binding.
+var _rebind_rows: Array[MKRebindRow] = []
 
 
 func _ready() -> void:
@@ -240,6 +254,7 @@ func _clear() -> void:
 	_defs.clear()
 	_pages_of_id.clear()
 	_conditional_rows.clear()
+	_rebind_rows.clear()
 	_resolution_button = null
 	if _tabs != null and is_instance_valid(_tabs):
 		# remove_child before queue_free: a queued node stays in the tree until end of frame, so a
@@ -274,6 +289,7 @@ func _build_page(page: MKSettingsPageDef) -> void:
 	# duplicate id arrived on. Cleared at the end, so a registration from anywhere else cannot blame a
 	# page that had finished building.
 	_building_page = page
+	var rebinds_before := _rebind_rows.size()
 	for i in page.rows.size():
 		var def := page.rows[i]
 		if def == null:
@@ -289,6 +305,11 @@ func _build_page(page: MKSettingsPageDef) -> void:
 		column.add_child(row)
 		if def.visible_condition_id != &"":
 			_conditional_rows.append({"node": row, "condition": def.visible_condition_id})
+	# The recovery net, on any page that actually has bindings to recover. Appended below the rows
+	# rather than pinned to the panel, because a project can carry rebind rows on more than one page
+	# and a button floating outside the tab strip belongs to none of them.
+	if _rebind_rows.size() > rebinds_before:
+		column.add_child(_build_reset_all_bindings_button())
 	_building_page = null
 
 
@@ -316,9 +337,9 @@ func _register_control(def: MKSettingDef, control: Control) -> void:
 	_pages_of_id[def.id] = _building_page
 
 
-## Builds one row, or returns null when the def cannot produce one (KEYBIND this phase, a CUSTOM
-## scene that does not honour the bind contract). Callers skip a null; the warning is issued here so
-## it names the offending resource once, where the reason is known.
+## Builds one row, or returns null when the def cannot produce one (a KEYBIND naming no action, a
+## CUSTOM scene that does not honour the bind contract). Callers skip a null; the warning is issued
+## here so it names the offending resource once, where the reason is known.
 func _build_row(def: MKSettingDef) -> Control:
 	match def.type:
 		MKSettingDef.RowType.HEADER:
@@ -332,12 +353,7 @@ func _build_row(def: MKSettingDef) -> Control:
 		MKSettingDef.RowType.TEXT:
 			return _wrap(def, _build_text(def))
 		MKSettingDef.RowType.KEYBIND:
-			# Phase 4 (plan §4.4). Named rather than silently dropped: a row that simply is not there
-			# reads as a missing resource, and the addon ships no KEYBIND rows precisely so this never
-			# fires in the cold drop (plan §3.1).
-			MKLog.warn("%s: KEYBIND rows arrive in Phase 4 — skipping row '%s'"
-				% [MKLog.context(def, "type"), def.id])
-			return null
+			return _build_keybind(def)
 		MKSettingDef.RowType.CUSTOM:
 			return _build_custom(def)
 	MKLog.warn("%s: unknown row type %d — skipping row '%s'"
@@ -702,6 +718,195 @@ func _build_custom(def: MKSettingDef) -> Control:
 	return control
 
 
+# --- Keybinds -----------------------------------------------------------------
+
+## [constant MKSettingDef.RowType.KEYBIND]: one [MKRebindRow], which is its own labelled shell.
+##
+## It does NOT route through [method _wrap]. The row owns a label plus one button per binding and
+## swaps that button into a "press a key" state during capture, so the shell has to be the row's — a
+## panel-owned label column beside a control that is itself a labelled row would render the name
+## twice.
+##
+## [b]An empty [member MKSettingDef.action_name] is an authoring error, not a degraded row.[/b] There
+## is no binding to show, no key to capture into and nothing to reset; the row would be a button that
+## does nothing, which is worse than an absent row plus a warning that names the resource.
+##
+## Registered through [method _register_control] like a [constant MKSettingDef.RowType.CUSTOM] row:
+## registration is what gives it duplicate-id refusal and [member MKSettingDef.visible_condition_id]
+## participation. It does NOT sign the row up for value syncs — see [method _sync_control], which
+## excludes this type outright.
+func _build_keybind(def: MKSettingDef) -> Control:
+	if def.action_name == &"":
+		MKLog.warn("%s: KEYBIND row '%s' names no action — skipping it. A rebind row with no action has no binding to show, capture or reset"
+			% [MKLog.context(def, "action_name"), def.id])
+		return null
+	if def.requires_confirm:
+		# D14's confirm-or-revert machinery is built entirely on the scalar value store (capture the
+		# previous value, write, apply, put it back on timeout). A binding lives in the INPUT store
+		# instead, which that path cannot read or restore, so honouring the flag here would raise a
+		# countdown that reverts nothing. Ignored and said out loud rather than silently obeyed-and-broken.
+		MKLog.debug("%s: KEYBIND row '%s' sets requires_confirm — ignored. Confirm-or-revert operates on the value store, and a binding is not in it; the row's own abort (Escape) and Reset are its undo"
+			% [MKLog.context(def, "requires_confirm"), def.id])
+
+	var row := MKRebindRow.new()
+	row.name = "Row_" + String(def.id).replace("/", "_")
+	if not def.tooltip.is_empty():
+		row.tooltip_text = def.tooltip
+	# Registered BEFORE setup, so a duplicate id is reported against the row that is about to go on
+	# screen rather than after it has already wired itself to the backend.
+	_register_control(def, row)
+	# A null backend is passed through rather than skipping the row, which is the policy every other
+	# row type here follows (see rebuild(): ONE warning per panel, then rows render disabled). A page
+	# that loses half its rows to an unassigned backend slot looks like a missing resource; a page of
+	# visibly disabled rows looks like what it is.
+	row.setup(def, _backend, _find_modal_layer(), Callable(self, "_managed_rebind_actions"),
+		_reserved_input_events())
+	# One capture at a time, enforced HERE because rows cannot see each other. Without this, two rows
+	# both listening would both consume the same press in _input — in tree order, so the first row
+	# records it and the second keeps listening for a key the user believes was just taken — and both
+	# prompts would be on screen claiming the whole keyboard.
+	row.capture_state_changed.connect(func(listening: bool) -> void:
+		if listening:
+			_end_other_captures(row)
+	)
+	# The Replace outcome of a conflict rewrites an action some OTHER row displays; the emitting row
+	# cannot reach it, so the panel redraws them all. Every rebind row, not the one whose action
+	# matches: the set is small, refresh_display() is a read-and-repaint, and matching by action here
+	# would quietly miss two defs naming one action.
+	row.binding_changed.connect(func(_action: StringName) -> void:
+		_refresh_rebind_rows()
+	)
+	_rebind_rows.append(row)
+	return row
+
+
+## Redraws every rebind row from the store. A row mid-capture keeps its prompt — refresh_display()
+## itself protects the listening button text.
+func _refresh_rebind_rows() -> void:
+	for row in _rebind_rows:
+		if row != null and is_instance_valid(row):
+			row.refresh_display()
+
+
+## Ends every live capture except [param keep]'s. The signal connection above makes this run the
+## moment any row starts listening, which is what makes "at most one row is ever listening" a panel
+## invariant rather than a hope.
+func _end_other_captures(keep: MKRebindRow) -> void:
+	for row in _rebind_rows:
+		if row == keep or row == null or not is_instance_valid(row):
+			continue
+		if row.is_listening():
+			row.abort_listen()
+
+
+## Every action this panel rebinds, across ALL pages, deduped — handed to each row as a [Callable] so
+## it is answered at CAPTURE time rather than at build time.
+##
+## That timing is the point: it is the conflict-detection set, and a row capturing a key needs to know
+## whether that key is already bound to another action MenuKit manages so it can say so (or clear the
+## loser) instead of silently leaving two actions on one key. Answering from [member _defs] means the
+## set covers rows built after this one, which a snapshot taken during the first page's build could
+## not.
+##
+## Only MANAGED actions are listed. Actions the project defines but no row rebinds are deliberately
+## absent: MenuKit cannot offer to fix a conflict with a binding it has no row for, and reporting one
+## the user cannot act on is noise.
+func _managed_rebind_actions() -> Array[StringName]:
+	var actions: Array[StringName] = []
+	for id in _defs.keys():
+		var def: MKSettingDef = _defs[id]
+		if def == null or def.type != MKSettingDef.RowType.KEYBIND:
+			continue
+		if def.action_name == &"" or actions.has(def.action_name):
+			continue
+		actions.append(def.action_name)
+	return actions
+
+
+## Events a rebind row must refuse to capture (plan §4.4).
+##
+## [b]The list is short on purpose, and keyboard Escape is deliberately NOT on it.[/b] Escape is
+## unbindable by MECHANISM: it is the row's abort gesture, so a press of it ends the capture and never
+## reaches the commit — putting it on this list as well would be dead code that reads as the reason
+## Escape cannot be bound, and the next reader would "fix" the mechanism trusting the list.
+##
+## What the list IS for is the hazard the mechanism does not cover: the non-keyboard bindings of
+## [code]ui_cancel[/code] — in practice the gamepad B button. That one closes menus everywhere in the
+## shell, so a player who binds it to Jump can no longer back out of the settings page they bound it
+## on, with a controller as their only input device. There is no keyboard-Escape equivalent of that
+## trap for them to escape through.
+##
+## [b]Derived from the BOOT DEFAULT [code]ui_cancel[/code] bindings, not the live ones.[/b] The live
+## [InputMap] is exactly what these rows edit: once a session had rebound something onto B, reading
+## live would report the NEW binding as the reserved one and let the menu-back button itself be taken.
+## The boot snapshot is the fixed statement of what the menu is driven by.
+##
+## A store-only backend answers [method MKSettingsBackend.get_default_action_events] with the base
+## class's empty list, so the derived part is simply absent there — which costs the joypad-B guard
+## and nothing else; [member extra_reserved_events] is still honoured, so a host on such a backend
+## can state the hazard itself.
+func _reserved_input_events() -> Array[InputEvent]:
+	var reserved: Array[InputEvent] = []
+	if _backend != null:
+		for event in _backend.get_default_action_events(&"ui_cancel"):
+			# Keyboard events are excluded, not because Escape is allowed, but because the row's abort
+			# already makes it unreachable — see the doc above.
+			if event != null and not (event is InputEventKey):
+				reserved.append(event)
+	for extra in extra_reserved_events:
+		if extra != null:
+			reserved.append(extra)
+	return reserved
+
+
+## The recovery net (plan §4.4): one button that puts every managed binding back to its boot default.
+##
+## [b]Focusable and PANEL_BUTTON-styled, deliberately.[/b] The user most likely to need this is one
+## who has just bound something over the key they were navigating with, so the button has to be
+## reachable by mouse AND by gamepad — a mouse-only recovery path is no recovery path for a controller
+## player, which is the case that produces the state this button exists to undo.
+##
+## [b]No confirmation dialog, and that is a choice rather than an omission.[/b] A destructive global
+## action normally earns one; this one does not, because a confirm dialog is one more thing the user
+## must drive with input they may have just broken, and its cost — re-pressing seven keys they chose
+## on purpose — is fully recoverable by hand. If this ever grows a confirm, it must be reachable by
+## every input device the reset itself is.
+func _build_reset_all_bindings_button() -> Button:
+	var button := Button.new()
+	button.name = "ResetAllBindings"
+	button.text = "Reset All Bindings"
+	button.focus_mode = Control.FOCUS_ALL
+	button.size_flags_horizontal = Control.SIZE_SHRINK_END
+	button.disabled = _backend == null
+	button.tooltip_text = "Restores every key binding on this page to the game's defaults."
+	MKTheme.set_variation(button, MKTheme.PANEL_BUTTON)
+	button.pressed.connect(_reset_all_bindings)
+	return button
+
+
+## Drops every override, re-applies each managed action, then redraws every row.
+##
+## All three steps are needed and in this order. [method MKSettingsBackend.reset_all_actions_to_defaults]
+## is a STORE operation; the shipped backend also restores the live [InputMap] for the actions that
+## HAD an override, but the panel cannot assume that of a host backend, so each managed action is
+## pushed explicitly through [method MKSettingsBackend.apply_action] — which is idempotent and, on an
+## action with no override, applies the boot snapshot, which is precisely what a reset wants. The
+## refresh comes last, so every row reads a store and an engine that already agree.
+##
+## On a store-only backend [method MKSettingsBackend.reset_all_actions_to_defaults] is the base
+## class's no-op, so the recovery path degrades there the same way the rows themselves do: visibly
+## inert, never wrong.
+func _reset_all_bindings() -> void:
+	if _backend == null:
+		return
+	_backend.reset_all_actions_to_defaults()
+	for action in _managed_rebind_actions():
+		_backend.apply_action(action)
+	for row in _rebind_rows:
+		if row != null and is_instance_valid(row):
+			row.refresh_display()
+
+
 # --- Values -------------------------------------------------------------------
 
 func _current(def: MKSettingDef) -> Variant:
@@ -724,6 +929,11 @@ func _current(def: MKSettingDef) -> Variant:
 ## stored value untouched — [method _index_of_value] is type-gated and handles null by simply not
 ## matching. [constant MKSettingDef.RowType.CUSTOM] never arrives here: nothing in this panel reads or
 ## writes a custom row's display (see [method _sync_control]), so there is no widget to coerce for.
+## [constant MKSettingDef.RowType.KEYBIND] never arrives either, and by the same two routes: it is
+## excluded from [method _sync_control], and the build path does not call this — a rebind row reads
+## the input store, not the value store. Nor can it reach [method _write] or the D14 countdown, which
+## are entered only from the signal handlers of the widgets THIS panel builds, and it is not one of
+## them.
 func _display_value(def: MKSettingDef) -> Variant:
 	var current: Variant = _current(def)
 	match def.type:
@@ -1020,6 +1230,18 @@ func _find_modal_layer() -> MKModalLayer:
 ## which is exactly what the shipped [MKExampleCustomRow] does.
 func _sync_control(def: MKSettingDef) -> void:
 	if def.type == MKSettingDef.RowType.CUSTOM:
+		return
+	# KEYBIND rows are excluded for the same structural reason, arrived at from the other side: a
+	# rebind row's state does not live in the value store at all. It lives in the INPUT store
+	# (get_action_events / set_action_events), keyed by action rather than by setting id, so
+	# _display_value has nothing to return for it — the value store holds no entry for its id and never
+	# will, and the def's own default_value is a bool/float field that means nothing to a binding.
+	# Worse, the dispatch below is by widget CLASS and _register_control stores the row's ROOT: an
+	# MKRebindRow is an HBoxContainer today, but nothing stops a future one from being (or containing,
+	# as its root) a Button, at which point it would fall into a branch written for a control this
+	# panel built and be assigned a value from a store that does not describe it. The row redraws
+	# itself through refresh_display() instead, which reads the store that actually holds its state.
+	if def.type == MKSettingDef.RowType.KEYBIND:
 		return
 	var control: Variant = _controls.get(def.id, null)
 	if control == null or not is_instance_valid(control):
