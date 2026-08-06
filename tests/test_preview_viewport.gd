@@ -534,6 +534,27 @@ func _test_clearing_the_slot_gives_the_next_content_a_fresh_fit() -> void:
 		"and the next content REFITS rather than restoring the zoom chosen for a subject that is gone (got %s, chosen was %s)"
 			% [preview._distance, chosen])
 
+	# The DETACHED clear is the same contract and used to miss it: the cleared-slot state lived in
+	# _frame's null branch, behind the tree guard, so a pooled preview cleared off-tree kept the old
+	# subject's fitted flag and distance forever and showed the NEXT character at the previous one's
+	# zoom (measured, round 6: dist 6.0 surviving into a 1-unit cube). The reset now lives in
+	# set_preview_scene's clear path, outside any tree check, and this is the pin.
+	preview._gui_input(_wheel(MOUSE_BUTTON_WHEEL_DOWN))
+	var parent := preview.get_parent()
+	parent.remove_child(preview)
+	preview.set_preview_scene(null)
+	check_eq(preview._distance, 3.0,
+		"a clear performed while DETACHED parks the camera at the fallback too — the slot does not care whether the node is in a tree")
+	check(not preview._fitted_once,
+		"and drops the fitted flag, so the content that refills a re-entered slot fits from scratch")
+	parent.add_child(preview)
+	preview.set_preview_scene(_mesh_scene())
+	await step_frame()
+	await step_frame()
+	check(is_equal_approx(preview._distance, fitted),
+		"refilling after re-entry FITS the new subject rather than inheriting the zoom of one cleared while detached (got %s)"
+			% preview._distance)
+
 	await _drop(preview)
 
 

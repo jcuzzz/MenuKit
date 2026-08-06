@@ -615,8 +615,11 @@ func _step_is_valid(index: int) -> bool:
 ## index 0, so the gate disables both Next and Skip, and Back is disabled at index 0 for having nowhere
 ## to go — leaving Cancel as the only exit, permanently, after one refusal (measured: retyping the name
 ## changed nothing). So on index 0 the step announcing a state change IS the fresh-attempt signal, and
-## it is the only one that flow can produce: the player changed the very step [method _confirm] is
-## about to submit.
+## it is the only one that flow can produce. [b]"Announcing", not "changing": the signal cannot tell an
+## edit from a re-affirmation[/b] — Enter on unchanged text and re-clicking the selected card both ping
+## it (measured, round 6) — and the lift accepts both, because either is a distinct deliberate gesture
+## aimed at the step, which is all the gate prices anywhere: a plain Confirm double-press stays
+## blocked.
 ##
 ## [b]Scoped to index 0 deliberately.[/b] Anywhere the player HAS a Back — including the last step of a
 ## multi-step flow, where a state ping is the "step re-polling valid" the movement rule explicitly does

@@ -115,7 +115,9 @@ var _spin_velocity := 0.0
 var _built := false
 ## True once a piece of content with real bounds has had the camera distance FITTED to it. Subsequent
 ## swaps re-centre and re-derive near/far but keep the distance the user is at — see
-## [method set_preview_scene]. Reset when the slot is cleared, so refilling it fits again.
+## [method set_preview_scene]. Reset when the slot is cleared — in the CLEAR path of
+## set_preview_scene itself, deliberately outside any tree check, so a detached clear resets it too —
+## so refilling it fits again.
 var _fitted_once := false
 ## Bumped by every [method set_preview_scene], and captured by each deferred framing pass so a pass
 ## queued for content that has since been replaced can recognise itself as stale — see
@@ -252,6 +254,14 @@ func set_preview_scene(scene: PackedScene) -> void:
 	# this reset is the only thing that stops the previous subject's centre surviving into the re-entry
 	# pass that does the centring (see _notification).
 	_pivot.position = Vector3.ZERO
+	if _content == null:
+		# The cleared-slot STATE is written here, not in _frame's null branch: that branch sits behind
+		# the is_inside_tree guard, so a clear performed while DETACHED used to keep the previous
+		# subject's _fitted_once and distance forever — the next content re-entered at an 8-unit
+		# character's zoom instead of a fresh fit (measured, round 6). "Reset when the slot is cleared"
+		# is a statement about the SLOT, and the slot does not care whether the node is in a tree.
+		_fitted_once = false
+		_distance = clampf(_FALLBACK_DISTANCE, minf(zoom_min, zoom_max), maxf(zoom_min, zoom_max))
 	# Immediate pass: silent about zero bounds, because for deferred-built content zero IS the expected
 	# reading on this frame and a debug line here would fire for every CSG preview ever shown.
 	_frame(false)
