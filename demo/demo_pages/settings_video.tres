@@ -1,27 +1,14 @@
-[gd_resource type="Resource" script_class="MKSettingsPageDef" load_steps=11 format=3]
+[gd_resource type="Resource" script_class="MKSettingsPageDef" format=3 uid="uid://drlw2dhytg30e"]
 
-; The demo's Video page. It mirrors the addon's shipped default (addons/menu_kit/settings/defaults/
-; video_page.tres) rather than extending it — Video is the one page that needs no host provisioning,
-; because DisplayServer is always available (plan §3.1). It is carried here anyway so the demo owns
-; its whole settings surface in one folder and a reader can diff a demo page against its addon twin.
-;
-; Two rows carry requires_confirm (D14): window mode and resolution are the changes that can leave a
-; user unable to see the menu they just changed, so the revert countdown puts the old value back
-; unless they confirm.
-;
-; The resolution row is a CURATED list, not an enumeration: Godot 4.7 exposes screen_get_size() and
-; nothing that lists supported modes (plan §4.3, F4). The panel filters these to what fits the
-; current screen and disables the row outside windowed mode, because window_set_size is a no-op in
-; fullscreen and borderless — applying it there looks like it worked and changes nothing.
-
-[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
-[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
+[ext_resource type="Script" uid="uid://bwo65fq24plel" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
+[ext_resource type="Script" uid="uid://4183s86d76tc" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
 
 [sub_resource type="Resource" id="row_display_header"]
 script = ExtResource("2_rowdef")
 id = &"video/header_display"
 label = "Display"
 type = 0
+default_value = null
 
 [sub_resource type="Resource" id="row_window_mode"]
 script = ExtResource("2_rowdef")
@@ -34,12 +21,6 @@ option_values = [0, 3, 4]
 tooltip = "Exclusive fullscreen can reduce input latency on some systems."
 requires_confirm = true
 
-; The curated list matches the addon row of the SAME id EXACTLY, and that is a range rule, not a
-; tidiness one. For an ENUM the candidate list IS the range: a value the list does not contain cannot
-; be selected on a page built from that list. A demo carrying an extra 1600x900 therefore wrote a
-; store the addon's own Video page could not represent — the panel would find the stored size absent
-; from its options, fall back to showing the first entry, and the user's saved resolution would read
-; as silently forgotten on a page that shares its id. Only the DEFAULT is a demo-flavour decision.
 [sub_resource type="Resource" id="row_resolution"]
 script = ExtResource("2_rowdef")
 id = &"video/resolution"
@@ -51,21 +32,13 @@ option_values = [Vector2i(1280, 720), Vector2i(1920, 1080), Vector2i(2560, 1440)
 tooltip = "Only applies in windowed mode."
 requires_confirm = true
 
-; TOGGLE and a bool default, matching the addon row of the SAME id. It was an ENUM of four
-; VSyncMode integers here: one persisted id, two incompatible stored types. A store written by the
-; demo hands the addon's page an int where it expects a bool (and vice versa), and the shipped
-; backend applies whichever it got. A shared id means a shared type and a shared range; only the
-; DEFAULT is a demo-flavour decision.
 [sub_resource type="Resource" id="row_vsync"]
 script = ExtResource("2_rowdef")
 id = &"video/vsync"
 label = "V-Sync"
-type = 1
 default_value = true
 tooltip = "Removes tearing at the cost of input latency."
 
-; ENUM over the addon's cap list, for the same reason as V-Sync above: a SLIDER over 0-240 step 10
-; wrote arbitrary caps under an id whose addon twin only ever stores one of its authored values.
 [sub_resource type="Resource" id="row_max_fps"]
 script = ExtResource("2_rowdef")
 id = &"video/max_fps"
@@ -81,6 +54,7 @@ script = ExtResource("2_rowdef")
 id = &"video/header_camera"
 label = "Camera"
 type = 0
+default_value = null
 
 [sub_resource type="Resource" id="row_fov"]
 script = ExtResource("2_rowdef")
@@ -99,16 +73,12 @@ id = &"video/brightness"
 label = "Brightness"
 type = 2
 default_value = 1.0
-; Range matched to the addon row of the same id, step included: a coarser step is still a different
-; set of storable values under one shared key.
 min_value = 0.5
 max_value = 2.0
-step = 0.01
 tooltip = "Adjust until the darkest band of the reference gradient is barely visible."
 
 [resource]
 script = ExtResource("1_pagedef")
 id = &"video"
 title = "Video"
-icon = null
-rows = Array[Resource]([SubResource("row_display_header"), SubResource("row_window_mode"), SubResource("row_resolution"), SubResource("row_vsync"), SubResource("row_max_fps"), SubResource("row_camera_header"), SubResource("row_fov"), SubResource("row_brightness")])
+rows = Array[ExtResource("2_rowdef")]([SubResource("row_display_header"), SubResource("row_window_mode"), SubResource("row_resolution"), SubResource("row_vsync"), SubResource("row_max_fps"), SubResource("row_camera_header"), SubResource("row_fov"), SubResource("row_brightness")])

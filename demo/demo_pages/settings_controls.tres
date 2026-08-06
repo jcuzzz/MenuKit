@@ -1,33 +1,14 @@
-[gd_resource type="Resource" script_class="MKSettingsPageDef" load_steps=17 format=3]
+[gd_resource type="Resource" script_class="MKSettingsPageDef" format=3 uid="uid://dpfm0s5e063wh"]
 
-; The demo's Controls page — the addon default plus the rebind rows Phase 4 landed.
-;
-; The KEYBIND rows live HERE and never on the addon's Controls page (plan §3.1, §4.4). A KEYBIND row
-; names an InputMap action, an empty project defines only the ui_* actions, and a row naming an absent
-; action warns — so addon-shipped rebind rows would be noisy in exactly the cold-drop configuration
-; gate 2 requires to be silent. The demo owns the actions (project.godot's [input] section, added in
-; the same phase) so it can own the rows. The addon's Controls page stays sensitivity-and-deadzone
-; only, and this page is what a host copies when adding its own.
-;
-; The Reset All Bindings button below the rows is NOT authored: MKSettingsPanel appends one to any page
-; that produced at least one rebind row, because the recovery path must exist on every such page
-; whether or not the author remembered it.
-;
-; demo/rebind_jump is Space on purpose — it overlaps ui_accept, and binding it without complaint is
-; Phase 4's acceptance gate.
-;
-; Every value here is host-consumed: MenuKit stores mouse sensitivity, it does not own a camera to
-; apply it to. Deadzone is the one row a host may forget to read — InputMap deadzones are per-action
-; and MenuKit does not push this value at them.
-
-[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
-[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
+[ext_resource type="Script" uid="uid://bwo65fq24plel" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
+[ext_resource type="Script" uid="uid://4183s86d76tc" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
 
 [sub_resource type="Resource" id="row_mouse_header"]
 script = ExtResource("2_rowdef")
 id = &"controls/header_mouse"
 label = "Mouse"
 type = 0
+default_value = null
 
 [sub_resource type="Resource" id="row_mouse_sensitivity"]
 script = ExtResource("2_rowdef")
@@ -43,7 +24,6 @@ step = 0.05
 script = ExtResource("2_rowdef")
 id = &"controls/invert_y"
 label = "Invert Vertical Look"
-type = 1
 default_value = false
 
 [sub_resource type="Resource" id="row_gamepad_header"]
@@ -51,6 +31,7 @@ script = ExtResource("2_rowdef")
 id = &"controls/header_gamepad"
 label = "Gamepad"
 type = 0
+default_value = null
 
 [sub_resource type="Resource" id="row_gamepad_sensitivity"]
 script = ExtResource("2_rowdef")
@@ -68,9 +49,7 @@ id = &"controls/gamepad_deadzone"
 label = "Stick Deadzone"
 type = 2
 default_value = 0.2
-min_value = 0.0
 max_value = 0.9
-step = 0.01
 tooltip = "Stored for the host to apply — InputMap deadzones are per-action and MenuKit does not write them."
 
 [sub_resource type="Resource" id="row_bindings_header"]
@@ -78,66 +57,73 @@ script = ExtResource("2_rowdef")
 id = &"controls/header_bindings"
 label = "Key Bindings"
 type = 0
+default_value = null
 
 [sub_resource type="Resource" id="row_rebind_forward"]
 script = ExtResource("2_rowdef")
 id = &"controls/rebind_forward"
 label = "Forward"
 type = 4
-action_name = &"demo_move_forward"
+default_value = null
 tooltip = "Walk forward. Press the row's button, then the key you want."
+action_name = &"demo_move_forward"
 
 [sub_resource type="Resource" id="row_rebind_back"]
 script = ExtResource("2_rowdef")
 id = &"controls/rebind_back"
 label = "Back"
 type = 4
-action_name = &"demo_move_back"
+default_value = null
 tooltip = "Walk backward."
+action_name = &"demo_move_back"
 
 [sub_resource type="Resource" id="row_rebind_left"]
 script = ExtResource("2_rowdef")
 id = &"controls/rebind_left"
 label = "Left"
 type = 4
-action_name = &"demo_move_left"
+default_value = null
 tooltip = "Strafe left."
+action_name = &"demo_move_left"
 
 [sub_resource type="Resource" id="row_rebind_right"]
 script = ExtResource("2_rowdef")
 id = &"controls/rebind_right"
 label = "Right"
 type = 4
-action_name = &"demo_move_right"
+default_value = null
 tooltip = "Strafe right."
+action_name = &"demo_move_right"
 
 [sub_resource type="Resource" id="row_rebind_jump"]
 script = ExtResource("2_rowdef")
 id = &"controls/rebind_jump"
 label = "Jump"
 type = 4
-action_name = &"demo_jump"
+default_value = null
 tooltip = "Defaults to Space, which ui_accept also uses — MenuKit does not reserve it."
+action_name = &"demo_jump"
 
 [sub_resource type="Resource" id="row_rebind_interact"]
 script = ExtResource("2_rowdef")
 id = &"controls/rebind_interact"
 label = "Interact"
 type = 4
-action_name = &"demo_interact"
+default_value = null
 tooltip = "Use the thing you are looking at."
+action_name = &"demo_interact"
 
 [sub_resource type="Resource" id="row_rebind_fire"]
 script = ExtResource("2_rowdef")
 id = &"controls/rebind_fire"
 label = "Fire"
 type = 4
-action_name = &"demo_fire"
+default_value = null
 tooltip = "Defaults to the left mouse button — mouse buttons rebind like keys."
+action_name = &"demo_fire"
 
 [resource]
 script = ExtResource("1_pagedef")
 id = &"controls"
 title = "Controls"
-icon = null
-rows = Array[Resource]([SubResource("row_mouse_header"), SubResource("row_mouse_sensitivity"), SubResource("row_invert_y"), SubResource("row_gamepad_header"), SubResource("row_gamepad_sensitivity"), SubResource("row_gamepad_deadzone"), SubResource("row_bindings_header"), SubResource("row_rebind_forward"), SubResource("row_rebind_back"), SubResource("row_rebind_left"), SubResource("row_rebind_right"), SubResource("row_rebind_jump"), SubResource("row_rebind_interact"), SubResource("row_rebind_fire")])
+rows = Array[ExtResource("2_rowdef")]([SubResource("row_mouse_header"), SubResource("row_mouse_sensitivity"), SubResource("row_invert_y"), SubResource("row_gamepad_header"), SubResource("row_gamepad_sensitivity"), SubResource("row_gamepad_deadzone"), SubResource("row_bindings_header"), SubResource("row_rebind_forward"), SubResource("row_rebind_back"), SubResource("row_rebind_left"), SubResource("row_rebind_right"), SubResource("row_rebind_jump"), SubResource("row_rebind_interact"), SubResource("row_rebind_fire")])

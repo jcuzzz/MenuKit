@@ -1,26 +1,7 @@
-[gd_resource type="Resource" script_class="MKSettingsPageDef" load_steps=9 format=3]
+[gd_resource type="Resource" script_class="MKSettingsPageDef" format=3 uid="uid://cqpmaam8ka40d"]
 
-; The shipped Video page (plan §3.1, §4.3).
-;
-; Self-contained by construction: every row is either a reserved id the shipped MKJsonSettingsBackend
-; applies through DisplayServer/Engine, or a plain value the host consumes. Nothing here needs host
-; provisioning, so a cold drop of addons/menu_kit/ into an empty project builds this page in silence
-; (gate 2).
-;
-; Window mode and resolution carry requires_confirm: a display change that leaves the user unable to
-; SEE the screen also leaves them unable to click Undo, so the revert runs on a timer (D14).
-;
-; The resolution list is CURATED. Godot 4 has no API that enumerates supported modes — only
-; DisplayServer.screen_get_size() — so the panel filters this authored array to what fits the current
-; screen and always adds the native size. It is also disabled outside windowed mode, because
-; window_set_size is a no-op in fullscreen and borderless (finding F4).
-;
-; Window-mode values are DisplayServer.WindowMode integers: 0 WINDOWED, 3 FULLSCREEN,
-; 4 EXCLUSIVE_FULLSCREEN. MINIMIZED and MAXIMIZED are deliberately absent — neither is a display
-; setting anyone chooses from a menu.
-
-[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
-[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
+[ext_resource type="Script" uid="uid://bwo65fq24plel" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
+[ext_resource type="Script" uid="uid://4183s86d76tc" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
 
 [sub_resource type="Resource" id="row_window_mode"]
 script = ExtResource("2_rowdef")
@@ -28,16 +9,10 @@ id = &"video/window_mode"
 label = "Window Mode"
 type = 3
 default_value = 0
-min_value = 0.0
-max_value = 1.0
-step = 0.01
 options = Array[String](["Windowed", "Fullscreen", "Exclusive Fullscreen"])
 option_values = [0, 3, 4]
 tooltip = "Exclusive Fullscreen can reduce latency; Fullscreen alt-tabs faster."
-action_name = &""
 requires_confirm = true
-visible_condition_id = &""
-custom_scene = null
 
 [sub_resource type="Resource" id="row_resolution"]
 script = ExtResource("2_rowdef")
@@ -45,33 +20,17 @@ id = &"video/resolution"
 label = "Resolution"
 type = 3
 default_value = Vector2i(1920, 1080)
-min_value = 0.0
-max_value = 1.0
-step = 0.01
 options = Array[String](["1280 x 720", "1920 x 1080", "2560 x 1440", "3840 x 2160"])
 option_values = [Vector2i(1280, 720), Vector2i(1920, 1080), Vector2i(2560, 1440), Vector2i(3840, 2160)]
 tooltip = "Sizes larger than your display are hidden; your native size is always offered."
-action_name = &""
 requires_confirm = true
-visible_condition_id = &""
-custom_scene = null
 
 [sub_resource type="Resource" id="row_vsync"]
 script = ExtResource("2_rowdef")
 id = &"video/vsync"
 label = "V-Sync"
-type = 1
 default_value = true
-min_value = 0.0
-max_value = 1.0
-step = 0.01
-options = Array[String]([])
-option_values = []
 tooltip = "Removes tearing at the cost of input latency."
-action_name = &""
-requires_confirm = false
-visible_condition_id = &""
-custom_scene = null
 
 [sub_resource type="Resource" id="row_max_fps"]
 script = ExtResource("2_rowdef")
@@ -79,16 +38,9 @@ id = &"video/max_fps"
 label = "Frame Rate Limit"
 type = 3
 default_value = 0
-min_value = 0.0
-max_value = 1.0
-step = 0.01
 options = Array[String](["Unlimited", "30", "60", "120", "144", "240"])
 option_values = [0, 30, 60, 120, 144, 240]
 tooltip = "0 means unlimited. A cap below your refresh rate saves power and heat."
-action_name = &""
-requires_confirm = false
-visible_condition_id = &""
-custom_scene = null
 
 [sub_resource type="Resource" id="row_fov"]
 script = ExtResource("2_rowdef")
@@ -99,13 +51,7 @@ default_value = 90.0
 min_value = 60.0
 max_value = 120.0
 step = 1.0
-options = Array[String]([])
-option_values = []
 tooltip = "Read by your game's camera. MenuKit stores the value and does not own a camera."
-action_name = &""
-requires_confirm = false
-visible_condition_id = &""
-custom_scene = null
 
 [sub_resource type="Resource" id="row_brightness"]
 script = ExtResource("2_rowdef")
@@ -115,18 +61,10 @@ type = 2
 default_value = 1.0
 min_value = 0.5
 max_value = 2.0
-step = 0.01
-options = Array[String]([])
-option_values = []
 tooltip = "Gamma applied over the whole screen. Calibrate against the reference strip."
-action_name = &""
-requires_confirm = false
-visible_condition_id = &""
-custom_scene = null
 
 [resource]
 script = ExtResource("1_pagedef")
 id = &"video"
 title = "Video"
-icon = null
 rows = Array[ExtResource("2_rowdef")]([SubResource("row_window_mode"), SubResource("row_resolution"), SubResource("row_vsync"), SubResource("row_max_fps"), SubResource("row_fov"), SubResource("row_brightness")])

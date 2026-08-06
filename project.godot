@@ -1,5 +1,10 @@
-; MenuKit — modular Godot 4.7 menu package.
-; The demo project. Everything shippable lives in addons/menu_kit/.
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
@@ -9,6 +14,14 @@ config/name="MenuKit"
 run/main_scene="res://demo/demo_main.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
+[audio]
+
+buses/default_bus_layout="res://demo/default_bus_layout.tres"
+
+[autoload]
+
+MKSettingsService="*uid://7l4ld3q3pooa"
+
 [display]
 
 window/size/viewport_width=1920
@@ -16,36 +29,12 @@ window/size/viewport_height=1080
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/menu_kit/plugin.cfg")
+
 [input]
 
-; DEMO provisioning (plan §3.1), exactly like the bus layout above. These seven actions exist so the
-; demo has something real to rebind — demo/demo_pages/settings_controls.tres carries one KEYBIND row
-; per action — and so Phase 6's gameplay demo has a movement scheme to drive.
-;
-; NOTHING in addons/menu_kit/ references them (plan §3.1, gate 2). The addon's own Controls page is
-; sensitivity-and-deadzone only, because a KEYBIND row naming an absent action warns and an empty
-; project defines only the ui_* actions — so addon-shipped rebind rows would make the cold drop noisy
-; in exactly the configuration that gate requires to be silent. A host adopting MenuKit defines its
-; own actions here and authors its own rows, which is the same job this section demonstrates.
-;
-; Keyboard events are keyed by PHYSICAL keycode and carry keycode 0, matching the persisted format
-; MKJsonSettingsBackend writes (plan §4.4): a physical binding stays under the same finger on an
-; AZERTY layout, which is the whole reason for that decision. A default authored by keycode here
-; would round-trip through a rebind and a reset into a DIFFERENT key on those layouts.
-;
-; demo_jump is bound to Space DELIBERATELY, and the overlap with ui_accept is the point: Phase 4's
-; acceptance gate is that Space binds without complaint. MenuKit reserves only the non-keyboard
-; ui_cancel bindings (the gamepad-B menu-back hazard) and lets keyboard Escape be unbindable by
-; mechanism instead — see MKSettingsPanel._reserved_input_events.
-
-; ui_cancel is restated with its stock Escape PLUS a gamepad B binding the engine default lacks.
-; Two reasons, both load-bearing: the demo advertises gamepad menu navigation (plan §4.7), and the
-; rebind rows' reserved-event list is DERIVED from the boot-default non-keyboard ui_cancel bindings
-; (MKSettingsPanel._reserved_input_events) — without a pad binding here that list is empty and the
-; joypad-B "reserved by the menu" refusal, a Phase 4 acceptance criterion, is inert in the demo.
-; A host wanting the guard gives ui_cancel its pad binding the same way (or widens
-; extra_reserved_events); Escape here keeps the engine's own keycode form since it is the engine's
-; binding restated, not a rebindable demo action.
 ui_cancel={
 "deadzone": 0.5,
 "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":4194305,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
@@ -87,29 +76,6 @@ demo_fire={
 "events": [Object(InputEventMouseButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"button_mask":0,"position":Vector2(0, 0),"global_position":Vector2(0, 0),"factor":1.0,"button_index":1,"canceled":false,"pressed":false,"double_click":false,"script":null)
 ]
 }
-
-[editor_plugins]
-
-enabled=PackedStringArray("res://addons/menu_kit/plugin.cfg")
-
-[audio]
-
-; DEMO provisioning (plan §3.1). The four-bus layout backs demo/demo_pages/settings_audio.tres.
-; Nothing in addons/menu_kit/ requires it: the shipped Audio page is Master-only precisely so the
-; addon cold-drops into an empty project — which has no bus layout at all — without warning.
-buses/default_bus_layout="res://demo/default_bus_layout.tres"
-
-[autoload]
-
-; Registered here so EVERY headless gate run loads the service the way a real host does.
-;
-; Without this the demo project never instantiated the autoload, and the one configuration that
-; ships was the only one nothing tested: the service script declared a `class_name` matching its own
-; autoload name, which Godot forbids, so it failed to parse at every boot and §4.2's whole mechanism
-; was absent from every real project — while the suite stayed green because its tests mount the node
-; directly. With the autoload registered, that collision surfaces as a SCRIPT ERROR, and check.ps1's
-; output scan fails the run automatically.
-MKSettingsService="*res://addons/menu_kit/core/mk_settings_service.gd"
 
 [menu_kit]
 

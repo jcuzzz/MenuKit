@@ -1,61 +1,57 @@
-[gd_resource type="Resource" script_class="MKConfig" load_steps=35 format=3]
+[gd_resource type="Resource" script_class="MKConfig" format=3 uid="uid://s85841b04qqh"]
 
-; The demo's own config. Everything that needs host provisioning lives here rather than in the
-; addon, which is what keeps the shipped defaults cold-droppable into an empty project.
-;
-; The Credits page is the shipped proof of the host-added-page path: its scene and its page def are
-; both in demo/, and no addon file references either.
-;
-; This is also where the backend slots get real parameters. MKSceneMenuBackend names no scene of its
-; own — the addon may not reference demo/ — so the demo supplies game_scene and menu_scene through
-; its slot's params, which is the mechanism that exists so a host never has to subclass a backend to
-; change one value. The network slot points at MKStubNetworkBackend here, while the shipped default
-; config leaves it empty: the demo is where the server browser is meant to be visible.
-;
-; Phase 5 wires the character flow, and the demo takes the OPPOSITE side of every default the addon
-; ships — which is the only way both sides get exercised:
-;
-;   - creation_steps is AUTHORED here, all four in order. The addon leaves it empty and
-;     MKCharacterCreate falls back to its built-in Name -> Archetype -> Appearance order; authoring it
-;     is what proves the explicit-ordering path, and it is the only way to reach the fourth step.
-;   - point_buy_schema is ASSIGNED (demo/demo_creation/pointbuy_schema.tres). D17 ships point-buy off,
-;     so the demo turns it on: a disabled-by-default feature nobody can see is a feature nobody tests.
-;     The pointbuy step def below is why the two go together — with a null schema the host DROPS that
-;     step with a debug line, so authoring the step without the schema would silently give three.
-;   - archetypes are the three real ones in demo/demo_archetypes/, replacing the addon's single
-;     neutral "Traveler" placeholder. They are standalone .tres files, not sub-resources, because
-;     unlike the placeholder they ARE meant to be read and copied by a host authoring its own.
-;
-; character_create is hidden (visible = false), the same mechanism the "sub" page below uses: off the
-; nav bar, reachable by id, which is what MKCharacterSelect's push_page needs. Reaching a half-built
-; character by clicking a nav tab — and losing it by clicking another — is what the back-stack ladder
-; exists to prevent.
-
-[ext_resource type="Script" path="res://addons/menu_kit/core/mk_config.gd" id="1_config"]
-[ext_resource type="Script" path="res://addons/menu_kit/core/mk_menu_page_def.gd" id="2_pagedef"]
+[ext_resource type="Script" uid="uid://jbp4x2ru2os6" path="res://addons/menu_kit/core/mk_config.gd" id="1_config"]
+[ext_resource type="Script" uid="uid://bvd5uc04j3e7s" path="res://addons/menu_kit/creation/mk_archetype.gd" id="1_mdj5m"]
+[ext_resource type="Script" uid="uid://dmlec1d2qe8en" path="res://addons/menu_kit/core/mk_menu_page_def.gd" id="2_pagedef"]
 [ext_resource type="Resource" path="res://addons/menu_kit/themes/default_palette.tres" id="3_palette"]
-[ext_resource type="Resource" path="res://addons/menu_kit/themes/default_backdrop_catalog.tres" id="4_backdrops"]
+[ext_resource type="Resource" uid="uid://me6mhs6bqa0q" path="res://addons/menu_kit/themes/default_backdrop_catalog.tres" id="4_backdrops"]
 [ext_resource type="PackedScene" path="res://demo/pages/page_play.tscn" id="5_play"]
 [ext_resource type="PackedScene" path="res://demo/pages/page_settings.tscn" id="6_settings"]
 [ext_resource type="PackedScene" path="res://demo/pages/page_sub.tscn" id="7_sub"]
 [ext_resource type="PackedScene" path="res://demo/pages/page_credits.tscn" id="8_credits"]
-[ext_resource type="Script" path="res://addons/menu_kit/core/mk_backend_slot.gd" id="9_slot"]
-[ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_scene_menu_backend.gd" id="10_menu"]
-[ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_json_profile_backend.gd" id="11_profile"]
-[ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_json_settings_backend.gd" id="12_settings"]
-[ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_tree_pause_policy.gd" id="13_pause"]
-[ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_stub_network_backend.gd" id="14_network"]
+[ext_resource type="Script" uid="uid://cw2l80elm1w7b" path="res://addons/menu_kit/core/mk_backend_slot.gd" id="9_slot"]
+[ext_resource type="Script" uid="uid://cnemx25r046q1" path="res://addons/menu_kit/backends/defaults/mk_scene_menu_backend.gd" id="10_menu"]
+[ext_resource type="Script" uid="uid://d2f8rc7i52gps" path="res://addons/menu_kit/backends/defaults/mk_json_profile_backend.gd" id="11_profile"]
+[ext_resource type="Script" uid="uid://dfqxof7cp4th2" path="res://addons/menu_kit/backends/defaults/mk_json_settings_backend.gd" id="12_settings"]
+[ext_resource type="Script" uid="uid://bjksnyoorp5la" path="res://addons/menu_kit/backends/defaults/mk_tree_pause_policy.gd" id="13_pause"]
+[ext_resource type="Script" uid="uid://dt88h64ocrv67" path="res://addons/menu_kit/backends/defaults/mk_stub_network_backend.gd" id="14_network"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/panels/mk_character_select.tscn" id="15_select"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/panels/mk_character_create.tscn" id="16_create"]
-[ext_resource type="Script" path="res://addons/menu_kit/creation/mk_creation_step_def.gd" id="17_stepdef"]
+[ext_resource type="Script" uid="uid://bsj2sraq6mvgw" path="res://addons/menu_kit/creation/mk_creation_step_def.gd" id="17_stepdef"]
 [ext_resource type="Resource" path="res://demo/demo_archetypes/vanguard.tres" id="18_vanguard"]
 [ext_resource type="Resource" path="res://demo/demo_archetypes/arcanist.tres" id="19_arcanist"]
 [ext_resource type="Resource" path="res://demo/demo_archetypes/scout.tres" id="20_scout"]
-[ext_resource type="Resource" path="res://demo/demo_creation/pointbuy_schema.tres" id="21_pointbuy"]
+[ext_resource type="Resource" uid="uid://dsmn1hhp4c3c0" path="res://demo/demo_creation/pointbuy_schema.tres" id="21_pointbuy"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/creation/steps/mk_step_name.tscn" id="22_step_name"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/creation/steps/mk_step_archetype.tscn" id="23_step_archetype"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/creation/steps/mk_step_appearance.tscn" id="24_step_appearance"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/creation/steps/mk_step_pointbuy.tscn" id="25_step_pointbuy"]
+
+[sub_resource type="Resource" id="step_name"]
+script = ExtResource("17_stepdef")
+id = &"name"
+title = "Name"
+scene = ExtResource("22_step_name")
+
+[sub_resource type="Resource" id="step_archetype"]
+script = ExtResource("17_stepdef")
+id = &"archetype"
+title = "Archetype"
+scene = ExtResource("23_step_archetype")
+
+[sub_resource type="Resource" id="step_appearance"]
+script = ExtResource("17_stepdef")
+id = &"appearance"
+title = "Appearance"
+scene = ExtResource("24_step_appearance")
+required = false
+skippable = true
+
+[sub_resource type="Resource" id="step_pointbuy"]
+script = ExtResource("17_stepdef")
+id = &"pointbuy"
+title = "Attributes"
+scene = ExtResource("25_step_pointbuy")
 
 [sub_resource type="Resource" id="slot_menu"]
 script = ExtResource("9_slot")
@@ -63,6 +59,60 @@ backend_script = ExtResource("10_menu")
 params = {
 "menu_scene": "res://demo/demo_main.tscn"
 }
+
+[sub_resource type="Resource" id="slot_network"]
+script = ExtResource("9_slot")
+backend_script = ExtResource("14_network")
+params = {
+"connect_delay": 1.2
+}
+
+[sub_resource type="Resource" id="page_play"]
+script = ExtResource("2_pagedef")
+id = &"play"
+title = "Play"
+scene = ExtResource("5_play")
+
+[sub_resource type="Resource" id="page_characters"]
+script = ExtResource("2_pagedef")
+id = &"characters"
+title = "Characters"
+scene = ExtResource("15_select")
+order = 5
+
+[sub_resource type="Resource" id="page_settings"]
+script = ExtResource("2_pagedef")
+id = &"settings"
+title = "Settings"
+scene = ExtResource("6_settings")
+order = 10
+
+[sub_resource type="Resource" id="page_credits"]
+script = ExtResource("2_pagedef")
+id = &"credits"
+title = "Credits"
+scene = ExtResource("8_credits")
+order = 20
+
+[sub_resource type="Resource" id="page_sub"]
+script = ExtResource("2_pagedef")
+id = &"sub"
+title = "Sub-panel"
+scene = ExtResource("7_sub")
+visible = false
+order = 100
+
+[sub_resource type="Resource" id="page_character_create"]
+script = ExtResource("2_pagedef")
+id = &"character_create"
+title = "New Character"
+scene = ExtResource("16_create")
+visible = false
+order = 110
+
+[sub_resource type="Resource" id="slot_pause"]
+script = ExtResource("9_slot")
+backend_script = ExtResource("13_pause")
 
 [sub_resource type="Resource" id="slot_profile"]
 script = ExtResource("9_slot")
@@ -78,104 +128,6 @@ params = {
 "file_path": "user://menukit_demo_settings.json"
 }
 
-[sub_resource type="Resource" id="slot_pause"]
-script = ExtResource("9_slot")
-backend_script = ExtResource("13_pause")
-params = {}
-
-[sub_resource type="Resource" id="slot_network"]
-script = ExtResource("9_slot")
-backend_script = ExtResource("14_network")
-params = {
-"connect_delay": 1.2
-}
-
-[sub_resource type="Resource" id="page_play"]
-script = ExtResource("2_pagedef")
-id = &"play"
-title = "Play"
-icon = null
-scene = ExtResource("5_play")
-visible = true
-order = 0
-
-[sub_resource type="Resource" id="page_settings"]
-script = ExtResource("2_pagedef")
-id = &"settings"
-title = "Settings"
-icon = null
-scene = ExtResource("6_settings")
-visible = true
-order = 10
-
-[sub_resource type="Resource" id="page_credits"]
-script = ExtResource("2_pagedef")
-id = &"credits"
-title = "Credits"
-icon = null
-scene = ExtResource("8_credits")
-visible = true
-order = 20
-
-[sub_resource type="Resource" id="page_sub"]
-script = ExtResource("2_pagedef")
-id = &"sub"
-title = "Sub-panel"
-icon = null
-scene = ExtResource("7_sub")
-visible = false
-order = 100
-
-[sub_resource type="Resource" id="page_characters"]
-script = ExtResource("2_pagedef")
-id = &"characters"
-title = "Characters"
-icon = null
-scene = ExtResource("15_select")
-visible = true
-order = 5
-
-[sub_resource type="Resource" id="page_character_create"]
-script = ExtResource("2_pagedef")
-id = &"character_create"
-title = "New Character"
-icon = null
-scene = ExtResource("16_create")
-visible = false
-order = 110
-
-[sub_resource type="Resource" id="step_name"]
-script = ExtResource("17_stepdef")
-id = &"name"
-title = "Name"
-scene = ExtResource("22_step_name")
-required = true
-skippable = false
-
-[sub_resource type="Resource" id="step_archetype"]
-script = ExtResource("17_stepdef")
-id = &"archetype"
-title = "Archetype"
-scene = ExtResource("23_step_archetype")
-required = true
-skippable = false
-
-[sub_resource type="Resource" id="step_appearance"]
-script = ExtResource("17_stepdef")
-id = &"appearance"
-title = "Appearance"
-scene = ExtResource("24_step_appearance")
-required = false
-skippable = true
-
-[sub_resource type="Resource" id="step_pointbuy"]
-script = ExtResource("17_stepdef")
-id = &"pointbuy"
-title = "Attributes"
-scene = ExtResource("25_step_pointbuy")
-required = true
-skippable = false
-
 [resource]
 script = ExtResource("1_config")
 menu_backend = SubResource("slot_menu")
@@ -185,12 +137,8 @@ network_backend = SubResource("slot_network")
 pause_policy = SubResource("slot_pause")
 palette = ExtResource("3_palette")
 backdrop_catalog = ExtResource("4_backdrops")
-backdrop_id = &""
-pages = Array[Resource]([SubResource("page_play"), SubResource("page_characters"), SubResource("page_settings"), SubResource("page_credits"), SubResource("page_sub"), SubResource("page_character_create")])
+pages = Array[ExtResource("2_pagedef")]([SubResource("page_play"), SubResource("page_characters"), SubResource("page_settings"), SubResource("page_credits"), SubResource("page_sub"), SubResource("page_character_create")])
 initial_page = &"play"
-archetypes = Array[Resource]([ExtResource("18_vanguard"), ExtResource("19_arcanist"), ExtResource("20_scout")])
-creation_steps = Array[Resource]([SubResource("step_name"), SubResource("step_archetype"), SubResource("step_appearance"), SubResource("step_pointbuy")])
+archetypes = Array[ExtResource("1_mdj5m")]([ExtResource("18_vanguard"), ExtResource("19_arcanist"), ExtResource("20_scout")])
+creation_steps = Array[ExtResource("17_stepdef")]([SubResource("step_name"), SubResource("step_archetype"), SubResource("step_appearance"), SubResource("step_pointbuy")])
 point_buy_schema = ExtResource("21_pointbuy")
-manage_mouse_mode = true
-manage_brightness = true
-verbose = false

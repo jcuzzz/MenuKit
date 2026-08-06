@@ -1,35 +1,7 @@
-[gd_resource type="Resource" script_class="MKStatSchema" load_steps=3 format=3]
+[gd_resource type="Resource" script_class="MKStatSchema" format=3 uid="uid://dsmn1hhp4c3c0"]
 
-; The demo's point-buy schema — the file that turns D17's disabled-by-default feature ON.
-;
-; It lives in demo/ and NOT in the addon's default config, which is the whole point of D17: a game
-; with no stat concept must not be handed a stat screen it has to work out how to remove. Shipping
-; MKConfig.point_buy_schema null is the default; assigning one is a decision, and the demo is where
-; decisions get made so the enabled path is visible and testable out of the box rather than living
-; only in a test.
-;
-; Three stats, ten points, min 1 max 6, one point per step. The numbers are chosen to be reachable by
-; hand in a demo session: ten points cannot max all three (that would cost fifteen), so the screen
-; actually poses the trade-off it exists to pose, and every stat starts inside its own range so no
-; row opens invalid.
-;
-; require_full_spend is TRUE, and that is a demo decision rather than a MenuKit rule. §5 lists the
-; full-spend flag gating Confirm as an exit criterion, and a criterion only reachable by editing a
-; resource is not demonstrated: with the flag on, the shipped demo shows the readout's
-; "(spend them all to continue)" line and a greyed Confirm until the pool is empty, which is the
-; behaviour someone evaluating the package came to see.
-;
-; The permissive side is not thereby unasserted. Confirm with points banked is a legitimate design
-; and MenuKit holds no rule against it, so test_pointbuy.gd drives BOTH schemas through a real host.
-; A host wanting the lenient flow flips this one bool.
-;
-; effect_hint is authored flavour, not a formula. MenuKit never computes anything from these stats —
-; the spend is handed to the host in the profile payload under "stats" and the host decides what a
-; point of Might is worth. That is also why no archetype may seed a "stats" key (see
-; demo/demo_archetypes/vanguard.tres): this schema is that field's only author.
-
-[ext_resource type="Script" path="res://addons/menu_kit/creation/mk_stat_schema.gd" id="1_schema"]
-[ext_resource type="Script" path="res://addons/menu_kit/creation/mk_stat_def.gd" id="2_statdef"]
+[ext_resource type="Script" uid="uid://cml6qi2ardaj0" path="res://addons/menu_kit/creation/mk_stat_schema.gd" id="1_schema"]
+[ext_resource type="Script" uid="uid://0axfxd4ismwu" path="res://addons/menu_kit/creation/mk_stat_def.gd" id="2_statdef"]
 
 [sub_resource type="Resource" id="stat_might"]
 script = ExtResource("2_statdef")
@@ -38,7 +10,6 @@ label = "Might"
 description = "Raw physical force — what you can lift, break, and shrug off."
 min_value = 1
 max_value = 6
-cost_per_point = 1
 effect_hint = "Heavier hits, and more room to be wrong about a fight."
 
 [sub_resource type="Resource" id="stat_finesse"]
@@ -48,7 +19,6 @@ label = "Finesse"
 description = "Precision and timing, in the hands and on the feet."
 min_value = 1
 max_value = 6
-cost_per_point = 1
 effect_hint = "Faster reactions, and openings other people do not get."
 
 [sub_resource type="Resource" id="stat_wits"]
@@ -58,11 +28,8 @@ label = "Wits"
 description = "Reading a situation, and remembering what worked last time."
 min_value = 1
 max_value = 6
-cost_per_point = 1
 effect_hint = "Better information, sooner — and more of it retained."
 
 [resource]
 script = ExtResource("1_schema")
-total_points = 10
-stats = Array[Resource]([SubResource("stat_might"), SubResource("stat_finesse"), SubResource("stat_wits")])
-require_full_spend = true
+stats = Array[ExtResource("2_statdef")]([SubResource("stat_might"), SubResource("stat_finesse"), SubResource("stat_wits")])

@@ -1,21 +1,7 @@
-[gd_resource type="Resource" script_class="MKSettingsPageDef" load_steps=10 format=3]
+[gd_resource type="Resource" script_class="MKSettingsPageDef" format=3 uid="uid://coutr3xrgoshv"]
 
-; The demo's Gameplay page — the "one row of every buildable type" exhibit (plan §4.3).
-;
-; HEADER, TOGGLE, SLIDER, ENUM, TEXT and CUSTOM all appear below. KEYBIND is the one omission, for
-; the same reason it is absent from the Controls page: the widget arrives in Phase 4.
-;
-; The CUSTOM row is the escape hatch that keeps the type enum CLOSED. Its scene's root must implement
-;   _mk_bind(backend: MKSettingsBackend, def: MKSettingDef) -> void
-; and read and write through the backend by def.id; the panel calls it straight after instantiation
-; and skips the row with a warning if the method is absent. That is the same _mk_configure-shaped
-; convention MKBackendSlot uses, so the addon has one contract rather than two.
-;
-; Nothing on this page is applied by MenuKit. Difficulty and subtitles are stored values the host
-; reads — MenuKit owns the storage and the widget, never the meaning.
-
-[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
-[ext_resource type="Script" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
+[ext_resource type="Script" uid="uid://bwo65fq24plel" path="res://addons/menu_kit/settings/mk_settings_page_def.gd" id="1_pagedef"]
+[ext_resource type="Script" uid="uid://4183s86d76tc" path="res://addons/menu_kit/settings/mk_setting_def.gd" id="2_rowdef"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/settings/mk_example_custom_row.tscn" id="3_customrow"]
 
 [sub_resource type="Resource" id="row_general_header"]
@@ -23,6 +9,7 @@ script = ExtResource("2_rowdef")
 id = &"gameplay/header_general"
 label = "General"
 type = 0
+default_value = null
 
 [sub_resource type="Resource" id="row_difficulty"]
 script = ExtResource("2_rowdef")
@@ -37,7 +24,6 @@ option_values = [0, 1, 2, 3]
 script = ExtResource("2_rowdef")
 id = &"gameplay/subtitles"
 label = "Subtitles"
-type = 1
 default_value = true
 
 [sub_resource type="Resource" id="row_subtitle_size"]
@@ -46,8 +32,6 @@ id = &"gameplay/subtitle_size"
 label = "Subtitle Size"
 type = 2
 default_value = 1.0
-; 0.5, matching the addon row of the SAME persisted id. Two different floors under one key means a
-; value the demo can store is out of range on the addon's own page, and gets clamped on the way back.
 min_value = 0.5
 max_value = 2.0
 step = 0.05
@@ -59,6 +43,7 @@ script = ExtResource("2_rowdef")
 id = &"gameplay/header_profile"
 label = "Profile"
 type = 0
+default_value = null
 
 [sub_resource type="Resource" id="row_player_name"]
 script = ExtResource("2_rowdef")
@@ -73,12 +58,7 @@ script = ExtResource("2_rowdef")
 id = &"gameplay/custom_example"
 label = "Custom Row"
 type = 6
-; Explicit range, matching the addon's CUSTOM row. Omitting these took MKSettingDef's defaults
-; (0-1 step 0.01), so the SAME mk_example_custom_row.tscn built a 0-1 spinner here and a 0-10 one in
-; the addon — the reference implementation of _mk_bind reading as two different widgets. The default
-; moves with the step for the same reason: 0.5 is not a value a step of 1.0 can represent.
 default_value = 5.0
-min_value = 0.0
 max_value = 10.0
 step = 1.0
 tooltip = "A host-authored widget bound through _mk_bind — the escape hatch that keeps the type enum closed."
@@ -88,5 +68,4 @@ custom_scene = ExtResource("3_customrow")
 script = ExtResource("1_pagedef")
 id = &"gameplay"
 title = "Gameplay"
-icon = null
-rows = Array[Resource]([SubResource("row_general_header"), SubResource("row_difficulty"), SubResource("row_subtitles"), SubResource("row_subtitle_size"), SubResource("row_profile_header"), SubResource("row_player_name"), SubResource("row_custom_example")])
+rows = Array[ExtResource("2_rowdef")]([SubResource("row_general_header"), SubResource("row_difficulty"), SubResource("row_subtitles"), SubResource("row_subtitle_size"), SubResource("row_profile_header"), SubResource("row_player_name"), SubResource("row_custom_example")])
