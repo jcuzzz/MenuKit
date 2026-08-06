@@ -1,11 +1,12 @@
 # MenuKit — Build Handoff
 
-**Status:** Phases 1–3 complete and reviewed. Phase 4 not started.
+**Status:** Phases 1–4 complete and reviewed. Phase 5 not started — and it is GATED on an owner
+decision (the starred JSON int→float item in §6; read it before designing creation payloads).
 **Repo:** `C:\GodotProjects\MenuKit` (standalone, own git history — not a Workingfile subtree)
-**HEAD:** `f028cb8`
+**HEAD:** `31e2e85`
 **Engine:** Godot 4.7 (`C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe`)
 **Plan (authoritative spec):** `c:\GodotProjects\Workingfile\docs\plans\menukit_asset_extraction_plan.md` — rev 9, 1233 lines
-**Written:** 2026-08-06
+**Written:** 2026-08-06 (Phase 3 sections carried forward; Phase 4 sections added same day)
 
 This file supersedes `Workingfile\docs\plans\menukit_build_handoff.md`, which is frozen at the
 Phase 2 state (Workingfile was declared never-edit for the Phase 3 session). Same format; the
@@ -20,10 +21,23 @@ Phase 1–2 material below is carried forward unchanged where still true.
 | 1 | Shell: theme system, modal stack, data-driven nav, `MKRoot`, tooling, demo | **Done.** 6 adversarial review rounds |
 | 2 | Six shipped backend defaults, `MKSettingsService` autoload, JSON persistence | **Done.** 2 review rounds |
 | 3 | Settings schema + panel, brightness controller, D14 revert countdown | **Done.** 7 adversarial review rounds (majors 4→3→2→1→1→0→0; round 7 terminal, zero findings) |
-| 4–9 | Rebinding, profiles/preview, pause menu, server browser, input polish, handoff | Not started |
+| 4 | Rebinding: `MKRebindRow` capture widget, conflict modal, per-row + global reset, persistence, the `_input`/`_unhandled_input` priority rule, axis binding (descope valve NOT needed) | **Done.** Test leg + 2 adversarial review rounds (see the round table below) |
+| 5–9 | Profiles/preview, pause menu, server browser, input polish, handoff | Not started |
 
-**Current metrics:** 68 compiled scripts/scenes, 13 test suites, ~560 executed assertions.
-Gate: `compile=pass smokes=13/13 isolation=pass exit=0`.
+**Current metrics:** 70 compiled scripts/scenes, 14 test suites (~190 assertions in `test_rebind.gd`
+alone), gate: `compile=pass smokes=14/14 isolation=pass exit=0`.
+
+### Phase 4 defect-count table (test leg, then review rounds)
+
+| Stage | Majors | Minors | Notes |
+|---|---|---|---|
+| Test leg (pre-review) | 2 | 1 + 1 doc | Commit-never-ends-listening; Replace never redraws the loser; demo reserved list derived empty; false idle-cost comment |
+| Review round 1 | 2 | 3 | `device` dropped from the persisted event format (InputMap matching IS device-aware — measured); the `_ready` fix guarded by nothing (the test declined the assertion on a false premise); AZERTY cross-form match; dead-but-enabled Reset; double warn |
+| Review round 2 | 0 | 0 | **TERMINAL** — 9/9 round-1 mutation claims reproduced red; findings were three wrong attributions in comments, one dead line, visual NITs |
+
+The recurring defect signature held again: every substantive round found a confident comment
+defending code that does not do what it says — including one inside the TEST suite (round 1's M2),
+which is the first time the signature appeared in the file whose job is catching it.
 
 Ship gates 1 and 2 still pass: isolation scan clean (no out-of-addon `res://` even in comments,
 zero `add_theme_*_override`), and the addon's four shipped settings pages build warning-free
@@ -32,6 +46,10 @@ against an empty project (Audio Master-only, Controls no-KEYBIND — the §3.1 i
 ### Commit history (each review round its own commit, deliberately)
 
 ```
+31e2e85 fix(phase4): act on the second review; the behaviour held, the attributions did not
+7600424 fix(phase4): act on the first adversarial review; the format was device-blind
+318ae1c feat(phase4): input rebinding — capture row, conflict modal, reset, targeted apply
+38f4da9 docs: Phase 3 build handoff
 f028cb8 fix(phase3): act on the sixth review; the behaviour held, the words did not
 139f428 fix(phase3): act on the fifth review; disposal is deferred to the layer
 e24fd25 fix(phase3): act on the fourth review; the residual was not acceptable
@@ -113,6 +131,29 @@ false "verified red" claim (a no-op refactor); rounds 5–7 had every claim repr
   quoted phrase inside a here-string split into pathspecs. Write commit messages to a file and
   `git commit -F`.
 
+Phase 4 additions:
+
+- **`InputMap` matching is DEVICE-aware, and `InputEvent` class-default devices are not -1.**
+  Measured on 4.7: `InputEventJoypadButton.new().device == 0`, `InputEventKey` 16,
+  `InputEventMouseButton` 32; a binding stored with device 0 does not answer a joypad-1 press.
+  Any code that rebuilds or round-trips an event MUST carry `device` explicitly (the serializer
+  stores it; absent reads as -1 = all devices; fresh captured events pin -1). The engine's own
+  builtin `ui_*` key/mouse defaults ship device 16/32 — a device-CLASS namespacing, faithful in a
+  snapshot, not corruption.
+- **The engine re-enables input processing at NOTIFICATION_READY for any script overriding
+  `_input`** — a `set_process_input(false)` made before the node enters the tree is silently
+  undone; restate it in `_ready`. And assert it directly (`is_processing_input()`), because the
+  behaviour-only assertion stayed green when the restatement was deleted.
+- **Never compare a physical keycode against a plain keycode.** They coincide numerically on QWERTY
+  and diverge on AZERTY — a test can ride the coincidence for weeks. Physicals against physicals,
+  keycodes against keycodes, both-nonzero required (`MKRebindRow._events_match`).
+- **A pushed mouse event never reaches GUI dispatch under the headless driver** (`push_input` does
+  reach `_input`). Button *clicks* cannot be simulated headless; button *handlers* and the row's
+  manual rect hit-test can. Keyboard activation (`ui_accept` on a focused button) works.
+- **`DisplayServer.keyboard_get_keycode_from_physical` under headless answers 0 AND prints an
+  engine ERROR per call** — the noise gate fails the run. Guard on
+  `DisplayServer.get_name() != "headless"` before calling.
+
 ---
 
 ## 5. Architecture decisions made during the build (Phase 3)
@@ -154,16 +195,65 @@ false "verified red" claim (a no-op refactor); rounds 5–7 had every claim repr
 - The dead `MKTheme.FOCUS_RING` variation from the Phase 2 open items is now CONSUMED (slider
   focus ring). `palette.scrim` remains unread (still open, below).
 
+Phase 4 additions:
+
+- **The capture priority rule is mechanism, not flags:** a listening `MKRebindRow` reads input in
+  `_input` and marks every inspected event class handled; `MKRoot` reads `ui_cancel` in
+  `_unhandled_input`. No `is_capturing` boolean anywhere. Consequences by construction: Escape is
+  unbindable (the row's abort sees it first), one Escape cannot both abort and pop the page, and
+  the Cancel button is un-clickable while listening — its mouse abort is a manual rect hit-test.
+- **Abort is per-device (plan §4.4 table, reproduced in the row's class doc).** Joypad-B has NO
+  special case in `_input` — it reaches the record path, is refused as reserved, and that refusal
+  ends listening: one gesture, both jobs. The reserved list is derived from the BOOT-DEFAULT
+  non-keyboard `ui_cancel` events plus the panel's exported `extra_reserved_events`; the demo's
+  `project.godot` restates `ui_cancel` with a pad-B binding, without which the derived list is
+  empty and the guard inert (test-leg finding D3 — a HOST must do the same or widen the export).
+- **Single-slot capture:** a commit replaces the action's whole event list with the one captured
+  event; the multi-event stock list survives in the boot snapshot and returns on Reset. Captured
+  keys strip modifier FLAGS (modifier keys themselves stay bindable); captured motion normalises
+  to ±1.0; every fresh event pins `device = -1`.
+- **KEYBIND rows are CUSTOM-shaped to the panel:** registered for dup-id/visibility, excluded from
+  `_sync_control`/`_display_value`/D14 outright (their state lives in the input store, keyed by
+  action, not the value store keyed by id). `requires_confirm` on a KEYBIND def is ignored with a
+  debug line. The six input-store methods are non-abstract base defaults on `MKSettingsBackend`
+  (inert, degrade-visible) so pre-Phase-4 host subclasses keep parsing; `apply_action(action)` is
+  the targeted push (base delegates to `apply_all`; the JSON backend targets one action, and its
+  no-override branch re-applies the boot snapshot — that branch is what makes Reset take live
+  effect).
+- **Cross-row consistency is a panel job:** one-capture-at-a-time (`_end_other_captures` off
+  `capture_state_changed`) and the `binding_changed` relay → `_refresh_rebind_rows` (a conflict
+  Replace rewrites an action some OTHER row displays; rows cannot see each other).
+- **Conflict modal is `MKConfirmDialog` verbatim** (`Replace`/`Keep both`/`Cancel` via
+  confirm/alternate/cancel); listening ends BEFORE the dialog opens or the dialog's own keyboard
+  would be consumed by the row. A cancelled conflict clears the transient caption. No new theme
+  variation: the listening state is button text (`Press any key…`) + the slider-style focus ring.
+
 ---
 
 ## 6. Known open items
 
 Carried forward or new; the starred item gates a later phase:
 
-- ★ **JSON `int` → `float` on round trip** (unchanged from Phase 2). **Decide before Phase 5
-  designs creation payloads:** extend the `__mk_type` envelope to the profile backend, or state
-  in `INTEGRATION.md` that payload numerics are floats after a reload. Flagged to the owner;
-  needs their call.
+- ★ **JSON `int` → `float` on round trip** (unchanged from Phase 2, re-flagged at Phase 4's
+  close). **This is now the NEXT decision on the critical path: Phase 5 designs creation payloads
+  and must not start until the owner picks** — extend the `__mk_type` envelope to the profile
+  backend, or state in `INTEGRATION.md` that payload numerics are floats after a reload. Needs
+  the owner's call; nothing in Phase 4 touched or prejudged it.
+- **The `device` field in the persisted `input` event dicts must appear in Phase 9's CHANGELOG
+  initial-format statement.** Added in `7600424` (absent = -1 for compatibility); no
+  `FORMAT_VERSION` bump because the format has never shipped — but it is a format field and the
+  §4.8 versioning rule applies from `0.1.0` onward.
+- **Binding-button column alignment** (round-2 visual NIT): the seven binding buttons' widths
+  follow their labels, so their left edges are ragged and the column does not align with the
+  slider/enum control column. Phase 8 polish, same family as the Phase 3 ~28px drift.
+- **Unchecked `CheckBox` rows render near-invisible on the dark panel** (pre-existing Phase 3;
+  noticed on the Controls page's Invert Vertical Look). Phase 8.
+- **Non-keybind rows keep the conditional-tooltip write** (`_wrap`) that n3 removed on the rebind
+  row — latent only (fresh rows per rebuild); asymmetry recorded as a decision, not an oversight.
+- **`_events_match`'s stated cost:** a stored physical-only event and a stored keycode-only event
+  for the same key never match. Unreachable through shipped paths (captured events carry both
+  codes); reachable for a host seeding keycode-only events via `set_action_events`. Documented on
+  the method.
 - **`palette.scrim` is still unread** — `MKModalLayer` uses its own `scrim_color`; a palette
   swap does not change the dim. Ship gate 3 hole. (Phase 2 item, untouched by Phase 3.)
 - **`MKPalette.font_size_title`** still generated-but-unconsumed (`FOCUS_RING` is closed).
@@ -191,22 +281,43 @@ Carried forward or new; the starred item gates a later phase:
 5. **Editor session:** enable/disable plugin cycle, `menu_kit/config_path` survival across an
    editor restart, theme bake menu item.
 
+Phase 4 items (rebinding is input-hardware work; these are genuinely un-headless):
+
+6. **Real-hardware rebind smoke:** rebind a key (e.g. Jump off Space onto F), press it in-window,
+   confirm the action fires; restart, confirm it survived. Same with a pad button on controller 0
+   AND a second controller if available (the device -1 fix is measured headless via
+   `event_is_action`, but a real press through the OS driver is the honest proof — round 1's M1
+   named this check explicitly).
+7. **Mouse capture gestures:** click a binding button to start listening (headless cannot reach
+   GUI dispatch with a synthetic click); click the Cancel button's rect — capture aborts; click
+   anywhere else — Mouse Left/Right records as the binding.
+8. **Gamepad full pass:** navigate to the Controls page and trigger Reset All Bindings with NO
+   keyboard (ship-gate-4 recovery clause); press B while a row listens — see "Reserved by the
+   menu" AND listening end in that one press; bind a pad button and an analog-stick direction
+   (axis capture is live code) and feel both in use.
+9. **AZERTY / non-QWERTY layout** (or OS keyboard-layout switch): binding labels show the LAYOUT's
+   keycap (the `_key_label` physical→layout mapping is headless-unreachable), and a rebind made on
+   one layout lands on the same physical key on the other.
+10. **Listening-state visuals:** `Press any key…` prompt, the `Esc to cancel` hint, the Cancel
+    button appearing only while listening, captions ("Reserved by the menu" / "Also used by menu
+    navigation") appearing and clearing. The capture rig cannot press the button, so no PNG of the
+    listening state exists — eyeball it once.
+11. **Timeout feel:** start a capture and wait — 10s lapse aborts cleanly, display restores.
+
 ---
 
-## 7. Next step: Phase 4
+## 7. Next step: Phase 5 — AFTER the owner's int→float call
 
-Per the plan's §5 row — rebinding: capture widget, conflict modal, reset-to-default,
-persistence, the `_input`/`_unhandled_input` priority rule. Sized 4–7 days; the plan's largest
-single risk. Read plan §4.4 in full before starting — the abort-per-device table, the
-mechanism-based reserved keys, and the cancel precedence ladder each overturned a plausible
-design during plan review. The KEYBIND row type and `action_name` field already exist
-(reserved in the closed enum); the panel warns-and-skips them today — that branch is the
-Phase 4 insertion point, and the demo's Controls page is where the demo KEYBIND rows land
-(§3.1: never the addon's).
+Per the plan's §5 row — profiles + preview slot: character select, confirm dialog, creation
+host, Name/Archetype/Appearance/Point-buy steps, `MKPreviewViewport` (own_world_3d, F10).
+**Blocked at the design stage on the starred §6 item:** the creation payload goes verbatim to
+`MKProfileBackend.create_profile(payload)` and round-trips JSON, so whether payload ints survive
+as ints (envelope) or are documented floats (INTEGRATION.md) shapes the payload contract every
+built-in step writes. Get the owner's decision FIRST.
 
-Two Phase 3 seams Phase 4 will lean on: `MKSettingsBackend.snapshot_input_defaults` (already
-booted in the right order everywhere) and the `MKLog.observer` seam for warning-count
-contracts.
+Phase 4 seams Phase 5 can lean on: `MKConfirmDialog` (already carries the three-button shape;
+Phase 5's delete-confirm is its third consumer), the modal layer's focus trap, and the
+`test_rebind.gd` viewport-push idiom for driving real input through built UI.
 
 ---
 
@@ -217,6 +328,23 @@ files (no Godot runs in parallel legs — the import cache collides) → integra
 → a dedicated test leg against the integrated code → adversarial review → fix leg → re-review
 until a round introduces nothing new. Major counts per round: **4 → 3 → 2 → 1 → 1 → 0 → 0**
 (round 6 was comment/coverage only; round 7 terminal, zero findings at any severity).
+
+Phase 4 ran the same shape and converged faster (majors **2 → 2 → 0**: test leg, round 1,
+round 2 terminal), with three refinements worth keeping:
+
+- **The dedicated test leg found the first two majors BEFORE any review round** — a suite that
+  drives real InputEvents through the viewport (never widget methods) caught
+  commit-never-ends-listening within minutes of existing. Write the deep suite before the first
+  review, not after.
+- **Reviewer-run engine probes beat reasoning again:** round 1's device finding
+  (`InputMap.event_is_action` is device-aware; class-default devices are 0/16/32, not -1) was
+  invisible to every assertion that read `action_get_events` — the reviewer asked the engine the
+  question the tests didn't. When a review claim is about engine behaviour, demand the probe
+  output in the report.
+- **The iron rule caught its biggest fish inside the test suite itself:** round 1's M2 was a test
+  COMMENT confidently declining an assertion on a false premise, leaving a fix guarded by
+  nothing. Reviewers must mutation-test the fixes (round 2 re-ran all nine claims: 9/9 red), and
+  must read test comments as claims too.
 
 What earned its keep this phase:
 
@@ -238,6 +366,12 @@ What earned its keep this phase:
 Unchanged: Workingfile is read-only (this phase treated even its plan-docs directory as
 frozen — hence this file's location); no LICENSE ships (D15); no third-party art/audio/fonts;
 nothing under `addons/menu_kit/` may reference an external `res://` path, including comments.
+
+Local-state note: `git stash@{0}` ("pre-phase4: Godot editor resave noise") holds ~440 lines of
+editor-resave churn (comment stripping + uid injection across 12 files) found uncommitted at the
+Phase 4 session start — verified free of semantic change and set aside rather than committed,
+because the stripped `.tres` header comments are load-bearing house style. Drop it once confirmed,
+and prefer not to re-save those resources from the editor without re-adding the comments.
 
 One plan-doc drift to record since the plan itself is frozen: `default_config.tres` now ships
 a SECOND nav page (Settings → `settings/mk_settings_panel.tscn`) beside Welcome, so §3.1's
