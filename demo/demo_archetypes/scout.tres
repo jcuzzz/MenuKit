@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="MKArchetype" load_steps=2 format=3]
+
+; The demo's ranger archetype. See vanguard.tres for the payload_defaults rule these three share —
+; in particular why no archetype may carry a "stats" key.
+
+[ext_resource type="Script" path="res://addons/menu_kit/creation/mk_archetype.gd" id="1_archetype"]
+
+[resource]
+script = ExtResource("1_archetype")
+id = &"scout"
+display_name = "Scout"
+description = "Sees the fight before it starts and picks where it happens. Rewards patience, punishes being cornered."
+icon = null
+preview_scene = null
+payload_defaults = {
+"kit": "bow_and_snares"
+}

@@ -19,7 +19,9 @@ func run_tests() -> void:
 		return
 
 	check_eq(config.validate(), PackedStringArray(), "demo config validates clean")
-	check_eq(config.get_visible_pages().size(), 3, "hidden sub-page is not a nav tab")
+	# 4 since Phase 5 added the Characters page; the hidden sub-pages (`sub`, `character_create`)
+	# are what this assertion actually guards — they must never surface as tabs.
+	check_eq(config.get_visible_pages().size(), 4, "hidden sub-pages are not nav tabs")
 	check_eq(config.get_visible_pages()[0].id, &"play", "visible pages sort by order")
 
 	# Ties must resolve by authoring order. sort_custom is NOT stable, and this feeds both the tab

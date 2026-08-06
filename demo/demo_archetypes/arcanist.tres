@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="MKArchetype" load_steps=2 format=3]
+
+; The demo's caster archetype. See vanguard.tres for the payload_defaults rule these three share —
+; in particular why no archetype may carry a "stats" key.
+;
+; The three demo archetypes deliberately differ in payload SHAPE as well as in values: this one
+; carries a "school" the others do not. MenuKit stores whatever is here without inspecting it, and a
+; demo where every archetype had identical keys would not prove that.
+
+[ext_resource type="Script" path="res://addons/menu_kit/creation/mk_archetype.gd" id="1_archetype"]
+
+[resource]
+script = ExtResource("1_archetype")
+id = &"arcanist"
+display_name = "Arcanist"
+description = "Solves problems from across the room, given a moment to work. Fragile in the moment it does not get."
+icon = null
+preview_scene = null
+payload_defaults = {
+"kit": "focus_and_tome",
+"school": "evocation"
+}

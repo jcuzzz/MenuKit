@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="MKConfig" load_steps=13 format=3]
+[gd_resource type="Resource" script_class="MKConfig" load_steps=24 format=3]
 
 ; The host's copy-me starting point. Every value here is chosen so that copying addons/menu_kit/
 ; alone into an empty Godot project boots with zero errors and zero warnings (ship gate 2) —
@@ -16,6 +16,33 @@
 ; KEYBIND rows — because an empty project has one audio bus and only ui_* actions, and a row naming a
 ; missing bus or an absent action warns by design. The richer pages are the host's to author.
 ;
+; The Characters page (added Phase 5) is the third page the addon ships, and it clears gate 2 without
+; a special case: the PROFILE slot below is assigned — MKJsonProfileBackend, one of the six defaults
+; Phase 2 shipped — so the select panel resolves a real backend off the shell and its
+; "no MKProfileBackend is reachable" warning is unreachable in the cold-drop configuration. What a
+; fresh install actually sees is an empty roster, which the panel renders as "No characters yet" with
+; New Character focused. That is a state, not a warning.
+;
+; character_create is a HIDDEN page (visible = false), the same mechanism the demo's "sub" page uses:
+; hidden keeps it off the nav bar while leaving it reachable by id, which is what push_page needs. It
+; must not be a tab — arriving at a half-built character by clicking a nav tab, and losing it by
+; clicking another, is the navigation bug the back-stack ladder exists to avoid.
+;
+; ONE archetype ships, inline, as a sub-resource (§3.1). Inline rather than a standalone .tres because
+; it is not a file a host is meant to edit or reference — it exists so the Archetype step is never an
+; empty dead end on a fresh install. It is deliberately genre-NEUTRAL: "Traveler" states no setting,
+; where a Vanguard or an Arcanist would state one the host has not chosen. Real archetypes are the
+; host's to author (the demo authors three under demo/demo_archetypes/), and the moment MKConfig.archetypes
+; is authored this entry is gone.
+;
+; creation_steps stays EMPTY on purpose: empty means "not authored", and MKCharacterCreate falls back
+; to its built-in Name -> Archetype -> Appearance order. Authoring the same three here would be a
+; second copy of that order to keep in sync for no gain.
+;
+; point_buy_schema stays null — D17, disabled by default. A game with no stat concept must not be
+; handed a stat screen it has to work out how to remove. The demo assigns one so the enabled path is
+; visible and testable out of the box.
+;
 ; MKSceneMenuBackend's params are empty: it names no scene, because an addon file naming the demo
 ; would break the isolation rule and fail gate 1 by construction. Unassigned params are valid
 ; config — they warn when Play is clicked, never at boot, which is what keeps gate 2 passable.
@@ -31,6 +58,9 @@
 [ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_json_profile_backend.gd" id="8_profile"]
 [ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_json_settings_backend.gd" id="9_settings"]
 [ext_resource type="Script" path="res://addons/menu_kit/backends/defaults/mk_tree_pause_policy.gd" id="10_pause"]
+[ext_resource type="PackedScene" path="res://addons/menu_kit/panels/mk_character_select.tscn" id="12_select"]
+[ext_resource type="PackedScene" path="res://addons/menu_kit/panels/mk_character_create.tscn" id="13_create"]
+[ext_resource type="Script" path="res://addons/menu_kit/creation/mk_archetype.gd" id="14_archetype"]
 
 [sub_resource type="Resource" id="slot_menu"]
 script = ExtResource("3_slot")
@@ -70,6 +100,33 @@ scene = ExtResource("11_settings_panel")
 visible = true
 order = 1
 
+[sub_resource type="Resource" id="page_characters"]
+script = ExtResource("2_pagedef")
+id = &"characters"
+title = "Characters"
+icon = null
+scene = ExtResource("12_select")
+visible = true
+order = 2
+
+[sub_resource type="Resource" id="page_character_create"]
+script = ExtResource("2_pagedef")
+id = &"character_create"
+title = "New Character"
+icon = null
+scene = ExtResource("13_create")
+visible = false
+order = 100
+
+[sub_resource type="Resource" id="archetype_traveler"]
+script = ExtResource("14_archetype")
+id = &"traveler"
+display_name = "Traveler"
+description = "Someone who set out with what they could carry. No specialism, no history you have to honour — replace this the moment you know what your game's classes are."
+icon = null
+preview_scene = null
+payload_defaults = {}
+
 [resource]
 script = ExtResource("1_config")
 menu_backend = SubResource("slot_menu")
@@ -80,8 +137,11 @@ pause_policy = SubResource("slot_pause")
 palette = ExtResource("4_palette")
 backdrop_catalog = ExtResource("5_backdrops")
 backdrop_id = &""
-pages = Array[Resource]([SubResource("page_welcome"), SubResource("page_settings")])
+pages = Array[Resource]([SubResource("page_welcome"), SubResource("page_settings"), SubResource("page_characters"), SubResource("page_character_create")])
 initial_page = &"welcome"
+archetypes = Array[Resource]([SubResource("archetype_traveler")])
+creation_steps = Array[Resource]([])
+point_buy_schema = null
 manage_mouse_mode = true
 manage_brightness = true
 verbose = false

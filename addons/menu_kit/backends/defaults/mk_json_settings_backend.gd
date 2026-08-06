@@ -42,8 +42,10 @@ extends MKSettingsBackend
 ##   coerce with [code]int(...)[/code] explicitly for that reason.
 ## [br]- [Vector2i] (the resolution row's value type) is not a JSON type, so it is written as a
 ##   [code]{"__mk_type": "Vector2i", "v": [x, y]}[/code] envelope and decoded back. That envelope is
-##   the only extended type; anything else JSON cannot represent round-trips as whatever
-##   [method JSON.stringify] made of it.
+##   the only extended type THIS backend writes; anything else JSON cannot represent round-trips as
+##   whatever [method JSON.stringify] made of it. The envelope itself lives in [MKJsonCodec], which
+##   also knows an [code]int[/code] tag that this backend does [b]not[/b] write (see [method _encode]
+##   for why) — but does read, because decoding is tolerant of any tag the codec knows.
 
 ## Storage location. Overridable per slot via [code]params/file_path[/code] so two configurations —
 ## a test profile and a real one, say — can coexist without subclassing.
@@ -57,8 +59,12 @@ const FORMAT_VERSION := 1
 const KEY_VERSION := "version"
 const KEY_VALUES := "values"
 const KEY_INPUT := "input"
-const TYPE_TAG := "__mk_type"
-const TYPE_PAYLOAD := "v"
+## Re-exported from [MKJsonCodec], which owns the envelope. They stay spelled here because they are
+## part of THIS class's documented persisted format (see the class doc's format block) and a reader
+## — or a test — looking at the settings file naturally looks for them on the settings backend.
+## Aliases rather than copies so the two can never drift into disagreeing about a key name.
+const TYPE_TAG := MKJsonCodec.TYPE_TAG
+const TYPE_PAYLOAD := MKJsonCodec.TYPE_PAYLOAD
 
 ## Reserved value ids [method apply_all] pushes at the engine. Every other id is left alone on
 ## purpose: FOV, mouse sensitivity and friends are plain values the host consumes (plan §4.3), so an
@@ -561,43 +567,25 @@ func _quarantine(reason: String) -> void:
 
 ## Wraps the types JSON cannot carry. Recurses through containers because a page def's stored value
 ## can be an array of resolutions.
+##
+## [b]The logic moved to [MKJsonCodec][/b] when [MKJsonProfileBackend] needed the same envelope;
+## these two methods stay as thin shims so this class's call sites and the doc references to them
+## keep working, and so the file-path-carrying warning context is still supplied from here.
+##
+## [code]envelope_ints[/code] is [b]false[/b] here, and deliberately so: this backend's persisted
+## format predates the int envelope and every application site in this class already coerces with an
+## explicit [code]int(...)[/code] (window mode, vsync, max FPS, resolution components). Enveloping
+## its ints would change the bytes of a format already shipped in this repo for no behavioural gain.
+## The profile backend passes true because its payloads are opaque host data it cannot coerce at the
+## read site — see [MKJsonCodec] for the full argument.
 func _encode(value: Variant) -> Variant:
-	if value is Vector2i:
-		var v := value as Vector2i
-		return {TYPE_TAG: "Vector2i", TYPE_PAYLOAD: [v.x, v.y]}
-	if value is Array:
-		var out: Array = []
-		for item in value as Array:
-			out.append(_encode(item))
-		return out
-	if value is Dictionary:
-		var out_d := {}
-		for key in (value as Dictionary).keys():
-			out_d[key] = _encode((value as Dictionary)[key])
-		return out_d
-	return value
+	return MKJsonCodec.encode_value(value, false)
 
 
+## Decoding is tolerant of every tag the codec knows regardless of the flag above: the bytes on disk
+## are the authority, not what this backend happens to write.
 func _decode(value: Variant) -> Variant:
-	if value is Dictionary:
-		var d := value as Dictionary
-		if d.get(TYPE_TAG, null) == "Vector2i":
-			var payload: Variant = d.get(TYPE_PAYLOAD, null)
-			if payload is Array and (payload as Array).size() == 2:
-				return Vector2i(int((payload as Array)[0]), int((payload as Array)[1]))
-			MKLog.warn("%s: malformed Vector2i envelope in %s — dropping it to null"
-				% [_context(), _file_path])
-			return null
-		var out_d := {}
-		for key in d.keys():
-			out_d[key] = _decode(d[key])
-		return out_d
-	if value is Array:
-		var out: Array = []
-		for item in value as Array:
-			out.append(_decode(item))
-		return out
-	return value
+	return MKJsonCodec.decode_value(value, _file_path)
 
 
 ## Accepts either a live [Vector2i] or the two-element form a decoded envelope can degrade to, so a

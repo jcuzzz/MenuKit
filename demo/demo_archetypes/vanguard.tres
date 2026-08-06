@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="MKArchetype" load_steps=2 format=3]
+
+; The demo's melee archetype, and the file that documents the payload_defaults rule for all three.
+;
+; payload_defaults is HOST DATA, verbatim. MenuKit copies it into the assembled profile and never
+; reads a key of it — that opacity is what keeps this a menu package rather than a character system,
+; and it is why "kit" below means nothing to MenuKit and everything to the demo.
+;
+; It must NEVER carry a "stats" key (F8). Stats are the point-buy step's output, assembled from the
+; live schema at Confirm; an archetype seeding the same key would either be overwritten silently
+; (the archetype's numbers vanish and nobody can say where) or merged, at which point two systems own
+; one field and the spend no longer matches the total the schema advertised. Flavour fields here,
+; stats from the schema, one owner each.
+;
+; No icon and no preview_scene: the demo ships no art, and both fields are optional by design — an
+; archetype with neither still renders as a titled, described, selectable entry.
+
+[ext_resource type="Script" path="res://addons/menu_kit/creation/mk_archetype.gd" id="1_archetype"]
+
+[resource]
+script = ExtResource("1_archetype")
+id = &"vanguard"
+display_name = "Vanguard"
+description = "Walks into the room first and stays there. Trades reach and options for the ability to hold ground nobody else can."
+icon = null
+preview_scene = null
+payload_defaults = {
+"kit": "sword_board",
+"starting_stance": "guard"
+}

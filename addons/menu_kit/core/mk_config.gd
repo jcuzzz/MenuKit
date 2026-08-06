@@ -84,6 +84,30 @@ const SETTINGS_SERVICE_PATH := "/root/" + SETTINGS_SERVICE_NAME
 ## Page shown at boot. Empty means the first visible page in [member pages].
 @export var initial_page: StringName = &""
 
+@export_group("Character Creation")
+## Archetypes the Archetype creation step offers. Data, not code: a host adds a class by appending
+## here, exactly as it adds a nav page to [member pages].
+##
+## The shipped default config carries ONE neutral entry rather than shipping empty (plan §3.1): an
+## archetype step with nothing to pick is a dead end on the very flow a cold drop is most likely to
+## open, and a genre-flavoured placeholder would be worse — it would state a genre the host has not
+## chosen.
+@export var archetypes: Array[MKArchetype] = []
+
+## The creation flow's steps, in order. [b]Empty means "not authored", never "no steps"[/b] —
+## [MKCharacterCreate] falls back to its built-in Name → Archetype → Appearance order, because a
+## creation page rendering nothing is indistinguishable from a broken one. Author this to reorder,
+## drop, or add steps (the demo authors all four, which is what exercises the explicit path).
+@export var creation_steps: Array[MKCreationStepDef] = []
+
+## Point-buy stats for the Point Buy step, or null.
+##
+## [b]Null — the default — disables point-buy entirely[/b] (D17). A game with no stat concept must
+## not be handed a stat screen it has to work out how to remove, so the feature ships off and any
+## point-buy step def is dropped when this is unset. The demo assigns a three-stat schema so the
+## enabled path is visible and testable out of the box.
+@export var point_buy_schema: MKStatSchema = null
+
 @export_group("Behaviour")
 ## Whether MenuKit saves and restores [member Input.mouse_mode] around menus. A Doom-like runs
 ## captured in gameplay, so a pause menu that does not release the cursor is unusable — MenuKit owns
@@ -106,7 +130,8 @@ const SETTINGS_SERVICE_PATH := "/root/" + SETTINGS_SERVICE_NAME
 ## Slot [i]absence[/i] is never a problem — an unassigned slot is a supported configuration. What is
 ## reported: a slot whose script does not extend the base it was handed to, duplicate or empty page
 ## ids, an [member initial_page] naming nothing, a palette that fails its own validation, and a
-## [member backdrop_id] the catalog does not know.
+## [member backdrop_id] the catalog does not know. Phase 5 adds the Character Creation group's
+## equivalents — see [method _creation_problems].
 func validate() -> PackedStringArray:
 	var problems := PackedStringArray()
 
@@ -154,6 +179,86 @@ func validate() -> PackedStringArray:
 				backdrop_id,
 			])
 
+	for reason in _creation_problems():
+		problems.append(reason)
+
+	return problems
+
+
+## The Character Creation group's half of [method validate], split out only for readability. It
+## RETURNS its findings rather than appending to a passed-in array, for the reason
+## [method _validate_slot] records: [PackedStringArray] is copy-on-write, so an out-parameter would be
+## a value copy and every append would vanish. The caller folds these into the one list, so the
+## single-pass "report everything at once" contract is unchanged.
+func _creation_problems() -> PackedStringArray:
+	var problems := PackedStringArray()
+
+	var seen_archetypes := {}
+	for i in archetypes.size():
+		var arch := archetypes[i]
+		if arch == null:
+			problems.append("%s: entry %d is null" % [MKLog.context(self, "archetypes"), i])
+			continue
+		if not arch.is_valid():
+			problems.append("%s: entry %d (%s) is invalid — an archetype needs at least an id and a display_name"
+				% [MKLog.context(self, "archetypes"), i, MKLog.context(arch)])
+			continue
+		if seen_archetypes.has(arch.id):
+			problems.append("%s: duplicate archetype id '%s' (entries %d and %d) — selection would be ambiguous"
+				% [MKLog.context(self, "archetypes"), arch.id, seen_archetypes[arch.id], i])
+			continue
+		seen_archetypes[arch.id] = i
+
+	var seen_steps := {}
+	for i in creation_steps.size():
+		var step := creation_steps[i]
+		if step == null:
+			problems.append("%s: entry %d is null" % [MKLog.context(self, "creation_steps"), i])
+			continue
+		if not step.is_valid():
+			problems.append("%s: entry %d (%s) is invalid — a step needs at least an id"
+				% [MKLog.context(self, "creation_steps"), i, MKLog.context(step)])
+			continue
+		if seen_steps.has(step.id):
+			problems.append("%s: duplicate step id '%s' (entries %d and %d) — the flow would visit one twice"
+				% [MKLog.context(self, "creation_steps"), step.id, seen_steps[step.id], i])
+			continue
+		seen_steps[step.id] = i
+		# Reported separately from is_valid() rather than folded into it: a step def with an id and no
+		# scene is well-formed data with nothing to show, and the fix ("assign the scene") is different
+		# from the fix for a malformed def.
+		if step.scene == null:
+			problems.append("%s: step '%s' has no scene — the flow would show an empty page"
+				% [MKLog.context(step, "scene"), step.id])
+
+	# Null is the supported default (see the member's doc), so absence is never reported. Only an
+	# ASSIGNED schema is held to these rules.
+	if point_buy_schema == null:
+		return problems
+	if point_buy_schema.total_points <= 0:
+		problems.append("%s: total_points is %d — a point-buy step with no points to spend is a dead screen"
+			% [MKLog.context(point_buy_schema, "total_points"), point_buy_schema.total_points])
+	if point_buy_schema.stats.is_empty():
+		problems.append("%s: no stats — assign at least one MKStatDef or leave MKConfig.point_buy_schema null to disable point-buy"
+			% MKLog.context(point_buy_schema, "stats"))
+	var seen_stats := {}
+	for i in point_buy_schema.stats.size():
+		var stat := point_buy_schema.stats[i]
+		if stat == null:
+			problems.append("%s: entry %d is null" % [MKLog.context(point_buy_schema, "stats"), i])
+			continue
+		if stat.min_value > stat.max_value:
+			problems.append("%s: stat '%s' has min_value %d above max_value %d — the row could hold no value"
+				% [MKLog.context(point_buy_schema, "stats"), stat.id, stat.min_value, stat.max_value])
+		if stat.cost_per_point < 1:
+			problems.append("%s: stat '%s' has cost_per_point %d — a cost below 1 makes the pool infinite"
+				% [MKLog.context(point_buy_schema, "stats"), stat.id, stat.cost_per_point])
+		if seen_stats.has(stat.id):
+			problems.append("%s: duplicate stat id '%s' (entries %d and %d) — the spend would be recorded against one key"
+				% [MKLog.context(point_buy_schema, "stats"), stat.id, seen_stats[stat.id], i])
+			continue
+		seen_stats[stat.id] = i
+
 	return problems
 
 
@@ -177,6 +282,24 @@ func get_visible_pages() -> Array[MKMenuPageDef]:
 	for entry in decorated:
 		sorted.append(entry[2])
 	return sorted
+
+
+## One line for the §4.8 diagnostics dump: what the creation flow actually loaded.
+##
+## "The archetype list is empty" and "point-buy is off" are the two facts every creation-flow bug
+## report turns out to hinge on, and neither is visible from a screenshot — an empty archetype step
+## and a step whose defs were dropped look identical. [code]MKRoot.dump_diagnostics[/code] appends
+## this alongside its page count.
+##
+## It lives here rather than in [MKRoot] because these are config facts, and the root already reads
+## the config for its own [code]pages:[/code] line.
+func creation_diagnostics() -> String:
+	return "archetypes: %d  creation_steps: %d (empty = built-in order)  point_buy: %s" % [
+		archetypes.size(),
+		creation_steps.size(),
+		"off" if point_buy_schema == null else "%d points over %d stats" % [
+			point_buy_schema.total_points, point_buy_schema.stats.size()],
+	]
 
 
 func get_page(id: StringName) -> MKMenuPageDef:

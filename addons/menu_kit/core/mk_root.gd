@@ -420,6 +420,10 @@ func dump_diagnostics() -> String:
 	lines.append("settings backend adopted from autoload: %s" % _adopted_settings)
 	if config != null:
 		lines.append("pages: %d visible of %d" % [config.get_visible_pages().size(), config.pages.size()])
+		# The creation module's counts live on MKConfig (creation_diagnostics builds the line) because
+		# the config owns those arrays; this dump only assembles. Plan §4.8 names loaded step/archetype
+		# counts as part of the bug-report surface.
+		lines.append(config.creation_diagnostics())
 	return "\n".join(lines)
 
 

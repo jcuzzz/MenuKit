@@ -8,11 +8,23 @@ extends MKProfileBackend
 ## migrates a gameplay field — that boundary is why the same file format serves an ARPG character
 ## and an FPS loadout, and why a host can add a field without touching MenuKit.
 ##
-## [b]One caveat the "verbatim" promise cannot cover:[/b] JSON has a single number type, so a payload
-## [code]int[/code] comes back from disk as a [code]float[/code] (verified: [code]3[/code] stored,
-## [code]3.0[/code] returned after a reload — before the reload the in-memory copy is still an int).
-## A host comparing a loaded stat with [code]==[/code] against an int literal must convert. This is
-## a property of JSON, not a choice made here, but it is the surprise this backend hands over.
+## [b]Payload [int]s keep their type across a save/load cycle[/b], which JSON on its own cannot do —
+## it has one number type, so a stored [code]3[/code] would come back as [code]3.0[/code]. Because a
+## payload is opaque host data, this backend has no read site at which it could sensibly coerce the
+## value back (unlike [MKJsonSettingsBackend], whose value ids it knows and [code]int(...)[/code]s
+## itself), and silently degrading somebody else's field would break the verbatim promise above. So
+## ints are written through [MKJsonCodec]'s [code]{"__mk_type": "int", "v": 3}[/code] envelope and
+## decoded back on load: [method @GlobalScope.typeof] reports [constant TYPE_INT] after a reload, and
+## a host may compare a loaded stat against an int literal directly.
+## [br][b]Floats stay floats and bools stay bools[/b] — only ints are enveloped, and a bool is not an
+## int for this purpose (a bool that came back as 0/1 would still pass every truthiness test in a
+## host project, which is precisely why the codec's guard is explicit about it).
+## [br][b]Legacy files get no migration.[/b] A roster written before the envelope existed stores its
+## ints as plain JSON numbers; those still read back as floats, exactly as they always did. Rewriting
+## them would mean guessing which of a host's numbers were "meant" to be ints, which is the
+## interpretation this backend refuses to do. Any profile re-saved after this build (a create or a
+## delete rewrites the whole file) picks up the envelope for whatever is an int in memory at that
+## moment.
 ##
 ## [b]Id scheme.[/b] Ids come from a monotonic counter persisted in the file itself
 ## ([code]next_id[/code]), formatted [code]p_000001[/code]. The obvious alternative — a
@@ -36,11 +48,15 @@ extends MKProfileBackend
 ##   "version": 1,
 ##   "next_id": 3,
 ##   "profiles": [
-##     {"id": "p_000001", "name": "Alice", ...host fields...},
+##     {"id": "p_000001", "name": "Alice", "level": {"__mk_type": "int", "v": 7}, ...host fields...},
 ##     {"id": "p_000002", "name": "Bob",   ...host fields...}
 ##   ]
 ## }
 ## [/codeblock]
+## [code]version[/code] and [code]next_id[/code] are plain numbers; the type envelope appears only
+## INSIDE a profile entry, and only for a value JSON cannot carry faithfully ([MKJsonCodec] owns it
+## and is shared with [MKJsonSettingsBackend]). [code]id[/code] and [code]name[/code] are Strings, so
+## they pass through it unchanged and stay readable in a hand-inspected file.
 
 ## Bumped only when the on-disk layout changes in a way this script must branch on.
 ##
@@ -48,6 +64,13 @@ extends MKProfileBackend
 ## and warns. Renaming it aside would destroy the roster the newer install still reads, which is the
 ## harm quarantine exists to prevent. Only a file that is genuinely unreadable — bad JSON, wrong
 ## shape, or a version below 1 — is quarantined. [MKJsonSettingsBackend] takes the same position.
+##
+## [b]The int envelope did NOT bump this[/b], on the same precedent as Phase 4's [code]device[/code]
+## field in the settings store: the change is purely additive (an enveloped int is a JSON object
+## where a bare number used to sit, and a legacy bare number still reads), and this format has never
+## shipped a release, so no released reader exists that could trip on it. It is part of the INITIAL
+## format and MUST be described as such in Phase 9's CHANGELOG statement of the shipped schema —
+## bumping to 2 instead would announce a migration between two versions users never had.
 const SCHEMA_VERSION := 1
 
 const DEFAULT_FILE_PATH := "user://menukit_profiles.json"
@@ -253,10 +276,19 @@ func _ensure_loaded() -> void:
 	var seen := {}
 	var loaded: Array[Dictionary] = []
 	for raw in (data["profiles"] as Array):
-		if typeof(raw) != TYPE_DICTIONARY:
+		# DECODE FIRST, VALIDATE SECOND, and the order is load-bearing in both directions.
+		# Validation must see what callers will see: an entry whose `id` or `name` was destroyed by a
+		# malformed envelope is unusable no matter how well-formed the raw JSON was, so validating the
+		# raw form would admit an entry that then fails the MKProfileBackend contract at every reader.
+		# And the shape check must run on the DECODED value, because decoding can legitimately turn a
+		# JSON object into a non-object — a top-level entry that is itself an envelope decodes to an
+		# int or to null, and assigning that into a typed Dictionary local would be a hard script
+		# error rather than the quarantine this class promises.
+		var decoded: Variant = MKJsonCodec.decode_value(raw, _file_path)
+		if typeof(decoded) != TYPE_DICTIONARY:
 			_quarantine("a profile entry is not a JSON object")
 			return
-		var entry: Dictionary = raw
+		var entry: Dictionary = decoded
 		var id := String(entry.get("id", ""))
 		var entry_name := String(entry.get("name", ""))
 		# id and name are the two fields the MKProfileBackend contract guarantees to callers, so an
@@ -311,10 +343,20 @@ func _next_corrupt_path() -> String:
 
 
 func _save() -> void:
+	# Encode each profile as a WHOLE dictionary rather than trying to separate the backend's own two
+	# fields from the host's. There is nothing to separate: `id` and `name` live inside the profile
+	# dict beside arbitrary host fields, and both are Strings, which the codec passes through
+	# untouched — so "encode everything" and "encode only the host payload" produce identical bytes
+	# for them while the first has no field list to keep in sync. The roster's own bookkeeping
+	# (`version`, `next_id`) sits OUTSIDE the profiles array and is written plain, which is what keeps
+	# the top-level shape readable by eye and by _ensure_loaded's int() reads.
+	var encoded: Array = []
+	for entry in _profiles:
+		encoded.append(MKJsonCodec.encode_value(entry, true))
 	var data := {
 		"version": SCHEMA_VERSION,
 		"next_id": _next_id,
-		"profiles": _profiles,
+		"profiles": encoded,
 	}
 	var dir := _file_path.get_base_dir()
 	if not dir.is_empty() and not DirAccess.dir_exists_absolute(dir):
