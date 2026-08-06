@@ -24,9 +24,9 @@ extends Control
 ## so the default flow is described in ONE readable place, and so a host copying this order into its
 ## own [member MKConfig.creation_steps] can see exactly what it is replacing.
 ##
-## Loaded at runtime rather than [code]preload[/code]ed: these scenes belong to the creation module,
-## and a preload would make this page fail to COMPILE if that module is ever trimmed from a
-## distribution, instead of failing loudly with a message naming the missing file.
+## Loaded at runtime rather than [code]preload[/code]ed, so a distribution that trimmed the creation
+## module fails with a warning naming the missing file and drops that one step, instead of taking the
+## whole default order down with it.
 const DEFAULT_STEPS := [
 	{"id": &"name", "title": "Name",
 		"scene": "res://addons/menu_kit/creation/steps/mk_step_name.tscn"},

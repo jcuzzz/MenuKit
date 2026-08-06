@@ -154,8 +154,10 @@ func _build() -> void:
 	# auto_rotate is left at its default true: a still model reads as a broken viewport, and the idle
 	# turntable is the widget's own documented default rather than a decision re-made here.
 	row.add_child(_preview)
-	# Connected AFTER the node exists and BEFORE the first _apply_preview, so a step that is already
-	# visible when it binds does not depend on the signal for its first fill.
+	# Connected once the preview node exists, since the handler writes to it. The bind's own
+	# _apply_preview is what fills the slot the first time — this signal only covers the LATER shows,
+	# where the player has since chosen an archetype (a step is parented hidden and bound before the
+	# flow shows anything, so the first fill can never come from here).
 	visibility_changed.connect(_on_visibility_changed)
 
 	var centre := CenterContainer.new()

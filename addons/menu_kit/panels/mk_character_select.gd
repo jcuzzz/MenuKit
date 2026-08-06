@@ -101,7 +101,10 @@ func _build() -> void:
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	# The scroll container itself must not be a focus stop: it sits between the footer chain and the
-	# cards, and a focusable-but-empty container is where gamepad traversal appears to hang.
+	# cards, and a focusable-but-empty container is where gamepad traversal appears to hang. FOCUS_NONE
+	# is already ScrollContainer's default, so this line changes nothing today — it is written
+	# explicitly because the requirement is a traversal one, and a default is not a decision anybody can
+	# read here.
 	scroll.focus_mode = Control.FOCUS_NONE
 	column.add_child(scroll)
 

@@ -28,6 +28,8 @@ func run_tests() -> void:
 	await _test_a_malformed_envelope_warns_once_and_reads_as_null()
 	await _test_a_profile_entry_that_is_itself_an_envelope_quarantines()
 	await _test_a_payload_carrying_the_discriminator_is_refused_at_the_door()
+	await _test_a_newer_store_makes_the_backend_read_only()
+	await _test_a_stored_name_is_the_trimmed_one()
 	_clean(SETTINGS_PATH)
 	_clean(PROFILES_PATH)
 
@@ -432,6 +434,81 @@ func _test_a_payload_carrying_the_discriminator_is_refused_at_the_door() -> void
 	check(not _corrupt_sibling_exists(PROFILES_PATH),
 		"nothing was quarantined — which is the whole point of refusing at the door rather than on load")
 	reloaded.free()
+	_clean(PROFILES_PATH)
+
+
+## [b]Leaving a newer file alone has to cover the WRITE side, or the leave lasts one gesture.[/b] The
+## backend boots empty and leaves a future-version store in place (asserted above) — but the roster it
+## boots is EMPTY, so the first create from this build used to rewrite the whole file at schema 1 and
+## the newer install's characters were gone, with no quarantine sidecar to recover them. That is the
+## exact harm the leave-it-alone rule exists to prevent, delivered one create later. So the newer
+## version latches the backend read-only: create returns {}, delete returns false, each with one
+## warning naming the version, and the assertion is made on the BYTES.
+func _test_a_newer_store_makes_the_backend_read_only() -> void:
+	_clean(PROFILES_PATH)
+	var file := FileAccess.open(PROFILES_PATH, FileAccess.WRITE)
+	check(file != null, "the future-version store was written")
+	if file == null:
+		return
+	file.store_string('{"version": 99, "next_id": 2, "profiles": [{"id": "p_000001", "name": "FutureAlice"}]}')
+	file.close()
+	var bytes_before := FileAccess.get_file_as_string(PROFILES_PATH)
+
+	_watch_warnings()
+	var backend := _make_profiles()
+	var created := backend.create_profile({"name": "Downgrade"})
+	var create_warnings := _stop_watching()
+
+	check(created.is_empty(), "a create against a newer store is REFUSED rather than performed")
+	check_eq(_count_containing(create_warnings, "99"), 2,
+		"with the version named — once by the load and once by the refusal")
+	check_eq(FileAccess.get_file_as_string(PROFILES_PATH), bytes_before,
+		"and the file is byte-identical: FutureAlice is still there, which she was not before this latch")
+
+	_watch_warnings()
+	var deleted := backend.delete_profile("p_000001")
+	var delete_warnings := _stop_watching()
+	check(not deleted, "a delete is refused the same way — the only way to honour one is to rewrite the file")
+	check_eq(_count_containing(delete_warnings, "refused"), 1, "with one warning of its own")
+	check_eq(FileAccess.get_file_as_string(PROFILES_PATH), bytes_before, "and again the bytes are untouched")
+	backend.free()
+
+	# The latch is not sticky past the file that caused it: replace the store with a readable one and the
+	# same backend class writes again. A latch that survived its cause would wedge the menu permanently.
+	_clean(PROFILES_PATH)
+	var recovered := _make_profiles()
+	check(not recovered.create_profile({"name": "Recovered"}).is_empty(),
+		"once the newer file is gone the backend writes again — the latch follows the file, not the session")
+	recovered.free()
+	_clean(PROFILES_PATH)
+
+
+## [b]The unique-name rule is checked against the TRIMMED name, so the trimmed name is what is
+## stored.[/b] Storing the raw payload made the rule bypassable by two spaces: "  Alice  " strips to a
+## name the check refuses to duplicate, but the padded string went to disk — so a later plain "Alice"
+## found no collision and the roster held two rows that render identically in every list and tooltip.
+func _test_a_stored_name_is_the_trimmed_one() -> void:
+	_clean(PROFILES_PATH)
+	var backend := _make_profiles()
+	var created := backend.create_profile({"name": "  Alice  ", "archetype": "scout"})
+	check(not created.is_empty(), "precondition: a padded name is accepted (it is a valid name once trimmed)")
+	check_eq(created.get("name", ""), "Alice", "the RETURNED entry carries the trimmed name")
+	check_eq(created.get("archetype", ""), "scout",
+		"and every other field is still verbatim — normalisation is scoped to the one field the rule is about")
+
+	var listed := backend.list_profiles()
+	check_eq(listed.size(), 1, "precondition: one profile")
+	if listed.size() == 1:
+		check_eq((listed[0] as Dictionary).get("name", ""), "Alice", "so does the LISTED entry")
+	check(not FileAccess.get_file_as_string(PROFILES_PATH).contains('"  Alice  "'),
+		"and the padded form never reached the bytes")
+
+	check(backend.create_profile({"name": "Alice"}).is_empty(),
+		"a plain duplicate of a padded original is refused — the bypass this closes")
+	check(backend.create_profile({"name": " Alice "}).is_empty(),
+		"and so is a padded duplicate of it, which is the direction that already worked")
+	check_eq(backend.list_profiles().size(), 1, "the roster gained nothing from either attempt")
+	backend.free()
 	_clean(PROFILES_PATH)
 
 

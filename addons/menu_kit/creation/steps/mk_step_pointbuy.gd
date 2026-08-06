@@ -275,9 +275,17 @@ func _adjust(index: int, delta: int) -> void:
 	step_state_changed.emit()
 
 
-## Applies a previously committed allocation, ignoring anything the current schema cannot honour.
-## Out-of-range and unknown ids are dropped silently: a restore is not an authoring event, and the
-## player has the buttons in front of them either way.
+## Applies a previously committed allocation, honouring each stat's own min/max and dropping anything
+## outside it. Out-of-range and unknown ids are dropped silently: a restore is not an authoring event,
+## and the player has the buttons in front of them either way.
+##
+## [b]The POOL is not honoured here, only the per-stat ranges.[/b] A stored allocation whose values are
+## each individually legal but together cost more than [member MKStatSchema.total_points] — a payload
+## from a schema that has since shrunk its pool — is restored as-is, so the readout shows a NEGATIVE
+## "points remaining" and [method _mk_step_is_valid]'s [code]_remaining() < 0[/code] check gates Next
+## until the player spends their way back into budget. That is the intended shape rather than an
+## oversight: silently clamping somebody's allocation to fit would discard choices without saying so,
+## and the negative number names the problem in the same place as the buttons that fix it.
 func _restore(stored: Dictionary) -> void:
 	for i in _stats.size():
 		var raw: Variant = stored.get(String(_stats[i].id), null)

@@ -7,7 +7,10 @@ extends Control
 ## [b]Every invalid state says WHY, in place.[/b] A greyed-out Next with no explanation is the single
 ## most common way a creation screen dead-ends a player: the button is off, the field looks fine, and
 ## nothing on screen connects the two. So the label under the field always carries the current reason —
-## too short, too long, a character that is not allowed, or a name already taken.
+## too short, a character that is not allowed, or a name already taken. There is no "too long" reason
+## because there is no too-long state to explain: the field itself refuses the twenty-fifth character
+## (see [constant MAX_LENGTH]), which is a better gesture than accepting the keystroke and then
+## complaining about it.
 ##
 ## [b]The availability check is a PRE-CHECK, not the authority.[/b] [MKProfileBackend]'s refusals are
 ## silent by contract (an empty dictionary from [method MKProfileBackend.create_profile]), which is
@@ -25,9 +28,13 @@ signal step_state_changed()
 ## ownership assertion, the commit and the doc must not be able to drift apart.
 const PAYLOAD_KEY := "name"
 
-## Trimmed length bounds. Two so a name is at least pronounceable and a stray keypress is not a
-## character; twenty-four because it has to fit a roster row, a save-file label and a nameplate without
-## the host having to truncate it everywhere.
+## Length bounds. Two so a name is at least pronounceable and a stray keypress is not a character;
+## twenty-four because it has to fit a roster row, a save-file label and a nameplate without the host
+## having to truncate it everywhere.
+##
+## They are enforced in different places, and deliberately: MIN_LENGTH is a validation rule over the
+## TRIMMED name ([method _validation_error]), while MAX_LENGTH is the [LineEdit]'s own
+## [member LineEdit.max_length] and therefore caps the raw field before trimming ever happens.
 const MIN_LENGTH := 2
 const MAX_LENGTH := 24
 
@@ -125,8 +132,11 @@ func _build() -> void:
 	_edit.name = "NameEdit"
 	# The engine's own cap, set from the same constant as the validation: letting the player type past
 	# the limit and only then telling them it is too long is a worse gesture than stopping the keystroke.
-	# The length rule is still CHECKED below, because a host can assign text programmatically and because
-	# max_length says nothing about the minimum.
+	# [b]This is the ONLY enforcement of the maximum, and it covers every write path[/b] — LineEdit
+	# truncates a programmatic `text =` assignment to max_length just as it truncates typing (measured on
+	# 4.7), so _validation_error carries no "too long" branch: there is no route by which _current_name()
+	# can exceed MAX_LENGTH, and a branch that cannot run is a rule nobody can trust. The MINIMUM is a
+	# different matter and IS checked below — max_length says nothing about it.
 	_edit.max_length = MAX_LENGTH
 	# Editable even with no backend, unlike a settings row. The host has already disabled the navigation
 	# that would persist anything, and a field the player cannot type into says "broken" where a field
@@ -168,8 +178,9 @@ func _validation_error() -> String:
 		if value.is_empty():
 			return "Enter a name."
 		return "Names must be at least %d characters." % MIN_LENGTH
-	if value.length() > MAX_LENGTH:
-		return "Names must be at most %d characters." % MAX_LENGTH
+	# No "too long" branch: MAX_LENGTH is enforced by the LineEdit's own max_length for every write
+	# path, typed and programmatic alike (see _build), so the branch that used to sit here was
+	# unreachable — and an unreachable branch reads as a second, independent guard that is not there.
 	if _regex == null or _regex.search(value) == null:
 		return "Use letters, numbers, spaces, underscores or hyphens only."
 	# Availability last, because it is the only check that costs a backend call and the only one that can

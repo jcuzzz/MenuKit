@@ -37,6 +37,7 @@ func run_tests() -> void:
 	await _test_the_footer_chain_is_built_over_the_buttons_the_rebuild_ends_with()
 	await _test_a_missing_profile_backend_warns_once_and_disables_the_actions()
 	await _test_a_delete_the_backend_refuses_says_so_and_resyncs()
+	await _test_creation_steps_are_reordered_by_config_alone()
 	_test_config_validation_reports_every_creation_fault()
 	_clean()
 
@@ -530,6 +531,84 @@ func _test_config_validation_reports_every_creation_fault() -> void:
 		"a config with no archetypes, no steps and NO schema reports nothing — declining an optional feature is not a fault")
 
 
+## [b]Phase 5 exit criterion: "reorder the steps via config and the flow follows".[/b] It was verified
+## by hand and had no suite coverage at all, which for a criterion about CONFIG driving the flow is the
+## easiest thing to break silently — [method MKCharacterCreate._resolve_steps] could start ignoring
+## [member MKConfig.creation_steps] entirely and every other test in this repo would stay green.
+##
+## Driven through the REAL creation page rather than by calling [method MKCreationHost.configure]: the
+## criterion is not "the host walks the array it was handed" (test_creation_host.gd owns that) but "the
+## array a host AUTHORS is the one that reaches it", and the resolve-and-configure seam between the two
+## is the only part that can fail this. So the config is authored, the shell boots it, New Character
+## pushes the real page, and the order is read off the flow that resulted.
+##
+## Both halves are asserted, because they are two branches of one method: an authored order is used
+## verbatim, and an EMPTY one falls back to the built-in Name → Archetype → Appearance rather than
+## rendering a stepless page.
+func _test_creation_steps_are_reordered_by_config_alone() -> void:
+	_seed([{"name": "Alice"}])
+	# Deliberately the exact REVERSE of the built-in order, so a fallback that ignored the config would
+	# produce the mirror image rather than something that happens to overlap.
+	var authored: Array[MKCreationStepDef] = []
+	authored.append(_creation_step(&"appearance", "Appearance", "mk_step_appearance"))
+	authored.append(_creation_step(&"archetype", "Archetype", "mk_step_archetype"))
+	authored.append(_creation_step(&"name", "Name", "mk_step_name"))
+
+	var root := await _make_root(null, authored)
+	var panel := _panel(root)
+	if panel == null:
+		await _drop(root)
+		return
+	await _activate(_button(panel, "NewCharacter"))
+	var host := _creation_host(root)
+	check(host != null, "the creation page built a host from the authored config")
+	if host != null:
+		check_eq(_step_ids(host), PackedStringArray(["appearance", "archetype", "name"]),
+			"the flow walks the authored order, not the built-in one")
+		check_eq(host.current_step_index(), 0, "and opens on its first step")
+		check_eq(host._title_label.text, "Appearance",
+			"which is the authored first step, on screen — the player-visible half of the same claim")
+	await _drop(root)
+
+	# The unauthored case. Empty means "I did not author this", never "I want no steps": a zero-step
+	# flow can create nothing, so an empty array must produce the built-in order rather than a dead page.
+	_seed([{"name": "Alice"}])
+	var empty: Array[MKCreationStepDef] = []
+	var default_root := await _make_root(null, empty)
+	var default_panel := _panel(default_root)
+	if default_panel == null:
+		await _drop(default_root)
+		return
+	await _activate(_button(default_panel, "NewCharacter"))
+	var default_host := _creation_host(default_root)
+	check(default_host != null, "an unauthored config still builds a flow")
+	if default_host != null:
+		check_eq(_step_ids(default_host), PackedStringArray(["name", "archetype", "appearance"]),
+			"in the built-in order — and point-buy is NOT in it, since a game with no stat concept must not be handed a stat screen (D17)")
+		check_eq(default_host._title_label.text, "Name", "opening on Name")
+	await _drop(default_root)
+
+
+## The ids of the steps a host actually built, in flow order. Read off [code]_steps[/code] rather than
+## walked with Next: walking needs each step to answer valid, and the name step deliberately does not
+## until something is typed into it — which would make an ORDER assertion depend on the validation
+## rules of whichever steps the order happens to put first.
+func _step_ids(host: MKCreationHost) -> PackedStringArray:
+	var out := PackedStringArray()
+	for def in host._steps:
+		out.append(String(def.id))
+	return out
+
+
+func _creation_step(id: StringName, title: String, scene_stem: String) -> MKCreationStepDef:
+	var def := MKCreationStepDef.new()
+	def.id = id
+	def.title = title
+	def.scene = ResourceLoader.load("res://addons/menu_kit/creation/steps/%s.tscn" % scene_stem)
+	check(def.scene != null, "the '%s' step scene loaded" % scene_stem)
+	return def
+
+
 # --- Fixtures -----------------------------------------------------------------
 
 ## Writes the roster through the REAL backend on this suite's own file, before the shell boots. Seeding
@@ -553,8 +632,13 @@ func _seed(entries: Array) -> void:
 ## [param profile_script] swaps the shipped JSON backend for a stub in the ONE case that needs a
 ## backend behaviour the real one cannot be talked into (a delete that refuses). It still arrives
 ## through the slot, so the panel resolves it by the same duck-typed walk as always.
-func _make_root(profile_script: Script = null) -> MKRoot:
+## [param creation_steps] replaces the demo config's authored order when it is non-null (an EMPTY
+## array is a meaningful value — it is how the unauthored case is reached, and it is why the parameter
+## is nullable rather than defaulted to []).
+func _make_root(profile_script: Script = null, creation_steps: Variant = null) -> MKRoot:
 	var config := (ResourceLoader.load(CONFIG_PATH) as MKConfig).duplicate(true)
+	if creation_steps != null:
+		config.creation_steps.assign(creation_steps as Array)
 	var profile_slot := MKBackendSlot.new()
 	profile_slot.backend_script = profile_script if profile_script != null else MKJsonProfileBackend
 	if profile_script == null:

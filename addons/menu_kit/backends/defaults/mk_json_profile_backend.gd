@@ -4,8 +4,12 @@ extends MKProfileBackend
 ##
 ## Profiles are stored [b]verbatim[/b]. Whatever dictionary the creation flow assembles is what
 ## lands on disk; this backend adds exactly one key of its own ([code]id[/code]) and enforces
-## exactly one rule of its own (unique [code]name[/code]). It never reads, validates, defaults, or
-## migrates a gameplay field — that boundary is why the same file format serves an ARPG character
+## exactly one rule of its own (unique [code]name[/code]) — and it NORMALISES that same one field,
+## storing the [method String.strip_edges]-trimmed name it actually checked rather than the raw one
+## it was handed, because a rule enforced over a trimmed value while the untrimmed value is stored is
+## a rule two spaces defeat (see [method create_profile]). One key added, one rule enforced, one field
+## normalised, and all three are the same field or the backend's own. It never reads, validates,
+## defaults, or migrates a gameplay field — that boundary is why the same file format serves an ARPG character
 ## and an FPS loadout, and why a host can add a field without touching MenuKit.
 ##
 ## [b]Payload [int]s keep their type across a save/load cycle[/b], which JSON on its own cannot do —
@@ -71,6 +75,19 @@ extends MKProfileBackend
 ## harm quarantine exists to prevent. Only a file that is genuinely unreadable — bad JSON, wrong
 ## shape, or a version below 1 — is quarantined. [MKJsonSettingsBackend] takes the same position.
 ##
+## [b]Leaving the file also means not WRITING over it[/b], and that takes a latch rather than a
+## comment. [MKJsonSettingsBackend]'s [method MKJsonSettingsBackend.load] states the consequence of
+## the bare leave-it-alone rule openly (":232-235" — "a subsequent save from this build overwrites
+## it"), and for a settings store that is a survivable annoyance. For a ROSTER it is not: the first
+## create from this build would rewrite the whole file, and the newer install's characters are gone
+## with no sidecar to recover them — the exact harm the leave-it-alone rule was written to prevent,
+## delivered one gesture later. So detecting a newer file also latches this backend READ-ONLY
+## ([member _read_only_newer]): [method create_profile] returns an empty dictionary and
+## [method delete_profile] returns false, each with one warning naming the version, and the bytes on
+## disk are never touched. Both refusals are shapes their callers already handle ([MKCreationHost]
+## shows its inline refusal message; [MKCharacterSelect] refreshes from the backend). The latch is
+## cleared by the next successful load — replace or remove the file and the backend writes again.
+##
 ## [b]The int envelope did NOT bump this[/b], on the same precedent as Phase 4's [code]device[/code]
 ## field in the settings store: the change is purely additive (an enveloped int is a JSON object
 ## where a bare number used to sit, and a legacy bare number still reads), and this format has never
@@ -90,6 +107,12 @@ var _max_profiles := 0
 var _profiles: Array[Dictionary] = []
 var _next_id := 1
 var _loaded := false
+## Set by [method _ensure_loaded] when the file on disk carries a schema version this build cannot
+## read, and the reason every write is refused while it is set — see [constant SCHEMA_VERSION].
+## Re-evaluated by every load, so it is not sticky past the file that caused it.
+var _read_only_newer := false
+## The version that latched it, so the refusal warning can name the number rather than say "newer".
+var _newer_version := 0
 
 
 ## Reads [code]file_path[/code] (String) and [code]max_profiles[/code] (int, 0 = unlimited) so a
@@ -132,10 +155,14 @@ func list_profiles() -> Array[Dictionary]:
 	return out
 
 
-## Stores [param payload] verbatim with a backend-assigned id appended, and returns the stored
-## entry. Returns an empty dictionary — the base class's documented failure signal — when the name
-## is missing, blank, already taken, or the roster is at its configured cap. Those are ordinary
-## outcomes of a user typing into a form, so they are not warnings; the creation flow is expected
+## Stores [param payload] with a backend-assigned id appended and [code]name[/code] trimmed, and
+## returns the stored entry. Every other field is verbatim; [code]name[/code] is normalised because
+## the uniqueness rule is checked against the trimmed form, so storing the raw one would let
+## [code]"  Alice  "[/code] and [code]"Alice"[/code] coexist as two rows a player cannot tell apart.
+## Returns an empty dictionary — the base class's documented failure signal — when the name
+## is missing, blank, already taken, the roster is at its configured cap, or the store on disk was
+## written by a newer MenuKit (see [constant SCHEMA_VERSION]; that one warns). The first four are
+## ordinary outcomes of a user typing into a form, so they are not warnings; the creation flow is expected
 ## to have asked [method is_name_available] first and to surface the refusal itself.
 ##
 ## [b]It also refuses a payload carrying [constant MKJsonCodec.TYPE_TAG] anywhere inside it[/b], and
@@ -148,6 +175,8 @@ func list_profiles() -> Array[Dictionary]:
 ## the door costs one create; acceptance costs the roster.
 func create_profile(payload: Dictionary) -> Dictionary:
 	_ensure_loaded()
+	if _refuse_write("create"):
+		return {}
 	var tag_path := _find_type_tag(payload, "payload")
 	if not tag_path.is_empty():
 		MKLog.warn("%s: creation payload contains the reserved key '%s' at %s; MenuKit owns that key as its JSON type discriminator and a file carrying it would be quarantined on load, taking every other profile with it. The create is refused" % [
@@ -166,6 +195,13 @@ func create_profile(payload: Dictionary) -> Dictionary:
 		return {}
 
 	var entry := payload.duplicate(true)
+	# The TRIMMED name is what is stored, because it is the value the uniqueness rule above was checked
+	# against. Storing the raw payload made the rule bypassable by whitespace: "  Alice  " strips to a
+	# name that is_name_available compares (and refuses), but the RAW string went to disk — so a second
+	# create of "Alice" saw a stored "  Alice  ", found no collision, and the roster held two entries
+	# that render identically in every list. Writing the checked value back is the only place the two can
+	# be kept from disagreeing; every downstream comparison then sees what was validated.
+	entry["name"] = profile_name
 	for key in RESERVED_KEYS:
 		if entry.has(key):
 			MKLog.warn("%s: creation payload carries reserved key '%s'; the backend's value wins" % [
@@ -180,8 +216,14 @@ func create_profile(payload: Dictionary) -> Dictionary:
 
 ## Returns whether the id existed. An absent id is a normal query result — a stale button, a
 ## double-click, a host asking speculatively — not a misconfiguration, so it does not warn.
+##
+## Returns false WITHOUT deleting anything while the read-only latch is set (a store written by a
+## newer MenuKit — see [constant SCHEMA_VERSION]): the profile the caller named is not in this
+## build's roster at all, and the only way to honour a delete would be to rewrite the newer file.
 func delete_profile(id: String) -> bool:
 	_ensure_loaded()
+	if _refuse_write("delete"):
+		return false
 	for i in _profiles.size():
 		if String(_profiles[i].get("id", "")) == id:
 			_profiles.remove_at(i)
@@ -243,6 +285,21 @@ func _find_type_tag(value: Variant, path: String) -> String:
 	return ""
 
 
+## True when the store on disk was written by a newer MenuKit, in which case [param gesture] is
+## refused rather than performed. Warns — unlike the ordinary create refusals, which are debug
+## because a taken name is a user typing into a form. This one is a host/installation condition the
+## user cannot fix from the menu, and it is the line that explains a New Character button that does
+## nothing. Per refusal rather than once per latch: a create and a delete are deliberate gestures,
+## not a per-frame path, so there is no flood to suppress and a silent second attempt would be the
+## same unexplained dead end.
+func _refuse_write(gesture: String) -> bool:
+	if not _read_only_newer:
+		return false
+	MKLog.warn("%s: %s was written by a newer MenuKit (schema %d, this build reads %d) — this build is read-only against it, so the %s is refused rather than overwriting that roster"
+		% [MKLog.context(get_script()), _file_path, _newer_version, SCHEMA_VERSION, gesture])
+	return true
+
+
 func _mint_id() -> String:
 	# Loop rather than trust the counter: a hand-edited file can contain an id that does not match
 	# the p_%06d shape at all, so "counter is past the highest parsed id" is not by itself a
@@ -270,6 +327,10 @@ func _ensure_loaded() -> void:
 	_loaded = true
 	_profiles = []
 	_next_id = 1
+	# Cleared on every load, and set again below only if THIS file is still the newer one. A latch that
+	# survived the file that caused it would wedge a backend whose store the user has since replaced.
+	_read_only_newer = false
+	_newer_version = 0
 	if not FileAccess.file_exists(_file_path):
 		return
 
@@ -310,7 +371,14 @@ func _ensure_loaded() -> void:
 		# harm quarantine exists to prevent. This matches MKJsonSettingsBackend — the two backends
 		# previously took opposite positions on the same situation, and this one did what the other
 		# named as the harm.
-		MKLog.warn("%s: %s was written by a newer MenuKit (schema %d, this build reads %d) — starting with an empty roster and leaving the file untouched"
+		#
+		# "Leave it" has to cover the WRITE side too, or the leave is one gesture long: the first create
+		# from this build rewrites the whole file at SCHEMA_VERSION and the newer install's roster is gone
+		# with no sidecar (the settings backend accepts that consequence for a settings store; a roster
+		# cannot). So the backend latches read-only until a load succeeds against a file it can read.
+		_read_only_newer = true
+		_newer_version = version
+		MKLog.warn("%s: %s was written by a newer MenuKit (schema %d, this build reads %d) — starting with an empty roster, leaving the file untouched and refusing every write until it is replaced"
 			% [MKLog.context(get_script()), _file_path, version, SCHEMA_VERSION])
 		return
 	if version < 1:

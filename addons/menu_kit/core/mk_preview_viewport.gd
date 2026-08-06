@@ -261,7 +261,7 @@ func set_preview_scene(scene: PackedScene) -> void:
 		# character's zoom instead of a fresh fit (measured, round 6). "Reset when the slot is cleared"
 		# is a statement about the SLOT, and the slot does not care whether the node is in a tree.
 		_fitted_once = false
-		_distance = clampf(_FALLBACK_DISTANCE, minf(zoom_min, zoom_max), maxf(zoom_min, zoom_max))
+		_distance = _clamp_zoom(_FALLBACK_DISTANCE)
 	# Immediate pass: silent about zero bounds, because for deferred-built content zero IS the expected
 	# reading on this frame and a debug line here would fire for every CSG preview ever shown.
 	_frame(false)
@@ -354,7 +354,7 @@ func _frame(report_no_bounds: bool, fit_distance := false) -> void:
 	var content := get_content()
 	if content == null:
 		_pivot.position = Vector3.ZERO
-		_distance = clampf(_FALLBACK_DISTANCE, zoom_min, zoom_max)
+		_distance = _clamp_zoom(_FALLBACK_DISTANCE)
 		# An empty slot has no subject to have chosen a zoom for, so the next content fits from scratch.
 		_fitted_once = false
 		_apply_transforms()
@@ -370,7 +370,7 @@ func _frame(report_no_bounds: bool, fit_distance := false) -> void:
 			MKLog.debug("%s: preview content '%s' has no VisualInstance3D bounds; using fallback distance"
 				% [name, content.name])
 		if not _fitted_once:
-			_distance = clampf(_FALLBACK_DISTANCE, zoom_min, zoom_max)
+			_distance = _clamp_zoom(_FALLBACK_DISTANCE)
 		# The pivot is deliberately NOT reset here: it may already carry a centre from an earlier pass
 		# over content that HAD bounds, and zeroing it would throw that centring away (with the content's
 		# matching -centre shift left in place) the moment the bounds momentarily read empty.
@@ -392,11 +392,11 @@ func _frame(report_no_bounds: bool, fit_distance := false) -> void:
 	if fit_distance or not _fitted_once:
 		var half_fov := deg_to_rad(_camera.fov) * 0.5
 		var fitted := radius / maxf(tan(half_fov), 0.001) * _FRAME_MARGIN
-		_distance = clampf(fitted, zoom_min, zoom_max)
+		_distance = _clamp_zoom(fitted)
 	else:
 		# A swap keeps the user's zoom, but the new subject's bounds may have moved the legal range's
 		# meaning; clamping keeps it inside the exports either way.
-		_distance = clampf(_distance, minf(zoom_min, zoom_max), maxf(zoom_min, zoom_max))
+		_distance = _clamp_zoom(_distance)
 	_fitted_once = true
 	# Near/far are derived rather than left at defaults: a 3cm gemstone previewed at 0.1 units would
 	# sit inside a 0.05 default near plane on some fov/zoom_min combinations and vanish.
@@ -469,8 +469,25 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _zoom_by(amount: float) -> void:
-	_distance = clampf(_distance + amount, minf(zoom_min, zoom_max), maxf(zoom_min, zoom_max))
+	_distance = _clamp_zoom(_distance + amount)
 	_apply_transforms()
+
+
+## The ONE place [member zoom_min] and [member zoom_max] become a range. Every distance write in this
+## class goes through it — the wheel, the fit, the swap re-clamp and both fallback-distance parks.
+##
+## [b]It orders the pair rather than trusting it.[/b] The two are independent exports and nothing stops
+## a host (or an editor drag) from leaving zoom_min above zoom_max; a plain
+## [code]clampf(value, zoom_min, zoom_max)[/code] on an inverted pair returns the MAX for every input,
+## because clampf applies its minimum last. That is not merely an odd number: three of the sites used
+## the plain form and three used this one, so an inverted pair made a clear park at a different
+## distance from a fit or a wheel notch, and the same gesture landed in two places depending on which
+## branch ran (measured with zoom_min 5 / zoom_max 1: a DETACHED clear parked at the fallback 3,
+## which is inside the range either way, while an IN-TREE clear ran _frame's null branch on top of it
+## and the plain form pushed it out to 5). Ordering here makes the inverted pair merely a range spelled backwards, and makes all
+## six sites agree by construction rather than by six copies of the same two calls.
+func _clamp_zoom(value: float) -> float:
+	return clampf(value, minf(zoom_min, zoom_max), maxf(zoom_min, zoom_max))
 
 
 ## Yaw spins the PIVOT (the content turns in place); pitch and distance move the CAMERA in an orbit

@@ -31,9 +31,16 @@ extends Control
 ## check ([method _validate_archetype_defaults]) refuses, at configure and with an error naming both
 ## sides, any archetype default whose key a step OWNS — the default is never seeded, and
 ## [method notify_archetype_chosen] skips it again on every choice. So the two authors of a payload key
-## are disjoint by construction: every key in the payload was written either by a seed or by a commit,
-## never by both, and "steps win" is a statement about who is ALLOWED to write a key rather than about
-## the order two writes landed in.
+## are disjoint by DECLARATION: every key the host knows about was claimed either by a seed or by a
+## step's [code]_mk_step_owned_keys[/code], never by both, and "steps win" is a statement about who is
+## ALLOWED to write a key rather than about the order two writes landed in.
+##
+## [b]Declaration, not construction, and the gap is worth naming.[/b] Nothing here checks what a step's
+## [code]_mk_step_commit[/code] actually writes — it is handed the live payload and could write a key
+## it never declared, over a seeded default, and no assertion would fire. Policing that would mean
+## diffing the payload around every commit and deciding what to do about a step that is simply wrong,
+## which is a heavier contract than the flow needs. Every step this addon ships honours its own
+## declaration; a host step that does not is outside the guarantee rather than caught by it.
 ##
 ## [b]The exclusion holds whatever order the steps are authored in, and that takes an explicit
 ## mechanism.[/b] [method configure] runs in THREE passes: every surviving step's owned keys are
@@ -448,8 +455,10 @@ func _bind_steps() -> void:
 		if control.has_signal("step_state_changed"):
 			control.connect("step_state_changed", _on_step_state_changed)
 		else:
-			# Not fatal: a step with no mutable input (the appearance placeholder is exactly that) has
-			# nothing to announce, and its validity is polled once at every _show_step anyway. Said at debug
+			# Not fatal: a step with no mutable input has nothing to announce, and its validity is polled
+			# once at every _show_step anyway. (No shipped step is in this state — the appearance
+			# placeholder declares the signal even though it never changes validity — so the branch exists
+			# for host steps.) Said at debug
 			# level so a step that DOES have inputs and forgot the signal — the "Next stays greyed out while
 			# I type" report — has a line to find.
 			MKLog.debug("%s: step '%s' declares no step_state_changed signal — validity is polled on navigation only"

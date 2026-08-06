@@ -42,6 +42,7 @@ func run_tests() -> void:
 	await _test_clearing_the_slot_gives_the_next_content_a_fresh_fit()
 	await _test_a_non_node3d_scene_warns_and_parents_nothing()
 	await _test_zoom_clamps_at_both_bounds_and_survives_an_inverted_pair()
+	await _test_an_inverted_pair_parks_a_clear_at_one_distance_whichever_branch_runs()
 	await _test_preview_changed_fires_once_per_swap()
 	await _test_render_mode_follows_visibility()
 
@@ -611,6 +612,44 @@ func _test_zoom_clamps_at_both_bounds_and_survives_an_inverted_pair() -> void:
 	for _i in 40:
 		preview._gui_input(_wheel(MOUSE_BUTTON_WHEEL_DOWN))
 	check_eq(preview._distance, 6.0, "and the higher one the ceiling")
+
+	await _drop(preview)
+
+
+## [b]The clamp above is a RANGE read at every distance write, not only at the wheel.[/b] Three sites
+## in [code]_frame[/code] used the plain [code]clampf(x, zoom_min, zoom_max)[/code] form while the
+## wheel and the swap re-clamp ordered the pair — so on an inverted pair the SAME gesture parked the
+## camera in two different places depending on which branch ran: a detached clear took the ordered
+## form and landed on the fallback 3, an in-tree clear then ran _frame's null branch and the plain
+## form pushed it out to 6 (clampf applies its minimum last, so an inverted pair returns the min for
+## every input). Both are the same gesture on the same slot, so both must answer the same. Pinned
+## against a single [code]_clamp_zoom[/code] helper rather than against one of the two answers.
+func _test_an_inverted_pair_parks_a_clear_at_one_distance_whichever_branch_runs() -> void:
+	var preview := await _make_preview()
+	# Inverted on purpose, and with the fallback distance INSIDE the range either way round, so the two
+	# branches can only disagree through the clamp form and not through the range itself.
+	preview.zoom_min = 6.0
+	preview.zoom_max = 1.0
+
+	var parent := preview.get_parent()
+	parent.remove_child(preview)
+	preview.set_preview_scene(null)
+	var detached_park: float = preview._distance
+	parent.add_child(preview)
+	await step_frame()
+
+	preview.set_preview_scene(_mesh_scene())
+	await step_frame()
+	check(preview.get_content() != null, "precondition: the slot refilled in the tree")
+	preview.set_preview_scene(null)
+	await step_frame()
+	var in_tree_park: float = preview._distance
+
+	check_eq(in_tree_park, detached_park,
+		"an in-tree clear parks at the same distance as a detached one under an inverted zoom pair (in-tree %s, detached %s)"
+			% [in_tree_park, detached_park])
+	check_eq(in_tree_park, 3.0,
+		"and that distance is the fallback itself, which is inside the range whichever way round it is authored")
 
 	await _drop(preview)
 
