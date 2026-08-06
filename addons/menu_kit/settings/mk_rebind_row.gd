@@ -88,7 +88,13 @@ const CAPTION_UI_OVERLAP := "Also used by menu navigation"
 ## Seconds before an unanswered capture gives up. A listening row swallows the whole keyboard, so a
 ## player who walked away (or who started a capture by accident and cannot guess that Escape gets
 ## out) must not be stuck in it.
-@export var listen_timeout := 5.0
+##
+## It is [b]the backstop, not the primary path[/b] (plan §4.4): Escape, the Cancel button and the pad's
+## reserved refusal are how a capture is meant to end, and this only catches the player who left. Ten
+## seconds rather than five because the real gesture is "click, then decide" — a user reading the row
+## to work out which key they want is doing the intended thing, and having the prompt expire under
+## them reads as the menu dropping their input.
+@export var listen_timeout := 10.0
 
 var _def: MKSettingDef
 var _backend: MKSettingsBackend
@@ -164,11 +170,16 @@ func setup(def: MKSettingDef, backend: MKSettingsBackend, modal_layer: MKModalLa
 
 	_build()
 
-	if _def != null and not _def.tooltip.is_empty():
-		# On the row AND the button: the label is the larger hit area, and a tooltip only reachable over
-		# a narrow button is one most users never find.
-		tooltip_text = _def.tooltip
-		_binding_button.tooltip_text = _def.tooltip
+	# On the row AND the button: the label is the larger hit area, and a tooltip only reachable over a
+	# narrow button is one most users never find.
+	#
+	# Assigned UNCONDITIONALLY, so an empty tooltip CLEARS. setup() is re-callable by contract (a panel
+	# rebuilding its pages re-points one row at a new def), and skipping the write for an empty string
+	# left the PREVIOUS def's tooltip hovering over a row that is now about something else — the one
+	# state where a tooltip is worse than none.
+	var tooltip := _def.tooltip if _def != null else ""
+	tooltip_text = tooltip
+	_binding_button.tooltip_text = tooltip
 
 	if _backend == null:
 		MKLog.warn("%s: rebind row '%s' has no MKSettingsBackend — it renders disabled and nothing is captured"
@@ -299,7 +310,15 @@ func refresh_display() -> void:
 	# Disabled unless there is something to undo. The backend is the only thing that knows whether an
 	# override exists, so this is asked rather than tracked — a row rebuilt over a store loaded from
 	# disk gets the right answer without replaying how it got there.
-	_reset_button.disabled = _backend == null or not _backend.has_action_override(_action)
+	#
+	# _action_known is part of the condition, and reachable: the backend KEEPS overrides for actions
+	# the project does not define (on purpose — renaming an action back restores the user's binding
+	# rather than losing it), so an unknown action can carry an override, and gating on the override
+	# alone lit an enabled Reset on a row whose reset_to_default() early-returns on exactly that
+	# check. The override surviving is the feature; a button that pretends to work while the action is
+	# missing is not.
+	_reset_button.disabled = _backend == null or not _action_known \
+		or not _backend.has_action_override(_action)
 
 
 func _label_text() -> String:
@@ -567,6 +586,15 @@ func _is_escape(key: InputEventKey) -> bool:
 
 # --- Fresh events -------------------------------------------------------------
 
+## [b]Every fresh event sets [code]device = -1[/code], and each builder below says so again.[/b] -1
+## is Godot's "all devices", which is what [code]project.godot[/code] authors for stock bindings and
+## what a rebind made by the local user MEANS: "this control", not "this control on the controller
+## index that happened to deliver the press". [InputMap] matching is device-aware, so keeping the
+## captured index would give a pad player a binding that stops working the moment their controller
+## re-enumerates as joypad 1. It has to be explicit because the class defaults are NOT -1 (measured
+## on 4.7: [InputEventJoypadButton] 0, [InputEventKey] 16, [InputEventMouseButton] 32).
+const BIND_ALL_DEVICES := -1
+
 ## A captured key is rebuilt rather than stored, and the MODIFIERS ARE CLEARED. Godot stamps the
 ## modifier state of the moment onto every key event, so binding "S" while Shift happened to be held
 ## — because the user was holding it for an unrelated reason, or because they are on a layout where
@@ -586,6 +614,9 @@ func _fresh_key(key: InputEventKey) -> InputEventKey:
 	out.shift_pressed = false
 	out.ctrl_pressed = false
 	out.meta_pressed = false
+	# All devices, never the capturing one — see BIND_ALL_DEVICES. A fresh InputEventKey defaults to
+	# device 16, which would bind this key to one keyboard index.
+	out.device = BIND_ALL_DEVICES
 	# `pressed` is left false, matching the shape the backend's deserializer produces for a stored
 	# binding. InputMap matches an action event on its button/key identity, not on this flag, so the
 	# two shapes behave identically — keeping them identical is what stops a captured binding and a
@@ -598,12 +629,17 @@ func _fresh_mouse(button: InputEventMouseButton) -> InputEventMouseButton:
 	# Index only: position, click count and modifiers are all properties of the MOMENT, and a binding
 	# that carried the pixel it was captured at would match nothing.
 	out.button_index = button.button_index
+	# All devices — see BIND_ALL_DEVICES. A fresh InputEventMouseButton defaults to device 32.
+	out.device = BIND_ALL_DEVICES
 	return out
 
 
 func _fresh_joypad_button(pad: InputEventJoypadButton) -> InputEventJoypadButton:
 	var out := InputEventJoypadButton.new()
 	out.button_index = pad.button_index
+	# All devices — see BIND_ALL_DEVICES. This is the case that BITES: a fresh InputEventJoypadButton
+	# defaults to device 0, so without this line a pad rebind works on controller 0 only.
+	out.device = BIND_ALL_DEVICES
 	return out
 
 
@@ -614,6 +650,9 @@ func _fresh_joypad_motion(motion: InputEventJoypadMotion) -> InputEventJoypadMot
 	var out := InputEventJoypadMotion.new()
 	out.axis = motion.axis
 	out.axis_value = signf(motion.axis_value)
+	# All devices — see BIND_ALL_DEVICES, and the joypad-button note for why a pad event in particular
+	# cannot keep the index it arrived on.
+	out.device = BIND_ALL_DEVICES
 	return out
 
 
@@ -630,10 +669,25 @@ func _fresh_joypad_motion(motion: InputEventJoypadMotion) -> InputEventJoypadMot
 ## delegating to it would make a plain-S capture and a stored Shift+S compare as different bindings
 ## and then silently double-bind the key.
 ##
-## Keys compare by physical keycode, which is what the format stores; the keycode fallback applies
-## when either side's physical code is 0 (synthetic events), so a synthetic and a real event for the
-## same key still match. Buttons compare by index. Motion compares axis AND direction, because the
-## two ends of one stick axis are two different bindings.
+## [b]Keys compare LIKE AGAINST LIKE, never a physical code against a plain keycode.[/b] Both
+## physicals nonzero -> compare physicals (the format's own key). Otherwise compare KEYCODES, and
+## only when both of those are nonzero. The earlier rule substituted one side's physical for the
+## other side's keycode when either physical was 0, which is reachable and wrong rather than
+## theoretical: stock [code]ui_*[/code] bindings are authored in keycode form (physical 0) while a
+## captured event carries both codes, and on AZERTY a stored keycode-A vs a captured physical-A /
+## keycode-Q compared EQUAL — the overlap warning and the conflict scan both fired on the wrong key.
+## The cost of the honest rule is stated too: a stored physical-only binding and a stored
+## keycode-only binding for the same key now do NOT match, because with one code each there is no
+## layout-independent way to tell whether they are the same key at all.
+##
+## Buttons compare by index. Motion compares axis AND direction, because the two ends of one stick
+## axis are two different bindings.
+##
+## [b][code]device[/code] is deliberately NOT compared.[/b] Two presses of the same face button on
+## two different pads are the same BINDING for every question this function answers — is it
+## reserved, does it collide with menu navigation, is another managed action already on it — and
+## treating them as distinct would let a player bind the menu-back button on controller 1 past the
+## reserved check.
 func _events_match(a: InputEvent, b: InputEvent) -> bool:
 	if a == null or b == null:
 		return false
@@ -644,9 +698,9 @@ func _events_match(a: InputEvent, b: InputEvent) -> bool:
 		var pb := int(kb.physical_keycode)
 		if pa != 0 and pb != 0:
 			return pa == pb
-		var ea := pa if pa != 0 else int(ka.keycode)
-		var eb := pb if pb != 0 else int(kb.keycode)
-		return ea != 0 and ea == eb
+		var ca := int(ka.keycode)
+		var cb := int(kb.keycode)
+		return ca != 0 and ca == cb
 	if a is InputEventMouseButton and b is InputEventMouseButton:
 		return int((a as InputEventMouseButton).button_index) \
 			== int((b as InputEventMouseButton).button_index)
@@ -782,6 +836,11 @@ func _open_conflict_dialog(event: InputEvent, other: StringName) -> void:
 	)
 	dialog.alternate.connect(func() -> void: _commit(event))
 	dialog.cancelled.connect(func() -> void:
+		# The caption goes with the abandoned capture. A ui_* overlap caption raised on the way to this
+		# dialog describes the event the user just declined to bind, so leaving it up labels a row whose
+		# binding did not change with a warning about a key it does not carry. The Replace and Keep-both
+		# branches deliberately leave it: there the binding DID land here, and the caption is still true.
+		_set_caption("")
 		MKLog.debug("rebind of '%s' cancelled at the conflict with '%s' — nothing changed"
 			% [_action, other])
 	)

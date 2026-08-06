@@ -63,6 +63,13 @@ func run_tests() -> void:
 	await _test_capture_times_out()
 	await _test_apply_action_is_targeted()
 	await _test_modifiers_are_stripped()
+	await _test_a_pad_rebind_answers_every_controller()
+	await _test_a_reset_does_not_narrow_a_stock_all_devices_binding()
+	await _test_a_legacy_store_row_without_device_reads_as_all_devices()
+	await _test_a_keycode_binding_does_not_match_a_foreign_physical_code()
+	await _test_reset_is_disabled_on_an_unknown_action()
+	await _test_a_cancelled_conflict_clears_the_caption()
+	await _test_setup_clears_a_tooltip_it_no_longer_has()
 
 	_restore_ui_cancel()
 	_teardown_actions()
@@ -88,10 +95,15 @@ func _test_capture_happy_path() -> void:
 		return
 
 	check(not row.is_listening(), "an idle row is not listening")
-	# Behaviour, not the `is_processing_input()` flag the row's own doc suggests: Godot re-enables
-	# input processing at NOTIFICATION_READY for any script overriding `_input`, which lands AFTER the
-	# row's own set_process_input(false) in `_build`. So an idle row IS dispatched (reported), and what
-	# actually matters — that it takes no binding and eats no key — is what is asserted.
+	# The flag AND the behaviour, because the flag is the half that has an active defender. Godot
+	# re-enables input processing at NOTIFICATION_READY for any script overriding `_input`, which lands
+	# AFTER the row's own set_process_input(false) in `_build` — measured on a plain container, which
+	# reads is_processing_input() == true after ready despite the pre-tree disable. MKRebindRow reads
+	# false only because `_ready` restates it, so this assertion is what holds that override in place;
+	# without it the whole body of `_ready` could be deleted with the suite still green, and every idle
+	# row would be dispatched every event for its entire life.
+	check(not row.is_processing_input(),
+		"and its _input is DISARMED — the `_ready` restatement is what undoes the engine's ready-time re-enable")
 	var idle_handled := _push(_key(KEY_G))
 	await step_frame()
 	check(not idle_handled, "an idle row consumes nothing — the keyboard belongs to the rest of the shell")
@@ -141,9 +153,20 @@ func _test_space_binds_with_a_warning_caption() -> void:
 
 	check(_event_is_bound_to(&"ui_accept", KEY_SPACE),
 		"precondition: Space really is a ui_accept binding, which is what makes this the overlap case")
+	# The overlap has to be found by the HONEST route. The stock ui_accept binding is keycode-form
+	# (physical 0), and the captured event carries both codes like real hardware does, so the match that
+	# raises the caption below is keycode-against-keycode. Named because the earlier match rule reached
+	# the same answer by comparing the stock event's keycode against the captured event's PHYSICAL code
+	# — which agrees for Space on QWERTY by numeric coincidence and disagrees on AZERTY (see the AZERTY
+	# regression test). Without this precondition, that coincidence is all this criterion proved.
+	check(_keycode_form_binding(&"ui_accept", KEY_SPACE),
+		"precondition: and it is stored KEYCODE-form, physical 0 — the shape project.godot authors")
+	var captured := _key(KEY_SPACE)
+	check(int(captured.physical_keycode) == KEY_SPACE and int(captured.keycode) == KEY_SPACE,
+		"precondition: the pushed press carries BOTH codes, like a real Space press does")
 
 	await _activate(_binding_button(row))
-	_push(_key(KEY_SPACE))
+	_push(captured)
 	await step_frame()
 	_settle(row)
 
@@ -241,6 +264,8 @@ func _test_escape_aborts_the_capture_without_popping_the_page() -> void:
 	await step_frame()
 	check(handled, "Escape is consumed by the listening row")
 	check(not row.is_listening(), "and aborts the capture")
+	check(not row.is_processing_input(),
+		"disarming _input again — an aborted row must go back to costing nothing, not merely to ignoring events")
 	check(_action_has_physical(ACTION_A, KEY_F),
 		"an abort NEVER writes — the stock binding is untouched")
 	check(not _backend_has_override(backend, ACTION_A), "and no override was stored")
@@ -512,6 +537,10 @@ func _test_persistence_round_trip() -> void:
 				check_eq(String(event.get("type", "")), "key", "typed as a key event")
 				check_eq(int(event.get("physical_keycode", 0)), KEY_G,
 					"and keyed by PHYSICAL keycode — the §4.4 format decision, breaking to change")
+				check(event.has("device"),
+					"the row dict carries 'device' — without it every reload re-narrows the binding to the engine's per-class default")
+				check_eq(int(event.get("device", 999)), -1,
+					"as -1, ALL devices: a local rebind means 'this control', not 'this control on the device that delivered the press'")
 
 	# Back to stock, so anything surviving below must have come off disk.
 	_seed_actions()
@@ -655,6 +684,11 @@ func _test_capture_times_out() -> void:
 		await _drop(panel, backend)
 		return
 
+	# The DEFAULT is pinned before it is overridden for the run: it is the backstop for a player who
+	# walked away, not the primary path (Escape and Cancel are), and a window short enough to expire
+	# during "click, then decide" reads as the menu dropping their input.
+	check_eq(row.listen_timeout, 10.0,
+		"the shipped listen_timeout gives a deciding player room — five seconds expired under them")
 	row.listen_timeout = 0.05
 	await _activate(_binding_button(row))
 	check(row.is_listening(), "precondition: a capture is live")
@@ -722,6 +756,293 @@ func _test_modifiers_are_stripped() -> void:
 			"and the other modifier flags with it")
 
 	await _drop(panel, backend)
+
+
+## [b]A pad rebind answers EVERY controller, not the one it was made on.[/b] [InputMap] matching is
+## device-aware and a fresh [InputEventJoypadButton] carries device 0 (measured), so a captured pad
+## binding that kept the class default worked on controller 0 and silently did nothing on controller
+## 1 — the exact state a player reaches by unplugging and replugging a pad mid-session.
+func _test_a_pad_rebind_answers_every_controller() -> void:
+	var backend := _make_backend()
+	var panel := await _make_panel(backend, [_keybind(ID_A, ACTION_A, "Action A")])
+	var row := _row(panel, ID_A)
+	if row == null:
+		await _drop(panel, backend)
+		return
+
+	await _activate(_binding_button(row))
+	# Captured FROM controller 0, which is what a single-pad player's hardware delivers.
+	_push(_pad_press(JOY_BUTTON_X, 0))
+	await step_frame()
+	_settle(row)
+
+	check(_action_has_pad_button(ACTION_A, JOY_BUTTON_X), "precondition: the pad button was captured")
+	check(InputMap.event_is_action(_pad_press(JOY_BUTTON_X, 0), ACTION_A),
+		"and the pad it was captured on fires the action")
+	check(InputMap.event_is_action(_pad_press(JOY_BUTTON_X, 1), ACTION_A),
+		"as does a SECOND controller — the binding is stored for all devices, not for the index that happened to deliver the press")
+
+	var stored := backend.get_action_events(ACTION_A)
+	check_eq(stored.size(), 1, "one binding stored")
+	if stored.size() == 1:
+		check_eq(stored[0].device, -1,
+			"carrying device -1 through the store: the serializer must round-trip it, or a reload re-narrows the binding")
+
+	await _drop(panel, backend)
+
+
+## [b]A plain Reset must not NARROW a stock all-devices binding.[/b] [method
+## MKSettingsBackend.apply_action]'s no-override branch re-applies the BOOT SNAPSHOT, and the
+## snapshot round-trips through the same serializer a rebind does. With device dropped there, merely
+## resetting an action rewrote its stock [code]device -1[/code] events as device 0 — a controller-2
+## player losing a binding they never touched.
+func _test_a_reset_does_not_narrow_a_stock_all_devices_binding() -> void:
+	_clean()
+	_seed_actions()
+	# Exactly the shape project.godot authors, and the shape ui_cancel's own pad binding has: -1.
+	var stock := InputEventJoypadButton.new()
+	stock.button_index = JOY_BUTTON_X
+	stock.device = -1
+	InputMap.action_add_event(ACTION_A, stock)
+
+	var backend := MKJsonSettingsBackend.new()
+	backend._mk_configure({"file_path": PATH})
+	get_root().add_child(backend)
+	backend.snapshot_input_defaults()
+
+	check(InputMap.event_is_action(_pad_press(JOY_BUTTON_X, 1), ACTION_A),
+		"precondition: the STOCK binding answers controller 1, because it is authored for all devices")
+
+	# No override was ever stored, so this is the snapshot-restoring branch — the one a per-row Reset
+	# and the page's Reset All both end at.
+	backend.apply_action(ACTION_A)
+
+	check(InputMap.event_is_action(_pad_press(JOY_BUTTON_X, 1), ACTION_A),
+		"and it STILL answers controller 1 after a reset re-applied it — the snapshot survived the serializer")
+	check(InputMap.event_is_action(_pad_press(JOY_BUTTON_X, 0), ACTION_A),
+		"controller 0 too, unchanged")
+
+	backend.queue_free()
+	await step_frame()
+	_seed_actions()
+
+
+## A store written before [code]device[/code] existed in the format reads back as ALL devices, not as
+## the engine's per-class default. That default is the compatible one by decision (see the backend's
+## persisted-format doc): a pad binding inheriting [InputEventJoypadButton]'s 0 instead would pin a
+## user's existing rebind to controller 0 the first time they upgraded.
+func _test_a_legacy_store_row_without_device_reads_as_all_devices() -> void:
+	_clean()
+	_seed_actions()
+	# Hand-written, because the point is a file this build's serializer would never produce.
+	var legacy := {
+		"version": 1,
+		"values": {},
+		"input": {
+			String(ACTION_A): [{"type": "joypad_button", "button_index": JOY_BUTTON_X}],
+			String(ACTION_B): [{"type": "key", "physical_keycode": KEY_M, "keycode": KEY_M}],
+		},
+	}
+	var file := FileAccess.open(PATH, FileAccess.WRITE)
+	check(file != null, "the legacy store was written")
+	if file == null:
+		return
+	file.store_string(JSON.stringify(legacy))
+	file.close()
+
+	var backend := MKJsonSettingsBackend.new()
+	backend._mk_configure({"file_path": PATH})
+	get_root().add_child(backend)
+	backend.snapshot_input_defaults()
+	backend.load()
+	backend.apply_all()
+
+	var stored := backend.get_action_events(ACTION_A)
+	check_eq(stored.size(), 1, "the legacy pad row deserialised")
+	if stored.size() == 1:
+		check_eq(stored[0].device, -1,
+			"as an ALL-DEVICES binding — an absent device key means -1, never the class default (0 for a pad button)")
+	var keys := backend.get_action_events(ACTION_B)
+	check_eq(keys.size(), 1, "and the legacy key row too")
+	if keys.size() == 1:
+		check_eq(keys[0].device, -1, "with the same default, so a keyboard row is not pinned to device 16 either")
+	check(InputMap.event_is_action(_pad_press(JOY_BUTTON_X, 1), ACTION_A),
+		"and the applied binding answers a second controller, which is what the -1 default buys the upgrading user")
+
+	backend.queue_free()
+	await step_frame()
+	_seed_actions()
+	_clean()
+
+
+## [b]The AZERTY regression.[/b] Bindings are compared like against like: a stored KEYCODE-form event
+## (physical 0 — the shape project.godot authors) is compared against the other side's KEYCODE, never
+## against its physical code. The old fallback substituted one for the other, so on AZERTY a stored
+## keycode-A matched a captured physical-A/keycode-Q — a different key entirely — and the row raised
+## a conflict dialog over a binding that did not collide.
+##
+## Driven through the conflict scan because that is a real consumer of the rule and it is observable:
+## a false match opens a modal, a correct one commits.
+func _test_a_keycode_binding_does_not_match_a_foreign_physical_code() -> void:
+	var backend := _make_backend()
+	# Action B carries the AZERTY player's stored binding in the form the project authors it: keycode
+	# only, physical 0.
+	var stored := InputEventKey.new()
+	stored.keycode = KEY_A
+	backend.set_action_events(ACTION_B, [stored])
+	backend.apply_action(ACTION_B)
+
+	var host := LayerHost.new()
+	host.name = "LayerHost"
+	host.size = Vector2(1920, 1080)
+	get_root().add_child(host)
+	var layer := MKModalLayer.new()
+	host.add_child(layer)
+	host.layer = layer
+	await step_frame()
+
+	var panel := await _make_panel(backend, [
+		_keybind(ID_A, ACTION_A, "Action A"),
+		_keybind(ID_B, ACTION_B, "Action B"),
+	], host)
+	var row := _row(panel, ID_A)
+	if row == null:
+		panel.queue_free()
+		host.queue_free()
+		backend.queue_free()
+		await step_frame()
+		await step_frame()
+		_seed_actions()
+		return
+
+	# The AZERTY press: the physical position of QWERTY's A, which that layout labels Q.
+	var azerty := InputEventKey.new()
+	azerty.physical_keycode = KEY_A
+	azerty.keycode = KEY_Q
+	azerty.pressed = true
+
+	await _activate(_binding_button(row))
+	_push(azerty)
+	await step_frame()
+	_settle(row)
+
+	check_eq(layer.depth(), 0,
+		"no conflict dialog: a stored keycode-A is NOT the key whose physical position is A on a layout that calls it Q")
+	check(_backend_has_physical(backend, ACTION_A, KEY_A),
+		"the capture committed straight through, as an unconflicted binding does")
+	check(_backend_has_override(backend, ACTION_B),
+		"and the other action was not touched")
+
+	panel.queue_free()
+	host.queue_free()
+	backend.queue_free()
+	await step_frame()
+	await step_frame()
+	_seed_actions()
+
+
+## A row whose action this project does not define keeps its stored override on purpose (renaming the
+## action back restores the user's binding), but [method MKRebindRow.reset_to_default] refuses to run
+## on one — so an ENABLED Reset there is a button that pretends to work and silently does nothing.
+func _test_reset_is_disabled_on_an_unknown_action() -> void:
+	var backend := _make_backend()
+	var ghost := &"mk_rebind_ghost"
+	check(not InputMap.has_action(ghost), "precondition: the action really is undefined")
+	# The override the backend deliberately keeps for an action it cannot find.
+	var seeded := InputEventKey.new()
+	seeded.physical_keycode = KEY_M
+	backend.set_action_events(ghost, [seeded])
+	check(backend.has_action_override(ghost),
+		"precondition: the store HOLDS an override for it — that is the recovery feature, not the bug")
+
+	var ghost_id := &"input/mk_rebind_ghost"
+	var panel := await _make_panel(backend, [_keybind(ghost_id, ghost, "Ghost")])
+	var row := _row(panel, ghost_id)
+	check(row != null, "the row is still built — a missing line would hide the authoring mistake")
+	if row != null:
+		check(_binding_button(row).disabled, "with its binding button disabled, as before")
+		check(_reset_button(row).disabled,
+			"and Reset disabled too: reset_to_default() early-returns on an unknown action, so an enabled button here does nothing at all")
+
+	await _drop(panel, backend)
+
+
+## A cancelled conflict changes no binding, so it must leave no caption describing one. The overlap
+## caption raised on the way to the dialog is about the event the user then DECLINED — left up, it
+## labels a row with a warning about a key it does not carry.
+func _test_a_cancelled_conflict_clears_the_caption() -> void:
+	var backend := _make_backend()
+	# Space: it overlaps ui_accept (so the caption is raised) AND is already on action B (so the
+	# conflict dialog opens). One capture reaching both branches is what makes the leak observable.
+	var contested := InputEventKey.new()
+	contested.physical_keycode = KEY_SPACE
+	backend.set_action_events(ACTION_B, [contested])
+	backend.apply_action(ACTION_B)
+
+	var host := LayerHost.new()
+	host.name = "LayerHost"
+	host.size = Vector2(1920, 1080)
+	get_root().add_child(host)
+	var layer := MKModalLayer.new()
+	host.add_child(layer)
+	host.layer = layer
+	await step_frame()
+
+	var panel := await _make_panel(backend, [
+		_keybind(ID_A, ACTION_A, "Action A"),
+		_keybind(ID_B, ACTION_B, "Action B"),
+	], host)
+	var row := _row(panel, ID_A)
+	var dialog: MKConfirmDialog = null
+	if row != null:
+		await _activate(_binding_button(row))
+		_push(_key(KEY_SPACE))
+		await step_frame()
+		check_eq(_caption(row).text, MKRebindRow.CAPTION_UI_OVERLAP,
+			"precondition: the overlap caption really was raised on the way to the dialog")
+		check_eq(layer.depth(), 1, "precondition: and the conflict dialog is up")
+		dialog = layer.top() as MKConfirmDialog
+
+	if dialog != null and row != null:
+		await _activate(dialog.get_cancel_button())
+		await step_frame()
+		check(not _backend_has_override(backend, ACTION_A), "Cancel committed nothing, as before")
+		check_eq(_caption(row).text, "",
+			"and the caption is CLEARED — it described a binding the row does not have")
+		check(not _caption(row).visible, "so nothing is left on screen claiming otherwise")
+
+	panel.queue_free()
+	host.queue_free()
+	backend.queue_free()
+	await step_frame()
+	await step_frame()
+	_seed_actions()
+
+
+## [method MKRebindRow.setup] is re-callable by contract, so every field it owns must be re-assigned
+## rather than conditionally written. The tooltip was the one that was not: a second def with no
+## tooltip left the FIRST def's text hovering over a row that is now about a different action.
+func _test_setup_clears_a_tooltip_it_no_longer_has() -> void:
+	var backend := _make_backend()
+	var row := MKRebindRow.new()
+	get_root().add_child(row)
+
+	var with_tip := _keybind(ID_A, ACTION_A, "Action A")
+	with_tip.tooltip = "Walk forward."
+	row.setup(with_tip, backend, null, Callable(), [] as Array[InputEvent])
+	check_eq(row.tooltip_text, "Walk forward.", "precondition: the first def's tooltip is on the row")
+	check_eq(_binding_button(row).tooltip_text, "Walk forward.", "and on its button")
+
+	var without := _keybind(ID_B, ACTION_B, "Action B")
+	row.setup(without, backend, null, Callable(), [] as Array[InputEvent])
+	check_eq(row.tooltip_text, "",
+		"re-setup with a tooltipless def CLEARS it — a stale tooltip describes the def that is no longer there")
+	check_eq(_binding_button(row).tooltip_text, "", "on the button as well")
+
+	row.queue_free()
+	backend.queue_free()
+	await step_frame()
+	_seed_actions()
 
 
 # --- Conflict fixture ---------------------------------------------------------
@@ -1077,6 +1398,29 @@ func _backend_has_physical(backend: MKSettingsBackend, action: StringName,
 
 func _backend_has_override(backend: MKSettingsBackend, action: StringName) -> bool:
 	return backend.has_action_override(action)
+
+
+## True when [param action] carries [param keycode] in KEYCODE form — physical_keycode 0 — which is
+## the shape [code]project.godot[/code] and the engine's built-in [code]ui_*[/code] defaults author,
+## and therefore the shape the row's match rule meets on one side of a real capture.
+func _keycode_form_binding(action: StringName, keycode: int) -> bool:
+	if not InputMap.has_action(action):
+		return false
+	for event in InputMap.action_get_events(action):
+		var key := event as InputEventKey
+		if key == null:
+			continue
+		if int(key.keycode) == keycode and int(key.physical_keycode) == 0:
+			return true
+	return false
+
+
+func _pad_press(button_index: int, device: int) -> InputEventJoypadButton:
+	var event := InputEventJoypadButton.new()
+	event.button_index = button_index as JoyButton
+	event.pressed = true
+	event.device = device
+	return event
 
 
 func _non_key_count(events: Array[InputEvent]) -> int:

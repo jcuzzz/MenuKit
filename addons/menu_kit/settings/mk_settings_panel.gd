@@ -896,6 +896,17 @@ func _build_reset_all_bindings_button() -> Button:
 ## On a store-only backend [method MKSettingsBackend.reset_all_actions_to_defaults] is the base
 ## class's no-op, so the recovery path degrades there the same way the rows themselves do: visibly
 ## inert, never wrong.
+##
+## [b]One press can log the "no boot snapshot" warning TWICE for the same action, and that is
+## accepted.[/b] The two sites are the backend's own restore inside
+## [method MKSettingsBackend.reset_all_actions_to_defaults] and the explicit
+## [method MKSettingsBackend.apply_action] below; both warn when an action carries an override but no
+## snapshot. That state is only reachable when the §4.2 host contract has ALREADY been breached
+## (snapshot_input_defaults() never ran, or ran after the override existed), so the duplicate appears
+## exclusively in a run that is being diagnosed by that very warning — where two lines are noise, not
+## a wrong answer. Deduping would mean the panel asking the backend whether a snapshot exists before
+## deciding to apply, which couples this method to snapshot internals the abstract
+## [MKSettingsBackend] deliberately does not expose, to tidy the log of an already-broken boot.
 func _reset_all_bindings() -> void:
 	if _backend == null:
 		return

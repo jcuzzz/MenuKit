@@ -26,6 +26,15 @@ extends MKSettingsBackend
 ## [InputMap] each boot by [method snapshot_input_defaults], so a project changing its own defaults
 ## does not leave users pinned to the old ones.
 ##
+## Each event dict under [code]input[/code] carries a [code]device[/code] field alongside its
+## type-specific keys (see [method _serialize_event] for why omitting it was a bug, and
+## [method _deserialize_events] for the read side). [b]An ABSENT [code]device[/code] reads as -1[/b]
+## — all devices — so a store written before the field existed keeps working and keeps the meaning a
+## local rebind actually has. No [constant FORMAT_VERSION] bump: the field lands pre-0.1.0, so
+## nothing shipped can carry a store without it, and adding a key that has a compatible default is
+## not a shape change a released reader could trip on. It is still part of the initial format and
+## MUST appear in Phase 9's CHANGELOG entry stating that format.
+##
 ## [b]Two type caveats a caller should know, both verified rather than assumed:[/b]
 ## [br]- JSON has one number type, so an [int] written through [method set_value] reads back as a
 ##   [float] after a save/load cycle. It compares equal (GDScript's [code]2 == 2.0[/code] is true)
@@ -608,6 +617,16 @@ func _as_vector2i(value: Variant) -> Vector2i:
 ## which is exactly what physical keycodes exist to prevent. [code]keycode[/code] is stored alongside
 ## only as the fallback for synthetic events whose physical code is 0.
 ##
+## [b][code]device[/code] is carried for EVERY event kind, and dropping it was a real bug.[/b]
+## [method InputMap.event_is_action] matching is device-aware: an action event whose device is 0
+## does not answer a press delivered by joypad 1, and [code]project.godot[/code] authors -1 (ALL
+## devices) for exactly that reason. Round-tripping an event through this pair without the field
+## therefore narrowed a binding to whatever [method InputEvent.device] defaulted to — and the class
+## defaults are NOT -1 (measured on 4.7: [InputEventJoypadButton] 0, [InputEventKey] 16,
+## [InputEventMouseButton] 32). Both the boot snapshot and the user overrides pass through here, so
+## the narrowing hit a plain Reset as well as a rebind: [method apply_action]'s no-override branch
+## re-writes the snapshot, which is how a stock all-devices binding silently became device-0-only.
+##
 ## Returns an empty [Dictionary] for event types this format cannot carry; callers skip those rows.
 func _serialize_event(event: Variant) -> Dictionary:
 	if event is InputEventKey:
@@ -620,16 +639,19 @@ func _serialize_event(event: Variant) -> Dictionary:
 			"shift": key.shift_pressed,
 			"ctrl": key.ctrl_pressed,
 			"meta": key.meta_pressed,
+			"device": int(key.device),
 		}
 	if event is InputEventMouseButton:
 		return {
 			"type": "mouse_button",
 			"button_index": int((event as InputEventMouseButton).button_index),
+			"device": int((event as InputEventMouseButton).device),
 		}
 	if event is InputEventJoypadButton:
 		return {
 			"type": "joypad_button",
 			"button_index": int((event as InputEventJoypadButton).button_index),
+			"device": int((event as InputEventJoypadButton).device),
 		}
 	if event is InputEventJoypadMotion:
 		var motion := event as InputEventJoypadMotion
@@ -637,6 +659,7 @@ func _serialize_event(event: Variant) -> Dictionary:
 			"type": "joypad_motion",
 			"axis": int(motion.axis),
 			"axis_value": float(motion.axis_value),
+			"device": int(motion.device),
 		}
 	if event is InputEvent:
 		MKLog.warn("%s: cannot persist a %s binding — this format carries key, mouse button, joypad button and joypad motion only"
@@ -644,6 +667,14 @@ func _serialize_event(event: Variant) -> Dictionary:
 	return {}
 
 
+## The inverse of [method _serialize_event].
+##
+## [b][code]device[/code] defaults to -1 when the key is absent, and the default is the compatible
+## one.[/b] -1 means ALL devices, which is both what [code]project.godot[/code] authors for stock
+## bindings and the correct meaning for a local rebind (see [method _serialize_event]). A store file
+## written before the field existed therefore reads back as an all-devices binding rather than
+## inheriting the engine's per-class default, which for a pad button would have pinned it to
+## controller 0.
 func _deserialize_events(rows: Variant) -> Array[InputEvent]:
 	var out: Array[InputEvent] = []
 	if not (rows is Array):
@@ -661,19 +692,23 @@ func _deserialize_events(rows: Variant) -> Array[InputEvent]:
 				key.shift_pressed = bool(d.get("shift", false))
 				key.ctrl_pressed = bool(d.get("ctrl", false))
 				key.meta_pressed = bool(d.get("meta", false))
+				key.device = int(d.get("device", -1))
 				out.append(key)
 			"mouse_button":
 				var mb := InputEventMouseButton.new()
 				mb.button_index = int(d.get("button_index", 0)) as MouseButton
+				mb.device = int(d.get("device", -1))
 				out.append(mb)
 			"joypad_button":
 				var jb := InputEventJoypadButton.new()
 				jb.button_index = int(d.get("button_index", 0)) as JoyButton
+				jb.device = int(d.get("device", -1))
 				out.append(jb)
 			"joypad_motion":
 				var jm := InputEventJoypadMotion.new()
 				jm.axis = int(d.get("axis", 0)) as JoyAxis
 				jm.axis_value = float(d.get("axis_value", 0.0))
+				jm.device = int(d.get("device", -1))
 				out.append(jm)
 			_:
 				MKLog.warn("%s: stored binding has unknown type '%s' — skipping it"
