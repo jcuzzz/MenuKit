@@ -209,12 +209,14 @@ func _refresh() -> void:
 			if card != null:
 				_card_column.add_child(card)
 
-	# Chain AFTER the column is populated — MKFocus reads the live tree, so a chain built before the
-	# cards exist wires nothing.
-	MKFocus.chain_container(_card_column)
-	MKFocus.chain_container(_footer, false, true)
-	MKFocus.link_containers(_card_column, _footer)
-
+	# ORDERING CONSTRAINT — selection BEFORE chaining, and it is not a preference.
+	# MKFocus.collect_focusables skips DISABLED buttons, and Play/Delete are disabled until something
+	# is selected (_selected was cleared at the top of this rebuild). Chaining first therefore wires a
+	# footer ring over New Character alone, and the two buttons _select then enables are left holding
+	# whatever neighbours an earlier pass happened to leave on them — reachable today only because
+	# _build's one-time link_chain wired the footer once, which is an accident rather than a rule.
+	# Selecting first settles every disabled flag, so the chain below is built over the footer as the
+	# player will actually see it.
 	if not previous_id.is_empty() and _cards.has(previous_id):
 		_select(_cards[previous_id].get_meta(&"mk_profile", {}))
 	elif not entries.is_empty():
@@ -223,6 +225,13 @@ func _refresh() -> void:
 		_select(entries[0])
 	else:
 		_update_actions()
+
+	# Chain AFTER the column is populated and after the disabled flags are settled — MKFocus reads the
+	# live tree, so a chain built before the cards exist wires nothing.
+	MKFocus.chain_container(_card_column)
+	MKFocus.chain_container(_footer, false, true)
+	MKFocus.link_containers(_card_column, _footer)
+
 	if entries.is_empty() and _new_button != null and not _new_button.disabled:
 		_new_button.grab_focus.call_deferred()
 	built.emit()

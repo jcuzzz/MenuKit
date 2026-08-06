@@ -19,6 +19,9 @@ extends MKTest
 
 const STEP_SCENE := "res://addons/menu_kit/creation/steps/mk_step_pointbuy.tscn"
 
+## The demo's authored schema — the one place the enabled path is shipped rather than constructed.
+const DEMO_SCHEMA_PATH := "res://demo/demo_creation/pointbuy_schema.tres"
+
 var _log: Array[String] = []
 
 
@@ -32,6 +35,7 @@ func run_tests() -> void:
 	await _test_a_restore_ignores_a_value_the_current_schema_cannot_honour()
 	await _test_the_range_guard_holds_when_the_button_is_wrongly_enabled()
 	await _test_require_full_spend_gates_next()
+	_test_the_demo_schema_ships_the_full_spend_gate_switched_on()
 
 
 ## A [code]+[/code] that would exceed the stat's own ceiling is disabled even with points left in the
@@ -278,6 +282,27 @@ func _test_require_full_spend_gates_next() -> void:
 	lenient_host.queue_free()
 	backend.queue_free()
 	await step_frame()
+
+
+## [b]The demo's own schema, asserted as CONTRACT rather than as tuning.[/b] The two cases above build
+## their schemas in memory, so both sides of the flag are covered no matter what the shipped resource
+## says — which left the resource itself pinned by nothing: flipped to false, the whole gate stayed
+## green while the demo silently stopped demonstrating anything.
+##
+## §5 lists the full-spend flag gating Confirm as an exit criterion, and the demo IS the deliverable
+## that criterion names: a criterion only reachable by editing a resource is not demonstrated. So the
+## value of this one bool in this one file is a contract, and the schema's own header says as much
+## ("with the flag on, the shipped demo shows ... a greyed Confirm"). A host wanting the lenient flow
+## flips it in THEIR schema; flipping it here retires the demonstration.
+func _test_the_demo_schema_ships_the_full_spend_gate_switched_on() -> void:
+	var schema := ResourceLoader.load(DEMO_SCHEMA_PATH) as MKStatSchema
+	check(schema != null, "the demo's point-buy schema loads as an MKStatSchema")
+	if schema == null:
+		return
+	check(schema.require_full_spend,
+		"and ships require_full_spend TRUE — §5 names the gate as an exit criterion, and the demo is the deliverable that has to show it")
+	check(schema.total_points > 0 and not schema.stats.is_empty(),
+		"with a pool and rows to spend it on, or the gate it enables has nothing to gate")
 
 
 # --- Fixtures -----------------------------------------------------------------

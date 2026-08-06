@@ -11,9 +11,15 @@ extends MKTest
 ## and that an archetype without one leaves the slot empty and silent. The look of it — framing,
 ## lighting, the idle spin — is the capture pass's job.
 ##
-## The step is bound DIRECTLY rather than through an [MKCreationHost]: the host's own drop and
-## ownership behaviour is test_creation_host.gd's subject, and the bind contract is the whole of the
-## surface this step has.
+## [b]Most cases bind the step DIRECTLY[/b]: the host's own drop and ownership behaviour is
+## test_creation_host.gd's subject, and the bind contract is most of the surface this step has.
+##
+## [b]The last case does not, and cannot.[/b] Every step is bound ONCE, eagerly, at
+## [method MKCreationHost.configure] — before the player has chosen anything — so in the shipped flow
+## the bind-time payload carries no archetype at all and the preview the player sees comes entirely
+## from the re-resolve on [signal CanvasItem.visibility_changed]. A suite that only ever called
+## [code]_apply_preview[/code] itself would pass with that re-resolve deleted, which is the whole of
+## the behaviour on a real screen. So that one case drives a REAL host through a real archetype step.
 
 const STEP_SCENE := "res://addons/menu_kit/creation/steps/mk_step_appearance.tscn"
 
@@ -25,6 +31,7 @@ func run_tests() -> void:
 	await _test_an_archetype_with_no_preview_leaves_the_slot_empty_and_silent()
 	await _test_an_unknown_or_non_string_archetype_clears_rather_than_keeping_the_last_one()
 	await _test_the_step_still_owns_nothing_and_is_always_valid()
+	await _test_the_preview_follows_a_choice_made_through_a_real_host()
 
 
 ## The populated path: a payload naming an archetype that carries a preview_scene puts THAT scene's
@@ -119,6 +126,61 @@ func _test_the_step_still_owns_nothing_and_is_always_valid() -> void:
 	await _drop(step)
 
 
+## [b]The step inside a real flow.[/b] Two archetypes with DIFFERENT primitives, chosen on a real
+## archetype step and walked to with the real Next button, so what is asserted is the shipped
+## gesture: choose, advance, look at the model. Because every step binds eagerly at configure — with
+## an empty payload, before any choice exists — the only thing that can put the right model on screen
+## here is the visibility re-resolve, and neutering it turns this case red while leaving every
+## direct-bind case above green.
+##
+## Back-then-change-your-mind is the second half, and it is the half that fails LOUDLY on a stale
+## slot: a preview that kept showing the first choice is the one outcome the step must never produce.
+## The pivot's child count is asserted alongside the class, because a swap that ADDED the new model
+## without dropping the old one would satisfy a class check on get_content() perfectly.
+func _test_the_preview_follows_a_choice_made_through_a_real_host() -> void:
+	var box := _archetype(&"box", _box_scene())
+	var sphere := _archetype(&"sphere", _sphere_scene())
+	var backend := StubBackend.new()
+	get_root().add_child(backend)
+	var host := await _make_host([box, sphere], backend)
+
+	var chooser := host._step_nodes[0] as MKStepArchetype
+	check(chooser != null, "the flow opens on a real MKStepArchetype")
+	var step := host._step_nodes[1] as MKStepAppearance
+	check(step != null, "with the appearance step behind it")
+	if chooser == null or step == null:
+		await _drop_host(host, backend)
+		return
+
+	# The SECOND card, so the assertion cannot be satisfied by the step's own auto-selected default.
+	await _press(_card(chooser, &"sphere"))
+	await _press(host._next_button)
+	check_eq(host.current_step_index(), 1, "Next reached the appearance step")
+	var preview := _preview(step)
+	check(preview != null, "which mounts its viewport")
+	if preview == null:
+		await _drop_host(host, backend)
+		return
+	var content := preview.get_content()
+	check(content != null and content is CSGSphere3D,
+		"and shows the archetype chosen on the PREVIOUS step — bound before any choice existed, so this is the visibility re-resolve or nothing (got %s)"
+			% [content.get_class() if content != null else "<empty>"])
+
+	await _press(host._back_button)
+	check_eq(host.current_step_index(), 0, "Back returns to the chooser")
+	await _press(_card(chooser, &"box"))
+	await _press(host._next_button)
+	check_eq(host.current_step_index(), 1, "and forward again")
+	var swapped := preview.get_content()
+	check(swapped != null and swapped is CSGBox3D,
+		"the preview now shows the NEW choice — a slot still holding the first one is the one outcome a preview must never produce (got %s)"
+			% [swapped.get_class() if swapped != null else "<empty>"])
+	check_eq(_pivot(preview).get_child_count(), 1,
+		"with exactly one model under the pivot: the old instance was dropped, not stacked behind the new one")
+
+	await _drop_host(host, backend)
+
+
 # --- Fixtures -----------------------------------------------------------------
 
 func _bind(archetypes: Array, payload: Dictionary) -> MKStepAppearance:
@@ -153,6 +215,93 @@ func _archetype(id: StringName, preview: PackedScene) -> MKArchetype:
 
 func _preview(step: MKStepAppearance) -> MKPreviewViewport:
 	return step.find_child("Preview", true, false) as MKPreviewViewport
+
+
+func _pivot(preview: MKPreviewViewport) -> Node3D:
+	return preview.find_child(MKPreviewViewport.PIVOT_NAME, true, false) as Node3D
+
+
+## An archetype step then this step, sized and given frames — navigation is driven through the real
+## footer buttons, and an unsized host lays its footer out at zero.
+func _make_host(archetypes: Array, backend: MKProfileBackend) -> MKCreationHost:
+	var steps: Array[MKCreationStepDef] = [
+		_step_def(&"archetype", "res://addons/menu_kit/creation/steps/mk_step_archetype.tscn"),
+		_step_def(&"appearance", STEP_SCENE),
+	]
+	var typed: Array[MKArchetype] = []
+	for arch in archetypes:
+		typed.append(arch)
+
+	var host := MKCreationHost.new()
+	host.size = Vector2(1280, 720)
+	get_root().add_child(host)
+	host.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	host.configure(steps, typed, backend, null)
+	await step_frame()
+	await step_frame()
+	return host
+
+
+func _step_def(id: StringName, scene_path: String) -> MKCreationStepDef:
+	var def := MKCreationStepDef.new()
+	def.id = id
+	def.title = String(id).capitalize()
+	def.scene = ResourceLoader.load(scene_path) as PackedScene
+	return def
+
+
+func _card(chooser: MKStepArchetype, id: StringName) -> Button:
+	return chooser.find_child("Card_" + String(id), true, false) as Button
+
+
+## Focus plus a REAL ui_accept through the viewport, the test_rebind idiom: the mouse route to a
+## button's pressed signal is dead under the dummy display driver, so keyboard activation is the only
+## honest gesture headless.
+func _press(button: Button) -> void:
+	if button == null or not is_instance_valid(button):
+		fail("tried to press a button that does not exist")
+		return
+	button.grab_focus()
+	await step_frame()
+	get_root().push_input(_key(KEY_ENTER, true), true)
+	get_root().push_input(_key(KEY_ENTER, false), true)
+	await step_frame()
+	await step_frame()
+
+
+func _key(code: int, pressed: bool) -> InputEventKey:
+	var event := InputEventKey.new()
+	event.physical_keycode = code as Key
+	event.keycode = code as Key
+	event.pressed = pressed
+	return event
+
+
+func _drop_host(host: Node, backend: Node) -> void:
+	if host != null and is_instance_valid(host):
+		host.queue_free()
+	if backend != null and is_instance_valid(backend):
+		backend.queue_free()
+	await step_frame()
+	await step_frame()
+
+
+## The flow needs a non-null backend or Next is disabled for the whole run (test_creation_host.gd owns
+## that rule). Nothing here ever reaches Confirm, so it only has to exist.
+class StubBackend extends MKProfileBackend:
+	func list_profiles() -> Array[Dictionary]:
+		return [] as Array[Dictionary]
+
+	func create_profile(payload: Dictionary) -> Dictionary:
+		var entry := payload.duplicate(true)
+		entry["id"] = "stub"
+		return entry
+
+	func delete_profile(_id: String) -> bool:
+		return false
+
+	func load_profile(_id: String) -> Dictionary:
+		return {}
 
 
 ## Two DIFFERENT primitive classes, so "the right one was mounted" is assertable at all. Packed in

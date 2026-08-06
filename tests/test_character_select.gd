@@ -34,6 +34,7 @@ func run_tests() -> void:
 	await _test_new_character_pushes_and_every_exit_pops_back()
 	await _test_the_page_is_drivable_by_keyboard_alone()
 	await _test_the_selection_survives_a_roster_rebuild()
+	await _test_the_footer_chain_is_built_over_the_buttons_the_rebuild_ends_with()
 	await _test_a_missing_profile_backend_warns_once_and_disables_the_actions()
 	await _test_a_delete_the_backend_refuses_says_so_and_resyncs()
 	_test_config_validation_reports_every_creation_fault()
@@ -289,7 +290,31 @@ func _test_the_page_is_drivable_by_keyboard_alone() -> void:
 	await step_frame()
 	check(_is_footer_button(panel, get_root().gui_get_focus_owner()),
 		"walking off the last card reaches the footer (got %s)" % get_root().gui_get_focus_owner())
+	# Which footer button, specifically. MKFocus collects only ENABLED controls, so a footer chained
+	# while Play and Delete were still disabled from the cleared selection wires a ring over New
+	# Character ALONE — and the cross-container link then lands on New, with the two live actions
+	# reachable only through neighbours an earlier pass happened to leave behind. That is why _refresh
+	# settles the selection (and with it the disabled flags) BEFORE it chains.
+	check_eq(get_root().gui_get_focus_owner(), _button(panel, "Play"),
+		"landing on the FIRST footer button, not skipping the two actions that were disabled a moment earlier in the rebuild (got %s)"
+			% get_root().gui_get_focus_owner())
+	_nav(&"ui_right")
+	await step_frame()
+	check_eq(get_root().gui_get_focus_owner(), _button(panel, "Delete"),
+		"and the footer's own ring walks across every action, built over the buttons as the player sees them")
+	_nav(&"ui_right")
+	await step_frame()
+	check_eq(get_root().gui_get_focus_owner(), _button(panel, "NewCharacter"),
+		"to the last one")
+	_nav(&"ui_left")
+	await step_frame()
+	check_eq(get_root().gui_get_focus_owner(), _button(panel, "Delete"),
+		"and back — a ring wired over a one-button footer would have pointed New Character at itself in both directions")
 
+	# Back to the footer's entry control for the return leg — the cross-container link is wired on the
+	# edge pair, so the walk back into the list starts where the walk out arrived.
+	_button(panel, "Play").grab_focus()
+	await step_frame()
 	_nav(&"ui_up")
 	await step_frame()
 	check_eq(get_root().gui_get_focus_owner(), _card(panel, "Bob"),
@@ -323,6 +348,54 @@ func _test_the_selection_survives_a_roster_rebuild() -> void:
 	check_eq(str(panel.get_selected_profile().get("id", "")), selected_id,
 		"and the selection is restored by ID across the rebuild")
 	check_eq(str(panel.get_selected_profile().get("name", "")), "Bob", "onto the same character")
+
+	await _drop(root)
+
+
+## [b]The rebuild that goes EMPTY → POPULATED, which is the one where the footer's chain and the
+## footer's disabled flags disagree.[/b]
+##
+## [method MKCharacterSelect._refresh] clears the selection first, so Play and Delete carry the
+## previous state's flags until the selection is restored — and coming from an empty roster that state
+## is DISABLED. [method MKFocus.collect_focusables] skips disabled buttons, so a footer chained before
+## that restore is a ring over New Character alone, and the cross-container link from the card list
+## lands on New with the two live actions bypassed entirely. On the page's FIRST build the buttons
+## have never been disabled yet, which is why every existing traversal assertion passes either way:
+## this case is the one that arrives at the footer from the empty state.
+##
+## Driven through a real create_profile so the redraw rides [signal MKProfileBackend.roster_changed],
+## the same route a creation flow or a host-side write takes.
+func _test_the_footer_chain_is_built_over_the_buttons_the_rebuild_ends_with() -> void:
+	_clean()
+	var root := await _make_root()
+	var panel := _panel(root)
+	if panel == null:
+		await _drop(root)
+		return
+	check(_button(panel, "Play").disabled,
+		"precondition: the page starts empty, so Play and Delete are disabled")
+
+	root.get_profile_backend().create_profile({"name": "Alice"})
+	await step_frame()
+	await step_frame()
+	check_eq(_cards(panel).size(), 1, "precondition: the roster_changed rebuild drew the new card")
+	check(not _button(panel, "Play").disabled,
+		"precondition: and the restored selection re-enabled Play")
+
+	var card := _card(panel, "Alice")
+	card.grab_focus()
+	await step_frame()
+	check_eq(get_root().gui_get_focus_owner(), card, "precondition: focus is on the card")
+
+	_nav(&"ui_down")
+	await step_frame()
+	check_eq(get_root().gui_get_focus_owner(), _button(panel, "Play"),
+		"walking off the list reaches Play — the footer was chained over the buttons the rebuild ENDS with, not the ones it started with (got %s)"
+			% get_root().gui_get_focus_owner())
+	_nav(&"ui_right")
+	await step_frame()
+	check_eq(get_root().gui_get_focus_owner(), _button(panel, "Delete"),
+		"and Delete is on the ring too, rather than reachable only through neighbours some earlier pass left behind")
 
 	await _drop(root)
 

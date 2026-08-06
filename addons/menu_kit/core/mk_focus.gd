@@ -26,14 +26,23 @@ const TRAP_META := &"mk_focus_trapped"
 ## disabled-by-hiding row must never appear in a chain, otherwise keyboard traversal stops on an
 ## invisible control and looks like a hang.
 static func collect_focusables(root: Node) -> Array[Control]:
+	return _collect(root, true)
+
+
+## The collector both public entry points share. [param skip_disabled] false keeps disabled buttons in
+## the list, which is what [method release] and [method trap]'s last-resort fallback need: they are
+## answering "which controls did trap TOUCH" and "what is inside this subtree at all", not "where
+## should focus go" — and a control can be disabled AFTER it was wired, so the enabled-only view no
+## longer describes the set whose neighbours exist.
+static func _collect(root: Node, skip_disabled: bool) -> Array[Control]:
 	var out: Array[Control] = []
 	if root == null or not is_instance_valid(root):
 		return out
-	_collect_recursive(root, out)
+	_collect_recursive(root, out, skip_disabled)
 	return out
 
 
-static func _collect_recursive(node: Node, out: Array[Control]) -> void:
+static func _collect_recursive(node: Node, out: Array[Control], skip_disabled := true) -> void:
 	for child in node.get_children():
 		if child is Control:
 			var c := child as Control
@@ -47,11 +56,11 @@ static func _collect_recursive(node: Node, out: Array[Control]) -> void:
 			# focus_first landed there and a gamepad-only player pressed A into silence while the one
 			# live action (New Character) sat two controls away.
 			var button := c as BaseButton
-			if button != null and button.disabled:
+			if skip_disabled and button != null and button.disabled:
 				continue
 			if c.focus_mode != Control.FOCUS_NONE:
 				out.append(c)
-		_collect_recursive(child, out)
+		_collect_recursive(child, out, skip_disabled)
 
 
 ## Grabs focus on the first focusable descendant and returns it (null when there is none).
@@ -135,8 +144,19 @@ static func trap(root: Node) -> Control:
 		return null
 	var controls := collect_focusables(root)
 	if controls.is_empty():
-		MKLog.debug("MKFocus.trap: nothing focusable under %s" % root.name)
-		return null
+		# Last resort: a modal whose every button is disabled (a confirm dialog awaiting an async
+		# result, a page-embedded modal built before its data arrived) has no ENABLED control to land
+		# on, and returning null here leaves focus wherever it was — on the page UNDERNEATH, which is
+		# the one thing §1.3 says a modal must never permit. So the ring is wired over the disabled set
+		# instead. The trade is deliberate and worth naming: focus then sits on a control that cannot be
+		# activated, but every key and every stick direction stays INSIDE the modal, which is the
+		# property that actually makes it modal. An enabled control is still preferred whenever one
+		# exists — this branch only runs when none does.
+		controls = _collect(root, false)
+		if controls.is_empty():
+			MKLog.debug("MKFocus.trap: nothing focusable under %s" % root.name)
+			return null
+		MKLog.debug("MKFocus.trap: every focusable under %s is disabled — trapping on the disabled set so input cannot reach the page beneath" % root.name)
 	link_chain(controls, true, true)
 	# Horizontal ring over the same set, so left/right cannot exit either.
 	for i in controls.size():
@@ -151,13 +171,18 @@ static func trap(root: Node) -> Control:
 ## Clears every focus neighbour a [method trap] wired under [param root].
 ## Called on modal pop: the popped control may be reused (a cached confirm dialog), and stale
 ## NodePaths into a subtree that has since changed shape are a silent traversal bug.
+##
+## Collected WITHOUT the disabled filter, unlike [method collect_focusables]: release must undo
+## exactly what trap wired, and a control trap wired while it was enabled and that has since been
+## disabled (a modal's Confirm greying out while it is open) would otherwise keep its whole neighbour
+## ring — the stale NodePaths this method exists to clear.
 static func release(root: Node) -> void:
 	if root == null or not is_instance_valid(root):
 		return
 	if not root.has_meta(TRAP_META):
 		return
 	root.remove_meta(TRAP_META)
-	for c in collect_focusables(root):
+	for c in _collect(root, false):
 		c.focus_neighbor_top = NodePath()
 		c.focus_neighbor_bottom = NodePath()
 		c.focus_neighbor_left = NodePath()

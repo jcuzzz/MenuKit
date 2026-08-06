@@ -25,6 +25,8 @@ func run_tests() -> void:
 	await _test_clear_for_teardown_returns_ownership()
 	await _test_pop_on_detached_layer_is_quiet()
 	await _test_teardown_survives_a_re_entrant_removal()
+	await _test_release_clears_a_control_disabled_after_the_trap()
+	await _test_a_wholly_disabled_modal_still_traps_input_inside_itself()
 
 
 ## A host that frees a dialog it pushed itself leaves a corpse in the stack. Popping it must not
@@ -212,11 +214,97 @@ func _test_teardown_survives_a_re_entrant_removal() -> void:
 	await step_frame()
 
 
-func _make_panel() -> Control:
+## [b][method MKFocus.release] must undo what [method MKFocus.trap] wired, and the two were reading
+## different sets.[/b] trap wires every focusable it can see; release walked
+## [method MKFocus.collect_focusables], which SKIPS disabled buttons — so a control disabled while the
+## modal was open (a Confirm greying out as its form goes invalid, a Delete disabled by an arriving
+## roster change) kept its whole wrap-around neighbour ring after the pop. Those are exactly the stale
+## NodePaths release's own documentation calls a silent traversal bug: the control is reused as page
+## content and focus walks into a ring pointing at a subtree that no longer exists.
+##
+## Asserted on the DISABLED control specifically, and its still-enabled sibling checked alongside, so
+## the case cannot pass on a release that cleared nothing at all.
+func _test_release_clears_a_control_disabled_after_the_trap() -> void:
+	var panel := _make_panel(2)
+	_host.add_child(panel)
+	await step_frame()
+	var first := panel.get_child(0) as Button
+	var second := panel.get_child(1) as Button
+
+	MKFocus.trap(panel)
+	check(not second.focus_neighbor_top.is_empty(),
+		"precondition: trap wired the control while it was still enabled")
+
+	# The state change the modal makes about itself while it is open.
+	second.disabled = true
+	MKFocus.release(panel)
+
+	check(second.focus_neighbor_top.is_empty(),
+		"a control disabled AFTER the trap is released too — release undoes what trap did, and trap wired it before the flag flipped")
+	check(second.focus_neighbor_bottom.is_empty(), "on the vertical ring's other edge as well")
+	check(second.focus_neighbor_left.is_empty(), "and the horizontal ring trap adds")
+	check(second.focus_neighbor_right.is_empty(), "in both directions")
+	check(second.focus_next.is_empty(), "including the Tab order")
+	check(first.focus_neighbor_top.is_empty(),
+		"and the still-enabled sibling is cleared as ever — this is a widening, not a swap")
+
+	panel.queue_free()
+	await step_frame()
+	await step_frame()
+
+
+## [b]§1.3's actual property: while a modal is up, input cannot reach the page underneath.[/b] A modal
+## whose every control is disabled — a confirm dialog waiting on an async result, a modal built before
+## its data arrived — collected nothing, so trap returned null and left focus wherever it was: on the
+## PAGE, one arrow key away from driving it. No shipped MenuKit modal reaches that state today, which
+## is precisely why nothing was holding the line.
+##
+## The trade this pins is deliberate: focus lands on a control that cannot be activated (a disabled
+## button swallows the press, as it should), but every key and stick direction stays inside the modal.
+## Trapped-and-inert beats untrapped-and-live on the page beneath.
+func _test_a_wholly_disabled_modal_still_traps_input_inside_itself() -> void:
+	# A page control OUTSIDE the modal, holding focus at the moment the modal opens — the state the
+	# null return used to leave untouched.
+	var page_button := Button.new()
+	page_button.text = "Page"
+	_host.add_child(page_button)
+	await step_frame()
+	page_button.grab_focus()
+	await step_frame()
+	check_eq(get_root().gui_get_focus_owner(), page_button, "precondition: the page holds focus")
+
+	var panel := _make_panel(2)
+	for child in panel.get_children():
+		(child as Button).disabled = true
+	_host.add_child(panel)
+	await step_frame()
+
+	var focused := MKFocus.trap(panel)
+	check(focused != null,
+		"trap does not give up on a modal whose every control is disabled — a null return leaves focus on the page, which is not modal")
+	await step_frame()
+	var owner := get_root().gui_get_focus_owner()
+	check(MKFocus.is_within(owner, panel),
+		"and the focus owner is INSIDE the modal subtree (got %s)" % owner)
+	check(owner != page_button, "specifically: no longer the page control beneath it")
+	check(not panel.get_child(0).focus_neighbor_left.is_empty(),
+		"with the ring wired over the disabled set, so left/right cannot walk out either")
+
+	page_button.queue_free()
+	panel.queue_free()
+	await step_frame()
+	await step_frame()
+
+
+## [param buttons] defaults to one — every case above needs only something focusable. The focus cases
+## ask for TWO, because a one-control ring wires each neighbour to the control itself and "cleared"
+## would then be indistinguishable from "wired".
+func _make_panel(buttons := 1) -> Control:
 	var panel := Control.new()
 	panel.size = Vector2(200, 120)
-	var button := Button.new()
-	button.text = "OK"
-	button.focus_mode = Control.FOCUS_ALL
-	panel.add_child(button)
+	for i in maxi(buttons, 1):
+		var button := Button.new()
+		button.text = "OK%d" % i
+		button.focus_mode = Control.FOCUS_ALL
+		panel.add_child(button)
 	return panel
