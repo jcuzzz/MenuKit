@@ -1,12 +1,13 @@
 # MenuKit — Build Handoff
 
-**Status:** Phases 1–4 complete and reviewed. Phase 5 not started — and it is GATED on an owner
-decision (the starred JSON int→float item in §6; read it before designing creation payloads).
+**Status:** Phases 1–5 complete and reviewed. Phase 6 (pause menu) not started. The JSON
+int→float decision that gated Phase 5 was MADE by the owner (2026-08-07: the `__mk_type`
+envelope, now implemented as `MKJsonCodec`) — the §6 star is resolved.
 **Repo:** `C:\GodotProjects\MenuKit` (standalone, own git history — not a Workingfile subtree)
-**HEAD:** `31e2e85`
+**HEAD:** `66a9c39`
 **Engine:** Godot 4.7 (`C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe`)
 **Plan (authoritative spec):** `c:\GodotProjects\Workingfile\docs\plans\menukit_asset_extraction_plan.md` — rev 9, 1233 lines
-**Written:** 2026-08-06 (Phase 3 sections carried forward; Phase 4 sections added same day)
+**Written:** 2026-08-06 (Phases 3–4); Phase 5 sections added 2026-08-07
 
 This file supersedes `Workingfile\docs\plans\menukit_build_handoff.md`, which is frozen at the
 Phase 2 state (Workingfile was declared never-edit for the Phase 3 session). Same format; the
@@ -22,10 +23,31 @@ Phase 1–2 material below is carried forward unchanged where still true.
 | 2 | Six shipped backend defaults, `MKSettingsService` autoload, JSON persistence | **Done.** 2 review rounds |
 | 3 | Settings schema + panel, brightness controller, D14 revert countdown | **Done.** 7 adversarial review rounds (majors 4→3→2→1→1→0→0; round 7 terminal, zero findings) |
 | 4 | Rebinding: `MKRebindRow` capture widget, conflict modal, per-row + global reset, persistence, the `_input`/`_unhandled_input` priority rule, axis binding (descope valve NOT needed) | **Done.** Test leg + 2 adversarial review rounds (see the round table below) |
-| 5–9 | Profiles/preview, pause menu, server browser, input polish, handoff | Not started |
+| 5 | Profiles + preview: `MKJsonCodec` int envelope (the owner's int→float call), character select + delete confirm, `MKCreationHost` + Name/Archetype/Appearance/Point-buy steps, `MKPreviewViewport` (D13/F10), config-driven step ordering, demo archetypes + 3-stat schema | **Done.** Test leg + 8 adversarial review rounds (round table below; round 8 terminal) |
+| 6–9 | Pause menu, server browser, input polish, handoff | Not started |
 
-**Current metrics:** 70 compiled scripts/scenes, 14 test suites (~190 assertions in `test_rebind.gd`
-alone), gate: `compile=pass smokes=14/14 isolation=pass exit=0`.
+**Current metrics:** 100 compiled scripts/scenes, 20 test suites, gate:
+`compile=pass smokes=20/20 isolation=pass exit=0`.
+
+### Phase 5 defect-count table (test leg, then review rounds)
+
+| Stage | Majors | Notes |
+|---|---|---|
+| Test leg | 2 | Preview size-sync inert under stretch (engine WARNING per _ready); own_world flip tore live instances ("scenario is null" ERROR) |
+| Round 1 | 7 | Preview tested-but-MOUNTED-NOWHERE; disabled-Play focus on cold drop; a `__mk_type` payload key destroyed the whole roster on load; unenforceable merge-order doc; untested point-buy guard; capture tool wrote the developer's REAL user://; rig never passed step 1 |
+| Round 2 | 1 | The round-1 fix's thesis (visibility re-resolve) defended by no test — the suite bound a null host |
+| Round 3 | 5 | CSG deferred AABBs meant the SHIPPED demo previews never framed (MeshInstance fixtures hid it); frame_content not idempotent; false zoom claim; F8 order-dependent; dead is_valid |
+| Round 4 | 3 | The reframe de-dup boolean defeated the reframe (FIFO); the refusal gate bricked (skipped-optional) AND leaked (last-step Skip) |
+| Round 5 | 2 | "Tree entry re-frames" was _ready-once — reparenting silently mis-rendered forever; single-step flows permanently gated |
+| Round 6 | 1 | The detached CLEAR missed the state reset (behind the tree guard) |
+| Round 7 | 2 | The newer-file doc claimed the protection its next write destroyed (now a read-only latch); unique-name bypassable by whitespace. Plus: the config-reorder exit criterion had NO test |
+| Round 8 | 0 | **TERMINAL** — 5/5 mutations red incl. cross-round spot-checks; remaining findings were two false defences (both docs of the clampf fix contradicted the measurement they cited; the refusal message enumerated wrong causes) |
+
+Majors per round: **2 → 7 → 1 → 5 → 3 → 2 → 1 → 2 → 0.** The non-monotonic bumps (rounds 3, 7)
+were both fresh-eyes sweeps of code earlier rounds never opened — budget for that shape: a
+"narrowing" round count says nothing about files no round has read yet. The signature held every
+round, with two new variants: fixtures that do not share the shipped assets' failure modes
+(round 3 — CSG vs MeshInstance), and guards that guard the wrong thing (round 4).
 
 ### Phase 4 defect-count table (test leg, then review rounds)
 
@@ -46,6 +68,17 @@ against an empty project (Audio Master-only, Controls no-KEYBIND — the §3.1 i
 ### Commit history (each review round its own commit, deliberately)
 
 ```
+66a9c39 fix(phase5): act on the eighth review; terminal — the code held, two defences did not
+443be1c fix(phase5): act on the seventh review; the roster now refuses what it cannot keep
+25c9739 fix(phase5): act on the sixth review; the slot does not care about the tree
+f34f2c9 fix(phase5): act on the fifth review; the recovery ran once per lifetime
+6bacded fix(phase5): act on the fourth review; the guards guarded against the wrong thing
+ec255fb fix(phase5): act on the third review; the tested path and the shipped path diverged
+2e7b088 fix(phase5): act on the second review; the thesis was true but undefended
+fcfb21a fix(phase5): act on the first review; the preview existed but nothing showed it
+f0cd03a test(phase5): the dedicated suites; the preview viewport lied about its size
+e566d33 feat(phase5): profiles + preview — select, creation wizard, int envelope, preview slot
+c687745 docs: Phase 4 build handoff
 31e2e85 fix(phase4): act on the second review; the behaviour held, the attributions did not
 7600424 fix(phase4): act on the first adversarial review; the format was device-blind
 318ae1c feat(phase4): input rebinding — capture row, conflict modal, reset, targeted apply
@@ -154,6 +187,31 @@ Phase 4 additions:
   engine ERROR per call** — the noise gate fails the run. Guard on
   `DisplayServer.get_name() != "headless"` before calling.
 
+Phase 5 additions:
+
+- **CSG meshes build DEFERRED: `get_aabb()` is ZERO on the frame the node is added.** Any
+  bounds-derived math must run once immediately AND once a frame later. Corollary for tests: a
+  MeshInstance fixture (bounds immediate) does not share a CSG asset's failure mode — test the
+  SHIPPED asset.
+- **`call_deferred` is FIFO, and content added later enqueues its own deferred work later** — a
+  boolean "one pending pass" de-dup runs the pass before the second content exists. Use a
+  generation counter; stale passes self-identify.
+- **`_ready` runs ONCE per node lifetime** — it cannot be the re-initialise hook for a node that
+  leaves and re-enters the tree (pooling, reparent). `NOTIFICATION_ENTER_TREE` fires every entry
+  (and BEFORE `_ready` on the first, so one `_readied` flag distinguishes them).
+- **A SubViewportContainer with `stretch` on OWNS its SubViewport's size** — a manual size write
+  is refused with an engine WARNING per attempt. And **flipping `own_world_3d` on a live viewport
+  errors** ("Parameter 'scenario' is null") — detach, flip, re-add.
+- **`clampf` raises to its minimum FIRST, then lowers to its maximum** — an inverted (min>max)
+  pair collapses inputs onto one of the two ends. Order the pair (`minf`/`maxf`) at ONE helper;
+  this repo shipped two mutually contradictory false descriptions of this builtin in one commit
+  before measuring it.
+- **A GDScript `set =` accessor does NOT re-enter on self-assignment** — re-entrancy guards for
+  that case are dead code. And **`LineEdit.max_length` truncates PROGRAMMATIC assignment too** —
+  a length check "for hosts assigning text in code" above the cap is unreachable.
+- **A const named `TYPE_*` shadows `@GlobalScope`'s enum script-wide** — `typeof(x) == TYPE_INT`
+  silently compares against your String. Name codec tags `TAG_*`.
+
 ---
 
 ## 5. Architecture decisions made during the build (Phase 3)
@@ -228,17 +286,64 @@ Phase 4 additions:
   would be consumed by the row. A cancelled conflict clears the transient caption. No new theme
   variation: the listening state is button text (`Press any key…`) + the slider-style focus ring.
 
+Phase 5 additions:
+
+- **The `__mk_type` envelope lives in `MKJsonCodec`** (static, `TAG_*` constants), shared by both
+  JSON backends with a flag: the settings backend writes Vector2i-only (its persisted bytes are
+  unchanged — churning a shipped format bought nothing), the profile backend opts into int
+  enveloping so payload ints survive reload as `TYPE_INT`. Decode tolerates every tag either way.
+  Legacy plain-number files read unmigrated. The tag is the codec's NAMESPACE: `create_profile`
+  recursively REFUSES any payload spelling `__mk_type` (accepting one wrote a file whose load
+  quarantined the whole roster).
+- **The profile backend is read-only under a NEWER store file** (`_read_only_newer` latch):
+  create/delete refuse with one warn naming the version, the file stays byte-identical, and the
+  latch follows the FILE (replace it and writes resume). A settings value is an annoyance to
+  lose; a roster is not — the two backends deliberately take different positions and each says
+  so. It also NORMALISES the one field it enforces its one rule over: names are stored trimmed.
+- **`MKCreationHost.configure` runs three passes** — claim every step's owned keys, validate
+  archetype defaults (F8: an owned-key default is refused-and-named, never seeded), THEN bind —
+  because binding is not inert: the archetype step auto-selects and seeds at bind, and
+  interleaving made F8 order-dependent. Ownership is disjoint by DECLARATION (nothing audits what
+  `_mk_step_commit` actually writes; shipped steps honour theirs).
+- **The refusal gate:** a refused `create_profile` closes BOTH doors into `_confirm` (Confirm and
+  a last-step Skip); any forward MOVEMENT — commit or non-last Skip — lifts it, and on a flow
+  whose refused step has no earlier step (index 0), the step ANNOUNCING a state change lifts it
+  (the only fresh-attempt signal that shape can produce; "announcing, not changing" — the signal
+  cannot tell an edit from a re-affirmation, and either is a distinct gesture). `REFUSAL_MESSAGE`
+  names NO cause — taken name, full roster and the latch all answer the same empty dict.
+- **`MKPreviewViewport` framing:** immediate pass + generation-tagged deferred pass per swap (CSG
+  bounds arrive a frame late); relative pivot/content writes make re-framing idempotent, the
+  swap zeroes the pivot (accumulation is per-content-lifetime); first content FITS distance,
+  later swaps keep the user's zoom, `frame_content()` refits by contract; cleared-slot state
+  resets in the CLEAR path (outside any tree check); `NOTIFICATION_ENTER_TREE` re-frames on
+  every re-entry; all six distance writes route through `_clamp_zoom` (ordered pair). Process
+  mode deliberately inherited (a paused page freezes its preview — Phase 6's own exit criterion).
+- **The appearance step mounts the preview** and re-resolves the chosen archetype's
+  `preview_scene` from the live payload on visibility (steps bind eagerly, before any choice
+  exists). Demo archetypes carry CSG primitive preview scenes — §4.6's rotating primitive.
+- **Select panel:** roster cards rebuilt on `roster_changed` with selection-by-id restore;
+  disabled-state flips run BEFORE focus chaining (correct by construction, pinned on the
+  empty→populated rebuild — first builds are ordering-blind); `MKFocus` skips disabled buttons
+  for focus_first but `release()` un-wires everything and `trap()` falls back to the disabled
+  set rather than stranding focus outside a modal.
+- **Config-driven creation:** `MKConfig.archetypes/creation_steps/point_buy_schema` (+12
+  validation rules, `creation_diagnostics()` in the root dump); empty `creation_steps` = the
+  built-in name/archetype/appearance order; a null schema drops point-buy quietly (D17), an
+  INVALID schema drops it with a warn naming the resource; the demo authors all four steps and
+  `require_full_spend = true` (pinned as contract — the demo is the §5 deliverable).
+
 ---
 
 ## 6. Known open items
 
 Carried forward or new; the starred item gates a later phase:
 
-- ★ **JSON `int` → `float` on round trip** (unchanged from Phase 2, re-flagged at Phase 4's
-  close). **This is now the NEXT decision on the critical path: Phase 5 designs creation payloads
-  and must not start until the owner picks** — extend the `__mk_type` envelope to the profile
-  backend, or state in `INTEGRATION.md` that payload numerics are floats after a reload. Needs
-  the owner's call; nothing in Phase 4 touched or prejudged it.
+- **JSON `int` → `float`: DECIDED and DONE** (owner's call, 2026-08-07: the envelope). Implemented
+  as `MKJsonCodec` with the int tag enabled for the profile backend only; the settings backend's
+  bytes are unchanged and its int→float caveat still stands there by design. The star is retired.
+  Phase 9's CHANGELOG initial-format statement must cover: the `input` event dicts' `device`
+  field (Phase 4), the `__mk_type` int tag + the discriminator-refusal rule, the trimmed-name
+  normalisation, and the newer-store read-only latch (all pre-0.1.0, no version bumps).
 - **The `device` field in the persisted `input` event dicts must appear in Phase 9's CHANGELOG
   initial-format statement.** Added in `7600424` (absent = -1 for compatibility); no
   `FORMAT_VERSION` bump because the format has never shipped — but it is a format field and the
@@ -254,6 +359,22 @@ Carried forward or new; the starred item gates a later phase:
   for the same key never match. Unreachable through shipped paths (captured events carry both
   codes); reachable for a host seeding keycode-only events via `set_action_events`. Documented on
   the method.
+
+Phase 5 open items:
+
+- **`MKCreationHost` has no `step_changed` signal** — the appearance step re-resolves via
+  `visibility_changed`, the one step that reads payload state after bind; a second such step
+  would re-invent the pattern. Phase 9 API-polish candidate.
+- **Empty-roster copy is centred while roster cards left-align** (round-6 NIT) — Phase 8, same
+  bucket as the binding-button column and the invisible unchecked CheckBox.
+- **`_camera.far` reads raw `zoom_max`** (not `_clamp_zoom`) — on an inverted export pair it uses
+  the smaller value; masked by the 100.0 floor at every plausible radius. Cosmetic-at-worst;
+  noted round 8.
+- **Point-buy restore honours per-stat ranges but not the POOL** — an over-pool restore renders
+  negative remaining and the validity gate holds (documented on `_restore`); a clamp-to-pool
+  would be nicer, not needed.
+- **The select panel's delete-refusal resync path is unreachable under the latch** (empty roster
+  → no cards) — coherent, untriggerable; recorded so nobody hunts a repro.
 - **`palette.scrim` is still unread** — `MKModalLayer` uses its own `scrim_color`; a palette
   swap does not change the dim. Ship gate 3 hole. (Phase 2 item, untouched by Phase 3.)
 - **`MKPalette.font_size_title`** still generated-but-unconsumed (`FOCUS_RING` is closed).
@@ -304,20 +425,36 @@ Phase 4 items (rebinding is input-hardware work; these are genuinely un-headless
     listening state exists — eyeball it once.
 11. **Timeout feel:** start a capture and wait — 10s lapse aborts cleanly, display restores.
 
+Phase 5 items:
+
+12. **Preview feel on a real display:** drag-to-spin + release inertia + wheel zoom on the
+    appearance step's primitive; the three-point look (key/fill/rim, pure white); auto-rotate
+    resuming after the throw decays. All arithmetic is headless-asserted; FEEL and LOOK are not.
+13. **Full creation walk by feel:** name → archetype cards → appearance preview → point-buy to
+    zero remaining → Confirm; then the refusal path for real (create a duplicate name from a
+    second walk) and recover without Cancel.
+14. **Gamepad-only wizard traversal:** cards, steps, footer, the point-buy -/+ cluster, Reset
+    All on the Controls page — one pass with the keyboard unplugged.
+15. **Delete confirm on a real display:** the destructive red Confirm, focus trap, Escape pops
+    the dialog not the page.
+
 ---
 
-## 7. Next step: Phase 5 — AFTER the owner's int→float call
+## 7. Next step: Phase 6 — pause menu
 
-Per the plan's §5 row — profiles + preview slot: character select, confirm dialog, creation
-host, Name/Archetype/Appearance/Point-buy steps, `MKPreviewViewport` (own_world_3d, F10).
-**Blocked at the design stage on the starred §6 item:** the creation payload goes verbatim to
-`MKProfileBackend.create_profile(payload)` and round-trips JSON, so whether payload ints survive
-as ints (envelope) or are documented floats (INTEGRATION.md) shapes the payload contract every
-built-in step writes. Get the owner's decision FIRST.
+Per the plan's §5 row — the demo game scene (`demo_game.tscn`, mouse-captured first-person
+grey-box), the ESC flow, `MKRoot.open/close_pause_menu()` driving `MKPausePolicy`,
+resume/settings/quit-to-menu, and the mouse-mode depth counting. Read the §5 row-6 exit criteria
+in full before starting — they are unusually specific (the ONE-backend-instance clause, the
+countdown-from-pause proving PROCESS_MODE_ALWAYS, the `MKNoPausePolicy` ~20-minute multiplayer
+seam test, the quit-then-new-game unfreeze, and "a host preview scene does not animate during
+pause" — that last one now has a concrete subject: `MKPreviewViewport` deliberately inherits
+PAUSABLE, and the handoff's Phase 5 notes say why nobody should "fix" it).
 
-Phase 4 seams Phase 5 can lean on: `MKConfirmDialog` (already carries the three-button shape;
-Phase 5's delete-confirm is its third consumer), the modal layer's focus trap, and the
-`test_rebind.gd` viewport-push idiom for driving real input through built UI.
+Phase 5 seams Phase 6 leans on: the pause policies and their tests exist since Phase 2
+(`test_pause_policy.gd`); `MKRoot`'s suspend-depth machinery is Phase 1; `start_game(profile)`
+is now actually CALLED by the select panel, so the demo game scene finally has a real entry
+path. The `characters_rig.gd` + `capture_scene.ps1` isolation combo is the capture pattern.
 
 ---
 
@@ -345,6 +482,22 @@ round 2 terminal), with three refinements worth keeping:
   COMMENT confidently declining an assertion on a false premise, leaving a fix guarded by
   nothing. Reviewers must mutation-test the fixes (round 2 re-ran all nine claims: 9/9 red), and
   must read test comments as claims too.
+
+Phase 5 ran the same shape at its largest scale yet (four parallel implementation legs, a
+326-assertion test leg, EIGHT review rounds, majors 2→7→1→5→3→2→1→2→0) and taught three things:
+
+- **Fresh eyes on unopened files beat convergence intuition.** Rounds 3 and 7 spiked the major
+  count by sweeping code no earlier round had read (the preview's framing math; the profile
+  backend). A terminal claim is only as good as the sweep's coverage, not the trend line.
+- **Fixtures must share the shipped assets' failure modes.** The round-3 pattern — a suite green
+  on MeshInstance fixtures while every shipped CSG preview silently failed — is the tested-path
+  vs shipped-path divergence, and the fix is to test the actual shipped `.tres`/`.tscn` at least
+  once per mechanism.
+- **Fixes breed their own defects at a stable rate: rounds 4–6 were entirely findings inside the
+  previous round's fixes** (a de-dup defeating what it guarded, a recovery that ran once per
+  lifetime, a reset behind the wrong guard). The per-round fix legs' own reds caught two more
+  before review (the accumulate-across-swap defect; the first cut of the movement rule). Plan
+  for review rounds ≈ fix-generations + 2, not "one review then done".
 
 What earned its keep this phase:
 
