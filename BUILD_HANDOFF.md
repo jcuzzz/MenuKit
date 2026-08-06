@@ -4,10 +4,12 @@
 int→float decision that gated Phase 5 was MADE by the owner (2026-08-07: the `__mk_type`
 envelope, now implemented as `MKJsonCodec`) — the §6 star is resolved.
 **Repo:** `C:\GodotProjects\MenuKit` (standalone, own git history — not a Workingfile subtree)
-**HEAD:** `66a9c39`
+**HEAD:** `f3fd3dc`
 **Engine:** Godot 4.7 (`C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe`)
-**Plan (authoritative spec):** `c:\GodotProjects\Workingfile\docs\plans\menukit_asset_extraction_plan.md` — rev 9, 1233 lines
-**Written:** 2026-08-06 (Phases 3–4); Phase 5 sections added 2026-08-07
+**Plan (authoritative spec):** `c:\GodotProjects\Workingfile\docs\plans\menukit_asset_extraction_plan.md` — **rev 10** (the owner lifted the plan freeze on 2026-08-07; rev 10 adds
+**Phase 8a, the comment-diet phase** — §4.4a has the per-comment-kind rules and the token-level
+comment-only verification — and folds in the §3.1 drift this file used to carry)
+**Written:** 2026-08-06 (Phases 3–4); Phase 5 sections + the rev-10 sync added 2026-08-07
 
 This file supersedes `Workingfile\docs\plans\menukit_build_handoff.md`, which is frozen at the
 Phase 2 state (Workingfile was declared never-edit for the Phase 3 session). Same format; the
@@ -516,20 +518,23 @@ What earned its keep this phase:
 
 ## 9. Scope reminders
 
-Unchanged: Workingfile is read-only (this phase treated even its plan-docs directory as
-frozen — hence this file's location); no LICENSE ships (D15); no third-party art/audio/fonts;
-nothing under `addons/menu_kit/` may reference an external `res://` path, including comments.
+The Workingfile plan freeze was LIFTED by the owner on 2026-08-07 (rev 10 is the first
+during-build revision); this file remains the authoritative build-STATE doc, the plan the
+authoritative SPEC. Unchanged: no LICENSE ships (D15); no third-party art/audio/fonts; nothing
+under `addons/menu_kit/` may reference an external `res://` path, including comments.
 
-Local-state note: `git stash@{0}` ("pre-phase4: Godot editor resave noise") holds ~440 lines of
-editor-resave churn (comment stripping + uid injection across 12 files) found uncommitted at the
-Phase 4 session start — verified free of semantic change and set aside rather than committed,
-because the stripped `.tres` header comments are load-bearing house style. Drop it once confirmed,
-and prefer not to re-save those resources from the editor without re-adding the comments.
+Editor-resave note (supersedes the old stash instructions): commit `f3fd3dc` committed a full
+editor resave — Godot does NOT round-trip comments in `.tres`/`project.godot` files, so
+authored prose there is unsustainable by mechanism; that fact is the opening argument of the
+rev-10 comment-diet phase (plan §4.4a / row 8a), which will relocate any still-valuable
+rationale into `docs/`. The old `stash@{0}` ("pre-phase4 editor resave noise") is now fully
+superseded by history and can be dropped. The former plan-drift paragraph is resolved: rev 10
+folded the §3.1 rows (Settings page, Characters/create pages, the corrected MKWelcomePage row)
+into the plan itself.
 
-One plan-doc drift to record since the plan itself is frozen: `default_config.tres` now ships
-a SECOND nav page (Settings → `settings/mk_settings_panel.tscn`) beside Welcome, so §3.1's
-"MKWelcomePage is the one page the addon ships" row is stale, and the Settings page + panel
-scene have no §3.1 rows of their own. Their gate answers, for the record: gate 1 — addon paths
-only; gate 2 — builds warning-free against an empty project (Master-only audio, no KEYBIND,
-curated resolutions, zero-warning assertion in `test_settings_schema.gd`). Whoever next edits
-the plan should fold these rows in.
+Phase 8a exists because of THIS build's style: the review loop's long rationale comments were
+the right tool for construction (the recurring defect class is comment-vs-code drift, and dense
+falsifiable comments are what made it catchable) and are the wrong density for the shipped
+asset. When running Phase 8a, hold the fix legs to the token-level comment-stripped-diff
+verification in §4.4a — a "cleanup" that changes one token is a behaviour change smuggled past
+review.
