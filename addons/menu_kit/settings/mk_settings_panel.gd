@@ -586,7 +586,9 @@ func _collect_choices(def: MKSettingDef, labels: Array[String], values: Array) -
 ## is [member MKSettingDef.option_values] in full, and each one takes its authored label when the
 ## arrays line up at that index and the formatted fallback otherwise. Nothing is dropped for being
 ## unlabelled and nothing warns about it: on THIS row a longer values array is the normal shape, not
-## the drift [method _collect_choices] reports.
+## the drift [method _collect_choices] reports. Surplus LABELS are the other direction and ARE
+## reported, because a label past the end of the values array is attached to no size and is simply
+## lost — the same editing slip, and silence about it was an asymmetry rather than a policy.
 func _collect_resolution_choices(def: MKSettingDef, labels: Array[String], values: Array) -> void:
 	var candidates: Array = def.option_values.duplicate()
 	# Keyed by the value rather than carried by index: the filtering below drops candidates and appends
@@ -594,7 +596,23 @@ func _collect_resolution_choices(def: MKSettingDef, labels: Array[String], value
 	var authored: Dictionary = {}
 	for i in candidates.size():
 		if i < def.options.size() and not def.options[i].is_empty():
+			# Keyed by value, so a repeated size collapses onto one key and the LAST label wins. Behaviour
+			# kept — one entry per distinct size is what the dropdown wants either way — but said out loud
+			# and NAMING the def, because the symptom otherwise is an authored label that simply never
+			# appears with nothing anywhere to explain it.
+			if authored.has(candidates[i]) and authored[candidates[i]] != def.options[i]:
+				MKLog.debug("%s: resolution row '%s' authors %s twice with different labels ('%s' then '%s') — one entry is offered and the LAST label wins"
+					% [MKLog.context(def, "option_values"), def.id, candidates[i],
+						authored[candidates[i]], def.options[i]])
 			authored[candidates[i]] = def.options[i]
+	# The MIRROR of the surplus-values line _collect_choices prints, at the same level and for the same
+	# reason. On this row a longer VALUES array is the normal shape, so nothing is said about it — but a
+	# longer LABELS array is the same editing slip in the other direction, and its trailing labels are
+	# attached to no candidate and vanish. Reporting only one direction is how that stayed invisible.
+	if def.options.size() > candidates.size():
+		MKLog.debug("%s: resolution row '%s' authored %d labels but only %d option_values — the %d trailing label(s) belong to no size and are not shown"
+			% [MKLog.context(def, "options"), def.id, def.options.size(), candidates.size(),
+				def.options.size() - candidates.size()])
 
 	var screen := Vector2i.ZERO
 	if not _is_headless():
@@ -843,8 +861,8 @@ func _revert_value(def: MKSettingDef, previous: Variant) -> void:
 ## [br]- the panel dies first with the dialog still stacked, via [method _exit_tree].
 ## Whichever arrives first erases the entry, so the other is a no-op.
 ##
-## [b]This path NEVER touches the modal stack, and that is the whole of its second contract.[/b] It
-## used to call [method MKModalLayer.remove_modal], which is a real pop: on
+## [b]This path never touches the modal stack SYNCHRONOUSLY, and that is the whole of its second
+## contract.[/b] It used to call [method MKModalLayer.remove_modal] inline, which is a real pop: on
 ## [code]MKRoot.queue_free()[/code] the panel's [method Node._exit_tree] runs BEFORE the root's
 ## (exit propagates children first), so that pop emitted [signal MKModalLayer.modal_popped] and
 ## [signal MKModalLayer.emptied] DURING teardown — driving MKRoot's suspend counter to its 1→0 edge,
@@ -854,31 +872,44 @@ func _revert_value(def: MKSettingDef, previous: Variant) -> void:
 ##
 ## So disposal is decided by ownership instead:
 ## [br]- [b]Off the stack[/b] — the [method MKModalLayer.pop_all] on a page change already let go of
-##   it — nobody else will ever free it, so this frees it.
-## [br]- [b]Still stacked[/b] — the layer owns it, and disposes of it in
-##   [method MKModalLayer.clear_for_teardown] through [code]_mk_layer_teardown[/code], which is
-##   emission-free by contract. Freeing it here would leave a corpse in the layer's stack.
+##   it — nobody else will ever free it, so this frees it, here and now.
+## [br]- [b]Still stacked[/b] — disposal belongs to the LAYER, and this path only asks for it: the
+##   dialog is marked resolved (it stops ticking, emits nothing more, and declines any later cancel)
+##   and [method MKModalLayer.reap_modal] is scheduled with [method Object.call_deferred]. Freeing it
+##   here would leave a corpse wedged in the layer's stack; popping it here would emit, and this code
+##   runs on teardown paths where an emission is the hazard described above.
 ##
-## [b]"Still stacked" is two different situations, and only one of them is teardown.[/b] The
-## discriminator is [method _shell_is_tearing_down]: whether the modal layer, or anything above it, is
-## already queued for deletion.
-## [br]- [b]The shell is going away[/b] — [code]MKRoot.queue_free()[/code] — so an emission would land
-##   in the detached pause policy described above. Leave the dialog to
-##   [method MKModalLayer.clear_for_teardown].
+## [b]The deferral is what tells the two "still stacked" situations apart, and it does so without a
+## discriminator on this side.[/b] Read [method MKModalLayer.reap_modal] for the mechanism; the
+## outcomes are:
+## [br]- [b]The shell is going away[/b] — [code]MKRoot.queue_free()[/code],
+##   [method Node.free], a [SceneTree] scene change, engine shutdown. The layer is destroyed before
+##   the deferred call can flush, Godot drops calls to freed objects, and the dialog goes with the
+##   layer's own subtree. Nothing is emitted, which is the whole requirement. Where the layer DOES
+##   survive to the flush while doomed (a host that detaches the shell before queueing it),
+##   [method MKModalLayer.reap_modal]'s own teardown guard declines and
+##   [method MKModalLayer.clear_for_teardown] disposes of the dialog through
+##   [code]_mk_layer_teardown[/code].
 ## [br]- [b]The shell is ALIVE and only the panel died[/b] (a host tearing down its options screen, a
-##   page rebuild). Here a real pop is not a hazard, it is the requirement: the emissions unwind
-##   MKRoot's suspend depth and its mouse mode, which the push had raised. Leaving the dialog stacked
-##   instead left a live [constant Node.PROCESS_MODE_ALWAYS] countdown repainting and about to emit
+##   page rebuild). The reap arrives on a live layer and pops for real. That is not a hazard here, it
+##   is the requirement: the emissions unwind MKRoot's suspend depth and its mouse mode, which the
+##   push had raised. Leaving the dialog stacked instead left a live
+##   [constant Node.PROCESS_MODE_ALWAYS] countdown repainting and about to emit
 ##   [signal MKRevertCountdown.reverted] into a dropped connection, trapping focus, holding that
 ##   suspension, swallowing the Escape AND the Keep click of a user looking at it — and after its
 ##   cancel was finally declined it was unparented rather than freed: one leaked Control per event.
-##   So the dialog is marked resolved (it stops ticking and declines any later cancel), removed
-##   through [method MKModalLayer.remove_modal], and freed.
 ##
-## [method Node.is_queued_for_deletion] is used rather than tree-order reasoning because exit order
-## between siblings decides which of the layer and the panel is detached first, and no ordering flips
-## the queued flag. Both layouts — the shipped shell and a panel parented straight under an
-## [MKRoot] — are asserted in the suite.
+## The cost of the deferral is one frame of a marked, inert corpse on the stack, and it is paid for
+## rather than merely tolerated: [method MKRevertCountdown.mark_resolved] has already stopped its
+## [method Node._process] and latched its signals, so it cannot tick, lapse or emit in that window,
+## and an Escape landing there is DECLINED — which routes the gesture to
+## [method MKModalLayer.handle_cancel]'s own pop, clearing the entry and self-healing the stack. The
+## reap then finds it already gone and does nothing. That window is asserted in the suite rather than
+## argued.
+##
+## Both layouts — the shipped shell and a panel parented straight under an [MKRoot] — are asserted,
+## because sibling exit order decides which of the layer and the panel is detached first and the
+## answer must not move with it.
 ##
 ## The control sync is skipped once the panel is out of the tree: the widgets are being freed, and the
 ## store — restored above — is the half that outlives the panel and the half D14 actually promises.
@@ -893,31 +924,20 @@ func _resolve_orphaned_countdown(entry: Dictionary) -> void:
 	if is_inside_tree():
 		_sync_control(def)
 	var layer: MKModalLayer = entry["layer"]
+	# Untyped, and NOT cast: `as MKRevertCountdown` on a freed instance is itself an engine error, and
+	# a host freeing the dialog it was shown is a normal way to get here.
 	var countdown: Variant = entry["countdown"]
 	if countdown == null or not is_instance_valid(countdown):
 		return
 	if layer != null and is_instance_valid(layer) and layer.has_modal(countdown):
-		if _shell_is_tearing_down(layer):
-			return
-		countdown.call("mark_resolved")
-		layer.remove_modal(countdown)
+		# Typed now that validity is established, so mark_resolved is a real call the compiler checks.
+		var dialog: MKRevertCountdown = countdown
+		dialog.mark_resolved()
+		# Deferred, never inline: see the doc above and MKModalLayer.reap_modal. The layer decides
+		# whether this becomes a real pop or nothing at all, by whether it is still alive to receive it.
+		layer.call_deferred(&"reap_modal", dialog)
+		return
 	countdown.queue_free()
-
-
-## Whether [param layer] is going away with the rest of the shell, as opposed to outliving this panel.
-##
-## The chain is walked from the layer upwards because the queued node is whichever ancestor the host
-## called [method Node.queue_free] on — usually [MKRoot], possibly something above it — and the flag
-## is set on that node alone, not propagated to its children. Order-independent by construction:
-## unlike "is the layer still inside the tree", the queued flag does not change depending on which
-## sibling [constant Node.NOTIFICATION_EXIT_TREE] reached first.
-func _shell_is_tearing_down(layer: MKModalLayer) -> bool:
-	var node: Node = layer
-	while node != null:
-		if node.is_queued_for_deletion():
-			return true
-		node = node.get_parent()
-	return false
 
 
 func _resolve_live_countdowns() -> void:
@@ -942,10 +962,12 @@ func _dismiss_countdown(layer: MKModalLayer, countdown: Control) -> void:
 		# have let go of this dialog (a pop_all on a page change, a host popping it) and the free below
 		# is still owed either way.
 		#
-		# This is the ONLY remaining remove_modal in this file, and deliberately so: a Keep, a Revert or
-		# a cancel is a real resolution with the shell alive, so a real pop — scrim, focus restoration,
-		# MKRoot's suspend edge — is exactly right here. The teardown route (_resolve_orphaned_countdown)
-		# must not have any of that and therefore does not come through here.
+		# This is the only remove_modal this file calls DIRECTLY, and deliberately so: a Keep, a Revert
+		# or a cancel is a real resolution with the shell alive, so a real pop — scrim, focus
+		# restoration, MKRoot's suspend edge — is exactly right here, synchronously. The orphan route
+		# (_resolve_orphaned_countdown) may be running mid-teardown and must not pop synchronously at
+		# all, so it does not come through here: it hands the dialog to MKModalLayer.reap_modal
+		# deferred, and that reaches remove_modal only if the layer is still alive next flush.
 		layer.remove_modal(countdown)
 	countdown.queue_free()
 

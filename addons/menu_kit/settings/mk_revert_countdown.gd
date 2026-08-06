@@ -154,14 +154,25 @@ func _mk_layer_teardown() -> void:
 ##
 ## For the one caller that has already performed the resolution itself:
 ## [MKSettingsPanel._resolve_orphaned_countdown], which reverts the value directly from its own
-## bookkeeping when the panel dies with this dialog still stacked under a surviving shell. Emitting
-## there would reach handlers whose panel is gone, and leaving it ticking would let a dialog nobody
-## owns lapse a few seconds later into a dropped connection while repainting its label every frame
-## (this node is [constant Node.PROCESS_MODE_ALWAYS], so a paused tree does not stop it).
+## bookkeeping when the panel dies with this dialog still stacked. Emitting there would reach handlers
+## whose panel is gone.
 ##
-## Throwing the same latch [method _finish] uses is what makes the state honest rather than merely
-## quiet: a later [method handle_cancel] on this dialog returns false — declined — so the modal layer
-## clears the entry instead of swallowing the gesture.
+## [b]This is what makes the corpse frame safe, and that frame is real, not hypothetical.[/b] That
+## path cannot dispose of a stacked dialog synchronously — a pop mid-teardown is the hazard
+## [method MKModalLayer.clear_for_teardown] exists to prevent — so it marks the dialog and schedules
+## [method MKModalLayer.reap_modal] deferred. Between the mark and that flush this dialog is on a live
+## stack with no owner, and every one of the three things it could do in that window is switched off
+## here:
+## [br]- [b]It stops ticking.[/b] This node is [constant Node.PROCESS_MODE_ALWAYS], so neither a
+##   paused tree nor a dead owner stops [method Node._process]: without the [code]_running[/code] flag
+##   it keeps counting down and repaints its label every frame.
+## [br]- [b]It cannot lapse.[/b] The [code]_emitted[/code] latch is the same one [method _finish]
+##   throws, so a timeout cannot fire [signal reverted] into a dropped connection — and cannot revert
+##   a revert the panel has already performed.
+## [br]- [b]It declines a cancel gesture instead of eating it.[/b] A later [method handle_cancel]
+##   returns false, which routes the Escape to [method MKModalLayer.handle_cancel]'s own pop: the stale
+##   entry is cleared and the stack self-heals. Returning true would make this corpse swallow every
+##   cancel until the reap arrived.
 func mark_resolved() -> void:
 	_emitted = true
 	_running = false

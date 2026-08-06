@@ -33,11 +33,16 @@ func run_tests() -> void:
 	await _test_a_resolved_countdown_stops_swallowing_cancel()
 	await _test_dismissal_leaves_a_modal_stacked_above_it_alone()
 	await _test_a_page_change_reverts_an_unconfirmed_countdown()
-	await _test_freeing_the_panel_reverts_an_unconfirmed_countdown()
-	await _test_freeing_the_panel_pops_under_the_shell_layout()
+	await _test_freeing_the_panel_reverts_an_unconfirmed_countdown(false)
+	await _test_freeing_the_panel_reverts_an_unconfirmed_countdown(true)
+	await _test_freeing_the_panel_pops_under_the_shell_layout(false)
+	await _test_freeing_the_panel_pops_under_the_shell_layout(true)
+	await _test_the_corpse_frame_is_inert_and_self_heals()
 	await _test_a_synced_control_raises_no_countdown()
 	await _test_untouched_text_row_raises_no_countdown()
 	await _test_shell_teardown_emits_no_modal_pops()
+	await _test_shell_hard_free_emits_no_modal_pops()
+	await _test_a_doomed_shell_declines_the_reap()
 	await _test_teardown_disconnects_the_backend_before_reverting()
 	await _test_a_second_change_replaces_the_live_countdown()
 	await _test_different_rows_keep_independent_countdowns()
@@ -437,8 +442,15 @@ func _test_a_page_change_reverts_an_unconfirmed_countdown() -> void:
 ## being eaten by a corpse.
 ##
 ## The teardown case, where an emission really is a hazard, is
-## _test_shell_teardown_emits_no_modal_pops, and the two are what the discriminator has to tell apart.
-func _test_freeing_the_panel_reverts_an_unconfirmed_countdown() -> void:
+## _test_shell_teardown_emits_no_modal_pops, and the two are what the deferred reap has to tell apart.
+##
+## [param hard_free] runs the SAME assertions with [method Node.free] instead of
+## [method Node.queue_free], because the two reach the reap by different routes: a queued panel exits
+## the tree inside the delete queue, a freed one exits synchronously, and only the second is what
+## [method SceneTree.change_scene_to_packed] and engine shutdown do. A design that keyed off
+## [method Node.is_queued_for_deletion] passed one and did a real mid-teardown pop on the other.
+func _test_freeing_the_panel_reverts_an_unconfirmed_countdown(hard_free: bool) -> void:
+	var how := "free()" if hard_free else "queue_free()"
 	var fixture := await _make_panel_fixture()
 	var backend: MKJsonSettingsBackend = fixture["backend"]
 	var root: MKRoot = fixture["root"]
@@ -459,34 +471,39 @@ func _test_freeing_the_panel_reverts_an_unconfirmed_countdown() -> void:
 		return
 	check_eq(root.get_suspend_depth(), base_depth + 1, "and the push raised the suspension one further")
 
-	panel.queue_free()
+	if hard_free:
+		panel.free()
+	else:
+		panel.queue_free()
 	await step_frame()
 	await step_frame()
 
 	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0,
-		"the panel reverted what it had raised on its way out — the backend outlives it, which is why the STORE is the load-bearing half")
+		"the panel reverted what it had raised on its way out via %s — the backend outlives it, which is why the STORE is the load-bearing half" % how)
 	check_eq(layer.depth(), 0,
-		"and the dialog left the stack: the SHELL is alive, so the pop is not the teardown hazard — it is the unwind")
+		"and the dialog left the stack after %s: the SHELL is alive, so the reap pops for real — that is not the teardown hazard, it is the unwind" % how)
 	# is_instance_valid FIRST, and not merged into a has_modal() call: passing a freed instance to a
 	# typed Control parameter is itself an engine error, which the gate fails on.
 	check(not is_instance_valid(countdown),
-		"and it was FREED, not merely unparented — an ownerless PROCESS_MODE_ALWAYS dialog is a leak that keeps ticking")
+		"and it was FREED, not merely unparented — an ownerless PROCESS_MODE_ALWAYS dialog is a leak that keeps ticking (%s)" % how)
 	check_eq(root.get_suspend_depth(), base_depth,
-		"the suspension the push raised came back down — leaving it stacked held the world suspended under a dead dialog")
+		"the suspension the push raised came back down — leaving it stacked held the world suspended under a dead dialog (%s)" % how)
 
-	check(_cancel(root), "and the next Escape is consumed")
-	check_eq(layer.depth(), 1, "by the ROOT's own quit-confirm — the gesture reached the page, not a corpse")
+	check(_cancel(root), "and the next Escape is consumed (%s)" % how)
+	check_eq(layer.depth(), 1, "by the ROOT's own quit-confirm — the gesture reached the page, not a corpse (%s)" % how)
 	var top := layer.top()
 	check(top != null and top is MKConfirmDialog, "which is the confirm dialog, not the countdown")
 
 	await _drop_fixture(fixture)
 
 
-## The SAME discriminator, on the layout the shipped shell actually builds: the panel sits several
-## levels down inside the page host, so it and the modal layer are detached in a different order than
-## in the flat fixture. Round 3 rested a claim on that ordering; [method Node.is_queued_for_deletion]
-## does not move with it, and this is the assertion that says so rather than the reasoning.
-func _test_freeing_the_panel_pops_under_the_shell_layout() -> void:
+## The SAME route, on the layout the shipped shell actually builds: the panel sits several levels down
+## inside the page host, so it and the modal layer are detached in a different order than in the flat
+## fixture. Round 3 rested a claim on that ordering; the deferred reap does not move with it, and this
+## is the assertion that says so rather than the reasoning. Both free mechanisms, for the reason given
+## on the flat-layout test.
+func _test_freeing_the_panel_pops_under_the_shell_layout(hard_free: bool) -> void:
+	var how := "free()" if hard_free else "queue_free()"
 	var fixture := await _make_panel_fixture(null, true)
 	var backend: MKJsonSettingsBackend = fixture["backend"]
 	var root: MKRoot = fixture["root"]
@@ -504,13 +521,77 @@ func _test_freeing_the_panel_pops_under_the_shell_layout() -> void:
 		await _drop_fixture(fixture)
 		return
 
-	panel.queue_free()
+	if hard_free:
+		panel.free()
+	else:
+		panel.queue_free()
 	await step_frame()
 	await step_frame()
 
-	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0, "the store is put back")
-	check_eq(layer.depth(), 0, "and the dialog is popped here too — the nesting does not change the answer")
-	check(not is_instance_valid(countdown), "and freed, so neither layout leaks one")
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0, "the store is put back (%s)" % how)
+	check_eq(layer.depth(), 0, "and the dialog is reaped here too — the nesting does not change the answer (%s)" % how)
+	check(not is_instance_valid(countdown), "and freed, so neither layout leaks one (%s)" % how)
+
+	await _drop_fixture(fixture)
+
+
+## [b]The frame between the mark and the reap, which the deferral buys and mark_resolved pays for.[/b]
+##
+## The orphan path cannot dispose of a stacked dialog synchronously — that is the mid-teardown pop the
+## whole redesign exists to avoid — so for one flush the dialog sits on a LIVE stack with its owner
+## already gone. Everything it could do in that window has to be off, and this is the test that says
+## so; without it [method MKRevertCountdown.mark_resolved] could be emptied to `pass` and the whole
+## suite stayed green.
+##
+## Three properties, in the order they would bite a player:
+## [br]- it is not running, and a forced advance of MORE than the full countdown emits nothing — a
+##   ticking corpse lapses into a dropped connection and reverts a revert;
+## [br]- an Escape in that window is DECLINED by the dialog, so the layer pops the stale entry and the
+##   stack self-heals rather than swallowing every cancel until the reap lands;
+## [br]- the reap that arrives afterwards finds the dialog already gone and still disposes of it,
+##   because it must tolerate exactly that.
+##
+## [method Node._process] is driven directly rather than by awaiting frames, because awaiting a frame
+## IS the reap: the window under test would be over before the assertion ran.
+func _test_the_corpse_frame_is_inert_and_self_heals() -> void:
+	var fixture := await _make_panel_fixture()
+	var root: MKRoot = fixture["root"]
+	var panel: MKSettingsPanel = fixture["panel"]
+	var button: OptionButton = fixture["option"]
+	var layer := root.get_modal_layer()
+
+	button.select(1)
+	button.item_selected.emit(1)
+	var countdown := layer.top() as MKRevertCountdown
+	check(countdown != null, "the countdown is up and still stacked")
+	if countdown == null:
+		await _drop_fixture(fixture)
+		return
+
+	var resolutions := [0]
+	countdown.reverted.connect(func() -> void: resolutions[0] += 1)
+	countdown.kept.connect(func() -> void: resolutions[0] += 1)
+
+	# free(), not queue_free(): the panel must be gone SYNCHRONOUSLY so the assertions below run inside
+	# the window, before any frame has flushed the reap.
+	panel.free()
+
+	check_eq(layer.depth(), 1, "the dialog is still stacked the instant its owner died — the reap is deferred, by design")
+	check(layer.top() == countdown, "and it is still the top, so it is what a cancel gesture would reach")
+
+	countdown._process(MKSettingsPanel.REVERT_SECONDS * 2.0)
+	check_eq(resolutions[0], 0,
+		"an advance of twice the full duration emits NOTHING — mark_resolved stopped it and latched it, so the corpse cannot lapse into handlers whose panel is gone")
+
+	check(_cancel(root), "an Escape in that window is consumed")
+	check_eq(layer.depth(), 0,
+		"by the LAYER: the dialog declined the gesture, so handle_cancel popped the stale entry and the stack self-healed instead of swallowing it")
+	check_eq(resolutions[0], 0, "and the declined cancel still emitted neither signal")
+
+	await step_frame()
+	await step_frame()
+	check(not is_instance_valid(countdown),
+		"and the reap, arriving on a dialog already off the stack, still freed it — tolerating that is the other half of its contract")
 
 	await _drop_fixture(fixture)
 
@@ -563,6 +644,105 @@ func _test_shell_teardown_emits_no_modal_pops() -> void:
 		"while the unconfirmed change is still put back, which is what D14 owes the player")
 	check(not is_instance_valid(countdown),
 		"and the dialog was disposed of by the layer's teardown, so silence did not cost a leak")
+
+	await _drop_fixture(fixture)
+
+
+## [b]The same silence when the shell is hard-freed, which is the common host path and the one the
+## previous design got wrong.[/b]
+##
+## [method Node.queue_free] is not how a shell usually dies. Starting the game calls
+## [method SceneTree.change_scene_to_file], which memdeletes the current scene; so does engine
+## shutdown, and so does any host that calls [method Node.free] directly. None of them set
+## [method Node.is_queued_for_deletion], so a discriminator built on that flag answered "the shell is
+## alive" while the shell was being destroyed around it, and did a real remove_modal mid-teardown —
+## the exact defect the queue_free test above was supposed to be catching, resurrected on the more
+## common path. Measured, not argued: that shape emitted one modal_popped and one emptied.
+##
+## The deferred reap has no flag to get wrong here: the layer is destroyed before the message queue
+## next flushes, and Godot drops a deferred call to a freed object.
+func _test_shell_hard_free_emits_no_modal_pops() -> void:
+	var fixture := await _make_panel_fixture()
+	var backend: MKJsonSettingsBackend = fixture["backend"]
+	var root: MKRoot = fixture["root"]
+	var button: OptionButton = fixture["option"]
+	var layer := root.get_modal_layer()
+
+	check(root.open_pause_menu(&"other"), "the shell is suspended, as it is when display settings are changed")
+	check(root.get_suspend_depth() > 0, "so the suspend counter is genuinely raised")
+
+	button.select(1)
+	button.item_selected.emit(1)
+	var countdown := layer.top() as MKRevertCountdown
+	check(countdown != null, "and a requires_confirm change stacked its countdown")
+	if countdown == null:
+		await _drop_fixture(fixture)
+		return
+
+	var pops := [0]
+	var empties := [0]
+	layer.modal_popped.connect(func(_c: Control) -> void: pops[0] += 1)
+	layer.emptied.connect(func() -> void: empties[0] += 1)
+
+	root.free()
+	await step_frame()
+	await step_frame()
+
+	check_eq(pops[0], 0,
+		"a hard free of the shell emits NO modal_popped either — the reap cannot arrive, because the layer it was addressed to no longer exists")
+	check_eq(empties[0], 0, "and no emptied, which is the edge a host acts on")
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0,
+		"while the unconfirmed change is still put back, which is what D14 owes the player")
+	check(not is_instance_valid(countdown),
+		"and the dialog went with the shell's own subtree, so silence did not cost a leak — the harness's leak gate is the other half of this")
+
+	await _drop_fixture(fixture)
+
+
+## [b]The one shape where the reap DOES arrive on a doomed shell, and declines.[/b]
+##
+## Dropping the deferred call covers a shell that dies in one cascade, but not a host that queues the
+## shell and then tears a panel down under it in the same frame (a page swap on the way out, an
+## options screen freed as the menu closes). There the panel's [method Node._exit_tree] runs a flush
+## EARLIER than the shell's deletion, so the reap really is delivered — to a layer that is alive, still
+## holding the countdown, and already queued. A real pop there is precisely the mid-teardown emission
+## [method MKModalLayer.clear_for_teardown] exists to prevent, and it is what the reap's own teardown
+## guard refuses. Measured: without that guard this shape emits a modal_popped and an emptied.
+func _test_a_doomed_shell_declines_the_reap() -> void:
+	var fixture := await _make_panel_fixture()
+	var root: MKRoot = fixture["root"]
+	var panel: MKSettingsPanel = fixture["panel"]
+	var button: OptionButton = fixture["option"]
+	var layer := root.get_modal_layer()
+
+	check(root.open_pause_menu(&"other"), "the shell is suspended — the state that makes a stray emission harmful")
+
+	button.select(1)
+	button.item_selected.emit(1)
+	var countdown := layer.top() as MKRevertCountdown
+	check(countdown != null, "the countdown is up and still stacked")
+	if countdown == null:
+		await _drop_fixture(fixture)
+		return
+
+	var pops := [0]
+	var empties := [0]
+	layer.modal_popped.connect(func(_c: Control) -> void: pops[0] += 1)
+	layer.emptied.connect(func() -> void: empties[0] += 1)
+
+	# The shell is doomed but NOT yet detached, so the layer survives to receive the reap the panel's
+	# death schedules — the whole point of this shape.
+	root.queue_free()
+	panel.free()
+	check(layer.depth() == 1, "the layer is still alive and still holding the dialog when the reap is scheduled")
+	await step_frame()
+	await step_frame()
+
+	check_eq(pops[0], 0,
+		"the reap arrived on a live-but-queued layer and DECLINED — a pop here drives the suspend counter to its 1-0 edge inside a teardown, on a pause policy already leaving the tree")
+	check_eq(empties[0], 0, "and no emptied either")
+	check(not is_instance_valid(countdown),
+		"and clear_for_teardown disposed of the dialog instead, so declining did not cost a leak")
 
 	await _drop_fixture(fixture)
 

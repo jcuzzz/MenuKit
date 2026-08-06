@@ -211,11 +211,63 @@ func remove_modal(control: Control) -> bool:
 ## whether it still has to dispose of a modal without mutating the stack to find out — which
 ## [method remove_modal] would, and which is exactly what a teardown path must not do.
 ##
-## [MKSettingsPanel._resolve_orphaned_countdown] is the caller this exists for: it must free a dialog
-## the layer has already let go of (a [method pop_all] on a page change) and must NOT free one the
-## layer still owns and will dispose of in [method clear_for_teardown].
+## [MKSettingsPanel._resolve_orphaned_countdown] is the caller this exists for: a dialog the layer has
+## already let go of (a [method pop_all] on a page change) is freed by the panel there and then, while
+## one that is still stacked is handed to [method reap_modal] deferred — because disposing of it
+## synchronously is a stack mutation, and that path may be running inside a teardown.
 func has_modal(control: Control) -> bool:
 	return _stack.has(control)
+
+
+## Disposes of a modal whose owner died while it was still stacked: removes it from the stack and
+## frees it — [b]unless this layer is itself being torn down[/b], in which case it does nothing.
+##
+## [b]Always call this deferred[/b] ([code]layer.call_deferred(&"reap_modal", dialog)[/code]).
+## The deferral is not tidiness, it is the whole mechanism, and it is what makes the two teardown
+## shapes decide themselves instead of being told apart by a flag:
+## [br]- [b]The shell is destroyed with the dialog still stacked[/b] — [method Node.free], a
+##   [method SceneTree.change_scene_to_packed] memdelete of the current scene, engine shutdown, or a
+##   [method Node.queue_free] whose delete cascade reaches this layer. This layer is gone before the
+##   [code]MessageQueue[/code] next flushes, and Godot drops a deferred call whose target object has
+##   been freed. So nothing runs, nothing is emitted, and the dialog is freed with this layer's own
+##   subtree. That is measured behaviour, not an assumption: a call deferred onto a node that is
+##   memdeleted before the next flush never arrives.
+## [br]- [b]Only the owner died and this layer outlives it[/b] — the deferred call arrives on a live
+##   layer, the guard below is false, and the modal is popped for real. A real pop is the REQUIREMENT
+##   here, not a hazard: the emissions unwind the host's suspend depth and mouse mode, which the push
+##   had raised.
+##
+## The guard is still load-bearing on top of the drop, because the drop is not universal: a host that
+## DETACHES the shell and then queues it ([code]remove_child(root)[/code] then
+## [code]root.queue_free()[/code]) runs the owner's [method Node._exit_tree] a flush earlier than the
+## deletion, so the deferred call really does arrive — on a layer that is alive but doomed. Emitting
+## there is the exact mid-teardown pop [method clear_for_teardown] exists to prevent. Hence the walk:
+## whether this layer, or anything above it, is queued for deletion. It is a walk rather than a check
+## on this node because the queued flag is set on whichever ancestor the host called
+## [method Node.queue_free] on and is not propagated down.
+##
+## Tolerant by design: the dialog may already have been popped, or freed, in the frame between the
+## schedule and the flush (a cancel gesture in that window is declined by the resolved dialog, so the
+## layer pops it and self-heals). Both are no-ops here rather than errors.
+func reap_modal(control: Control) -> void:
+	if control == null or not is_instance_valid(control):
+		return
+	if _is_tearing_down():
+		# clear_for_teardown owns disposal from here; a pop now would emit mid-teardown.
+		return
+	# false — "not on this stack" — is fine: something already let go of it, and the free is still owed.
+	remove_modal(control)
+	control.queue_free()
+
+
+## Whether this layer, or any ancestor, is queued for deletion.
+func _is_tearing_down() -> bool:
+	var node: Node = self
+	while node != null:
+		if node.is_queued_for_deletion():
+			return true
+		node = node.get_parent()
+	return false
 
 
 ## Empties the stack during teardown [b]without emitting [signal modal_popped][/b].
