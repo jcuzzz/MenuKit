@@ -160,7 +160,7 @@ func _test_space_binds_with_a_warning_caption() -> void:
 	# — which agrees for Space on QWERTY by numeric coincidence and disagrees on AZERTY (see the AZERTY
 	# regression test). Without this precondition, that coincidence is all this criterion proved.
 	check(_keycode_form_binding(&"ui_accept", KEY_SPACE),
-		"precondition: and it is stored KEYCODE-form, physical 0 — the shape project.godot authors")
+		"precondition: and it is stored KEYCODE-form, physical 0 — the shape the ENGINE's builtin ui_* defaults ship in")
 	var captured := _key(KEY_SPACE)
 	check(int(captured.physical_keycode) == KEY_SPACE and int(captured.keycode) == KEY_SPACE,
 		"precondition: the pushed press carries BOTH codes, like a real Space press does")
@@ -876,7 +876,9 @@ func _test_a_legacy_store_row_without_device_reads_as_all_devices() -> void:
 
 
 ## [b]The AZERTY regression.[/b] Bindings are compared like against like: a stored KEYCODE-form event
-## (physical 0 — the shape project.godot authors) is compared against the other side's KEYCODE, never
+## (physical 0 — the shape the ENGINE's builtin ui_* defaults ship in; this project authors its own
+## rebindable actions PHYSICAL-form, per project.godot's own comment) is compared against the other
+## side's KEYCODE, never
 ## against its physical code. The old fallback substituted one for the other, so on AZERTY a stored
 ## keycode-A matched a captured physical-A/keycode-Q — a different key entirely — and the row raised
 ## a conflict dialog over a binding that did not collide.
@@ -885,8 +887,8 @@ func _test_a_legacy_store_row_without_device_reads_as_all_devices() -> void:
 ## a false match opens a modal, a correct one commits.
 func _test_a_keycode_binding_does_not_match_a_foreign_physical_code() -> void:
 	var backend := _make_backend()
-	# Action B carries the AZERTY player's stored binding in the form the project authors it: keycode
-	# only, physical 0.
+	# Action B carries a stored binding in the keycode-only form a HOST may legitimately seed through
+	# set_action_events (this project's own authored actions are physical-form).
 	var stored := InputEventKey.new()
 	stored.keycode = KEY_A
 	backend.set_action_events(ACTION_B, [stored])

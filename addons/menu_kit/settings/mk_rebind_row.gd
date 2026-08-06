@@ -173,10 +173,11 @@ func setup(def: MKSettingDef, backend: MKSettingsBackend, modal_layer: MKModalLa
 	# On the row AND the button: the label is the larger hit area, and a tooltip only reachable over a
 	# narrow button is one most users never find.
 	#
-	# Assigned UNCONDITIONALLY, so an empty tooltip CLEARS. setup() is re-callable by contract (a panel
-	# rebuilding its pages re-points one row at a new def), and skipping the write for an empty string
-	# left the PREVIOUS def's tooltip hovering over a row that is now about something else — the one
-	# state where a tooltip is worse than none.
+	# Assigned UNCONDITIONALLY, so an empty tooltip CLEARS. setup() is public API a HOST may call again
+	# to re-point a row at a new def (the shipped panel never does — rebuild() frees its rows and
+	# constructs fresh ones), and skipping the write for an empty string left the PREVIOUS def's
+	# tooltip hovering over a row that is now about something else — the one state where a tooltip is
+	# worse than none.
 	var tooltip := _def.tooltip if _def != null else ""
 	tooltip_text = tooltip
 	_binding_button.tooltip_text = tooltip
@@ -587,12 +588,15 @@ func _is_escape(key: InputEventKey) -> bool:
 # --- Fresh events -------------------------------------------------------------
 
 ## [b]Every fresh event sets [code]device = -1[/code], and each builder below says so again.[/b] -1
-## is Godot's "all devices", which is what [code]project.godot[/code] authors for stock bindings and
-## what a rebind made by the local user MEANS: "this control", not "this control on the controller
-## index that happened to deliver the press". [InputMap] matching is device-aware, so keeping the
-## captured index would give a pad player a binding that stops working the moment their controller
-## re-enumerates as joypad 1. It has to be explicit because the class defaults are NOT -1 (measured
-## on 4.7: [InputEventJoypadButton] 0, [InputEventKey] 16, [InputEventMouseButton] 32).
+## is Godot's "all devices", which is what [code]project.godot[/code]-AUTHORED entries carry and what
+## a rebind made by the local user MEANS: "this control", not "this control on the controller index
+## that happened to deliver the press". (The engine's own builtin [code]ui_*[/code] defaults are the
+## exception: their key/mouse events ship device 16/32 — a device-CLASS namespacing, not an index —
+## so a faithful snapshot legitimately carries those values; they are not corruption.) [InputMap]
+## matching is device-aware, so keeping the captured index would give a pad player a binding that
+## stops working the moment their controller re-enumerates as joypad 1. It has to be explicit because
+## the class defaults are NOT -1 (measured on 4.7: [InputEventJoypadButton] 0, [InputEventKey] 16,
+## [InputEventMouseButton] 32).
 const BIND_ALL_DEVICES := -1
 
 ## A captured key is rebuilt rather than stored, and the MODIFIERS ARE CLEARED. Godot stamps the

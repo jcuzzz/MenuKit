@@ -750,8 +750,8 @@ func _build_keybind(def: MKSettingDef) -> Control:
 
 	var row := MKRebindRow.new()
 	row.name = "Row_" + String(def.id).replace("/", "_")
-	if not def.tooltip.is_empty():
-		row.tooltip_text = def.tooltip
+	# No tooltip write here: setup() below assigns it unconditionally (empty clears), and a second,
+	# conditional write above it was the same stale-tooltip shape the round-1 n3 fix removed.
 	# Registered BEFORE setup, so a duplicate id is reported against the row that is about to go on
 	# screen rather than after it has already wired itself to the backend.
 	_register_control(def, row)

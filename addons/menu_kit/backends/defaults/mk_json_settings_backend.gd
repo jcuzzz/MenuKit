@@ -619,8 +619,11 @@ func _as_vector2i(value: Variant) -> Vector2i:
 ##
 ## [b][code]device[/code] is carried for EVERY event kind, and dropping it was a real bug.[/b]
 ## [method InputMap.event_is_action] matching is device-aware: an action event whose device is 0
-## does not answer a press delivered by joypad 1, and [code]project.godot[/code] authors -1 (ALL
-## devices) for exactly that reason. Round-tripping an event through this pair without the field
+## does not answer a press delivered by joypad 1, and [code]project.godot[/code]-authored entries
+## carry -1 (ALL devices) for exactly that reason. (The engine's own builtin [code]ui_*[/code]
+## defaults are the exception: their key/mouse events ship device 16/32, a device-CLASS namespacing —
+## a faithful snapshot reproduces those values, and that is correctness, not corruption.)
+## Round-tripping an event through this pair without the field
 ## therefore narrowed a binding to whatever [method InputEvent.device] defaulted to — and the class
 ## defaults are NOT -1 (measured on 4.7: [InputEventJoypadButton] 0, [InputEventKey] 16,
 ## [InputEventMouseButton] 32). Both the boot snapshot and the user overrides pass through here, so
