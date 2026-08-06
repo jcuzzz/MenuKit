@@ -27,10 +27,12 @@ signal built()
 ## Default confirm-or-revert window for [member MKSettingDef.requires_confirm] rows (D14).
 const REVERT_SECONDS := 10.0
 
-## The autoload that owns the one settings backend when a host registered it (plan §4.2).
-const SETTINGS_SERVICE_PATH := "/root/MKSettingsService"
+## The autoload that owns the one settings backend when a host registered it (plan §4.2). Aliased
+## from [constant MKConfig.SETTINGS_SERVICE_PATH], never re-spelled: see that constant for what a
+## rename silently costs when the three sites that resolve this node disagree.
+const SETTINGS_SERVICE_PATH := MKConfig.SETTINGS_SERVICE_PATH
 
-## Ids this panel gives behaviour beyond the generic row types. Both are reserved by the shipped
+## Ids this panel gives behaviour beyond the generic row types. All three are reserved by the shipped
 ## [MKJsonSettingsBackend]'s application logic too, so the special-casing follows the backend's own
 ## reserved-id convention rather than inventing a second one.
 const ID_WINDOW_MODE := &"video/window_mode"
@@ -559,6 +561,15 @@ func _collect_choices(def: MKSettingDef, labels: Array[String], values: Array) -
 		# the display string IS the value — which is what a plain string choice wants and saves an
 		# author authoring the same list twice.
 		values.append(def.option_values[i] if i < def.option_values.size() else def.options[i])
+	# Surplus values have no label, so they cannot be rendered as entries and are dropped. Said out
+	# loud, and NAMING the def: a value list longer than its label list is an editing slip (a row
+	# deleted from one array only), and the symptom without this line is a choice that is simply absent
+	# from the dropdown with nothing anywhere to explain it. Debug rather than a warning — it is not a
+	# broken page, and the resolution row's own collector treats the same shape as normal by design.
+	if def.option_values.size() > def.options.size():
+		MKLog.debug("%s: enum row '%s' authored %d option_values but only %d options — the %d surplus value(s) have no label and are not offered"
+			% [MKLog.context(def, "option_values"), def.id, def.option_values.size(),
+				def.options.size(), def.option_values.size() - def.options.size()])
 
 
 ## The resolution row's options are a curated [Vector2i] list on the def, filtered to what fits the
@@ -568,13 +579,22 @@ func _collect_choices(def: MKSettingDef, labels: Array[String], values: Array) -
 ## so enumeration is authored data plus this filter, not a query. Under the headless driver every
 ## screen query is meaningless, so the curated list passes through unfiltered rather than being
 ## filtered against a phantom 0x0 screen, which would empty the dropdown in the test suite.
+## [b]Authored labels are USED, positionally.[/b] [member MKSettingDef.options] is optional on this row
+## — the size is the whole meaning, and formatting it is a better default than making every host spell
+## "1920 x 1080" twice — but a host that DID author labels ("1920 x 1080 (Native)", a localised
+## string) had them silently discarded and the formatted string shown instead. So the candidate list
+## is [member MKSettingDef.option_values] in full, and each one takes its authored label when the
+## arrays line up at that index and the formatted fallback otherwise. Nothing is dropped for being
+## unlabelled and nothing warns about it: on THIS row a longer values array is the normal shape, not
+## the drift [method _collect_choices] reports.
 func _collect_resolution_choices(def: MKSettingDef, labels: Array[String], values: Array) -> void:
-	var candidates: Array = []
-	for i in def.options.size():
-		if i < def.option_values.size():
-			candidates.append(def.option_values[i])
-	if candidates.is_empty():
-		candidates = def.option_values.duplicate()
+	var candidates: Array = def.option_values.duplicate()
+	# Keyed by the value rather than carried by index: the filtering below drops candidates and appends
+	# the native size, so positions do not survive to the emit loop.
+	var authored: Dictionary = {}
+	for i in candidates.size():
+		if i < def.options.size() and not def.options[i].is_empty():
+			authored[candidates[i]] = def.options[i]
 
 	var screen := Vector2i.ZERO
 	if not _is_headless():
@@ -596,7 +616,7 @@ func _collect_resolution_choices(def: MKSettingDef, labels: Array[String], value
 		accepted.append(screen)
 
 	for size in accepted:
-		labels.append("%d x %d" % [size.x, size.y])
+		labels.append(authored.get(size, "%d x %d" % [size.x, size.y]))
 		values.append(size)
 
 
@@ -775,10 +795,14 @@ func _start_revert_countdown(def: MKSettingDef, previous: Variant) -> void:
 	)
 	countdown.reverted.connect(func() -> void:
 		_live_countdowns.erase(entry)
-		# Read from the ENTRY, not from the captured `previous` local. The entry is the ONE place a
-		# countdown's target value lives — the orphan/teardown route already reads it there — so the
-		# same-def replacement rule above governs BOTH routes from a single site, instead of being
-		# silently right here by virtue of what a lambda happened to close over.
+		# Read from the ENTRY rather than from the captured `previous` local. Stated honestly: this is a
+		# STYLE choice with no behavioural difference today. entry["previous"] is written once, at
+		# construction, and never mutated anywhere, so the entry read and the closure capture are the
+		# same value on every path — there is no test that can tell them apart, and none is pretended.
+		# What it buys is one place to look: the entry is where the orphan/teardown route already reads
+		# the target value from, so if a future path ever DOES rewrite an entry's previous (a revision of
+		# the same-def replacement rule above is the obvious candidate), both routes follow it instead of
+		# this one silently keeping the value the lambda closed over.
 		_revert_value(def, entry["previous"])
 		# Put the CONTROL back too. The store and the engine are restored above, but a dropdown still
 		# reading the rejected value is the shape of this bug that users report as "it didn't revert".
@@ -835,11 +859,26 @@ func _revert_value(def: MKSettingDef, previous: Variant) -> void:
 ##   [method MKModalLayer.clear_for_teardown] through [code]_mk_layer_teardown[/code], which is
 ##   emission-free by contract. Freeing it here would leave a corpse in the layer's stack.
 ##
-## [b]The residual, stated rather than papered over.[/b] A panel freed under a SURVIVING shell leaves
-## its dialog stacked: dead (its handlers went with the panel) but present. It is not wedged forever —
-## the next page change pops it, and a cancel gesture on a resolved dialog is declined so the layer
-## pops the stale entry and self-heals — but it does outlive the panel. That is the accepted cost of
-## never emitting during teardown, where the alternative crashes a detached pause policy.
+## [b]"Still stacked" is two different situations, and only one of them is teardown.[/b] The
+## discriminator is [method _shell_is_tearing_down]: whether the modal layer, or anything above it, is
+## already queued for deletion.
+## [br]- [b]The shell is going away[/b] — [code]MKRoot.queue_free()[/code] — so an emission would land
+##   in the detached pause policy described above. Leave the dialog to
+##   [method MKModalLayer.clear_for_teardown].
+## [br]- [b]The shell is ALIVE and only the panel died[/b] (a host tearing down its options screen, a
+##   page rebuild). Here a real pop is not a hazard, it is the requirement: the emissions unwind
+##   MKRoot's suspend depth and its mouse mode, which the push had raised. Leaving the dialog stacked
+##   instead left a live [constant Node.PROCESS_MODE_ALWAYS] countdown repainting and about to emit
+##   [signal MKRevertCountdown.reverted] into a dropped connection, trapping focus, holding that
+##   suspension, swallowing the Escape AND the Keep click of a user looking at it — and after its
+##   cancel was finally declined it was unparented rather than freed: one leaked Control per event.
+##   So the dialog is marked resolved (it stops ticking and declines any later cancel), removed
+##   through [method MKModalLayer.remove_modal], and freed.
+##
+## [method Node.is_queued_for_deletion] is used rather than tree-order reasoning because exit order
+## between siblings decides which of the layer and the panel is detached first, and no ordering flips
+## the queued flag. Both layouts — the shipped shell and a panel parented straight under an
+## [MKRoot] — are asserted in the suite.
 ##
 ## The control sync is skipped once the panel is out of the tree: the widgets are being freed, and the
 ## store — restored above — is the half that outlives the panel and the half D14 actually promises.
@@ -858,8 +897,27 @@ func _resolve_orphaned_countdown(entry: Dictionary) -> void:
 	if countdown == null or not is_instance_valid(countdown):
 		return
 	if layer != null and is_instance_valid(layer) and layer.has_modal(countdown):
-		return
+		if _shell_is_tearing_down(layer):
+			return
+		countdown.call("mark_resolved")
+		layer.remove_modal(countdown)
 	countdown.queue_free()
+
+
+## Whether [param layer] is going away with the rest of the shell, as opposed to outliving this panel.
+##
+## The chain is walked from the layer upwards because the queued node is whichever ancestor the host
+## called [method Node.queue_free] on — usually [MKRoot], possibly something above it — and the flag
+## is set on that node alone, not propagated to its children. Order-independent by construction:
+## unlike "is the layer still inside the tree", the queued flag does not change depending on which
+## sibling [constant Node.NOTIFICATION_EXIT_TREE] reached first.
+func _shell_is_tearing_down(layer: MKModalLayer) -> bool:
+	var node: Node = layer
+	while node != null:
+		if node.is_queued_for_deletion():
+			return true
+		node = node.get_parent()
+	return false
 
 
 func _resolve_live_countdowns() -> void:

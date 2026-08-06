@@ -53,6 +53,7 @@ func run_tests() -> void:
 	await _test_shipped_default_pages_build_silently()
 	await _test_no_backend_renders_disabled()
 	await _test_resolution_row()
+	await _test_resolution_uses_authored_labels()
 	await _test_resolution_enabled_rechecks_on_reshow()
 	await _test_external_write_syncs_the_control()
 	await _test_row_interaction_applies_one()
@@ -605,6 +606,51 @@ func _test_resolution_row() -> void:
 	button.item_selected.emit(1)
 	check_eq(backend.get_value(MKSettingsPanel.ID_RESOLUTION, null), Vector2i(1920, 1080),
 		"choosing a resolution writes the Vector2i itself")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## [b]An authored label on the resolution row is DISPLAYED.[/b] [member MKSettingDef.options] is
+## optional there — the formatted size is the default, and a good one — but the collector built that
+## string unconditionally, so a host that spelled its own ("1920 x 1080 (Native)", a localised or
+## aspect-annotated string) had it silently replaced.
+##
+## The labels here deliberately do NOT match what the formatter would produce, which is the whole
+## point: _test_resolution_row's list is authored as the formatted string, so it reads identically
+## whether the label is used or ignored and cannot fail on this.
+##
+## The unlabelled entry is the other half — the fallback must survive, or making labels honoured would
+## quietly make them mandatory.
+func _test_resolution_uses_authored_labels() -> void:
+	var backend := _make_backend()
+	backend.set_value(MKSettingsPanel.ID_WINDOW_MODE, 0)
+
+	var resolution := _enum_def(MKSettingsPanel.ID_RESOLUTION,
+		["HD Ready", "Full HD"],
+		[Vector2i(1280, 720), Vector2i(1920, 1080), Vector2i(2560, 1440)])
+	var panel := await _make_panel(backend, [_page("video", "Video", [resolution])])
+
+	var button := panel._resolution_button
+	check(button != null, "the resolution row built")
+	if button == null:
+		panel.queue_free()
+		backend.queue_free()
+		return
+
+	check_eq(button.item_count, 3,
+		"a values array longer than its labels is NORMAL on this row — the unlabelled size is still offered")
+	check_eq(button.get_item_text(0), "HD Ready",
+		"the authored label is what the dropdown shows — formatting over the top discards what the host wrote")
+	check_eq(button.get_item_text(1), "Full HD", "positionally, so the second label lands on the second size")
+	check_eq(button.get_item_text(2), "2560 x 1440",
+		"and the entry with no authored label falls back to the formatted size, so labels stay optional")
+
+	button.select(0)
+	button.item_selected.emit(0)
+	check_eq(backend.get_value(MKSettingsPanel.ID_RESOLUTION, null), Vector2i(1280, 720),
+		"and the label change did not disturb the VALUE the entry writes")
 
 	panel.queue_free()
 	backend.queue_free()
@@ -1257,9 +1303,6 @@ func _scene_without_bind() -> PackedScene:
 	return scene
 
 
-## A PackedScene whose root DOES implement _mk_bind but is a plain [Node]. The script is a real file
-## (tests/probes/) rather than a [GDScript] built in memory, because [method PackedScene.pack]
-## serialises a script by resource path and an unsaved one does not survive the round trip.
 ## A PackedScene whose root implements _mk_bind and IS a [LineEdit] — a legal CUSTOM row that happens
 ## to collide with one of [code]_sync_control[/code]'s widget-class branches. Same reason the script is
 ## a real file as [method _scene_non_control_with_bind]: [method PackedScene.pack] serialises a script
@@ -1274,6 +1317,9 @@ func _scene_line_edit_with_bind() -> PackedScene:
 	return scene
 
 
+## A PackedScene whose root DOES implement _mk_bind but is a plain [Node]. The script is a real file
+## (tests/probes/) rather than a [GDScript] built in memory, because [method PackedScene.pack]
+## serialises a script by resource path and an unsaved one does not survive the round trip.
 func _scene_non_control_with_bind() -> PackedScene:
 	var root := Node.new()
 	root.name = "NonControlBound"

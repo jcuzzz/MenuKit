@@ -150,6 +150,24 @@ func _mk_layer_teardown() -> void:
 	queue_free()
 
 
+## Resolves the dialog WITHOUT emitting either signal, and stops it ticking.
+##
+## For the one caller that has already performed the resolution itself:
+## [MKSettingsPanel._resolve_orphaned_countdown], which reverts the value directly from its own
+## bookkeeping when the panel dies with this dialog still stacked under a surviving shell. Emitting
+## there would reach handlers whose panel is gone, and leaving it ticking would let a dialog nobody
+## owns lapse a few seconds later into a dropped connection while repainting its label every frame
+## (this node is [constant Node.PROCESS_MODE_ALWAYS], so a paused tree does not stop it).
+##
+## Throwing the same latch [method _finish] uses is what makes the state honest rather than merely
+## quiet: a later [method handle_cancel] on this dialog returns false — declined — so the modal layer
+## clears the entry instead of swallowing the gesture.
+func mark_resolved() -> void:
+	_emitted = true
+	_running = false
+	set_process(false)
+
+
 ## The one place that resolves the dialog. [param keep] chooses which signal fires.
 ##
 ## Returns whether THIS call performed the resolution — false when the latch had already been thrown.

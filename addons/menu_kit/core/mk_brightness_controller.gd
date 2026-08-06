@@ -71,8 +71,9 @@ const OVERLAY_LAYER := 100
 const _SHADER_PATH := "res://addons/menu_kit/shaders/mk_gamma.gdshader"
 const _GAMMA_PARAM := &"gamma"
 
-## Applied on the next [method set_brightness]; changing it at runtime is supported and tears the
-## other mode's effect down first.
+## Which mechanism draws the adjustment. Changing it at runtime is supported and takes effect
+## IMMEDIATELY, not on a later write: the setter releases the outgoing mode's effect and re-applies
+## the brightness it already holds through the new one.
 @export var mode: Mode = Mode.OVERLAY:
 	set(value):
 		if mode == value:
@@ -117,9 +118,13 @@ func _init() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
 
-## Applies [param value] as the brightness. 1.0 is neutral in both modes; out-of-range values are
-## clamped rather than refused, because the caller is usually a stored setting from an older build
-## or a host's own slider and dropping the write silently would be worse than clamping it.
+## Applies [param value] as the brightness. 1.0 is neutral in both modes.
+##
+## Out-of-range values are CLAMPED rather than refused: the caller is usually a stored setting from an
+## older build or a host's own slider, and dropping the write silently would be worse than clamping.
+## A non-finite value is the one exception and IS refused, with a warning — NAN has no in-range value
+## to clamp toward (clampf would propagate it), and writing it into the shader's gamma leaves a black
+## or blank screen that no later in-range write recovers from cleanly.
 ##
 ## In [constant Mode.OVERLAY] a neutral value [b]hides the overlay entirely[/b] instead of drawing a
 ## no-op pass. Every player who never touches the slider is on that path, so leaving a fullscreen

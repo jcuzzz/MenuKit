@@ -27,7 +27,9 @@ signal pause_menu_toggled(open: bool)
 
 const CONFIG_PATH_SETTING := "menu_kit/config_path"
 const DEFAULT_CONFIG_PATH := "res://addons/menu_kit/default_config.tres"
-const SETTINGS_SERVICE_PATH := "/root/MKSettingsService"
+## Aliased from [constant MKConfig.SETTINGS_SERVICE_PATH] rather than re-spelled — that constant
+## documents what a rename costs when only some of the three resolvers follow it.
+const SETTINGS_SERVICE_PATH := MKConfig.SETTINGS_SERVICE_PATH
 
 ## Assigned in the scene, or resolved from the [code]menu_kit/config_path[/code] project setting when
 ## left null — the same key the settings-service autoload reads, so a host that repoints one

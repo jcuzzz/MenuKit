@@ -16,7 +16,12 @@ extends EditorPlugin
 ##    Runtime never needs the bake; [code]MKRoot[/code] generates the same Theme at
 ##    [method Node._ready], so a cold drop is styled with zero manual steps.
 
-const SETTINGS_SERVICE_NAME := "MKSettingsService"
+## The autoload is REGISTERED under the same name the runtime RESOLVES it by, derived from
+## [constant MKConfig.SETTINGS_SERVICE_NAME] rather than spelled again here. Registering under a name
+## nothing looks for is the worst form of the drift that constant describes: every lookup falls back
+## to its no-autoload path, and the host silently runs two settings backends over one JSON file and
+## two brightness controllers over one screen, with no error anywhere.
+const SETTINGS_SERVICE_NAME := MKConfig.SETTINGS_SERVICE_NAME
 const SETTINGS_SERVICE_SCRIPT := "res://addons/menu_kit/core/mk_settings_service.gd"
 const CONFIG_PATH_SETTING := "menu_kit/config_path"
 const DEFAULT_CONFIG_PATH := "res://addons/menu_kit/default_config.tres"

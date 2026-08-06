@@ -13,11 +13,17 @@ extends Node
 ## [b]Why an autoload exists at all.[/b] Persisted settings — critically [InputMap] overrides — must
 ## apply even when the host boots straight into gameplay without ever instancing a MenuKit scene. A
 ## backend owned by [MKRoot] would not exist on that path, so the user's rebinds would apply only
-## after they visited a menu. This node's entire job is those three calls, in this order:
+## after they visited a menu. The boot sequence is these three calls, in this order:
 ## [br]1. [method MKSettingsBackend.snapshot_input_defaults] — capture stock bindings [b]before[/b]
 ##    any override, or "Reset to Defaults" silently resets to the user's own overrides.
 ## [br]2. [method MKSettingsBackend.load]
 ## [br]3. [method MKSettingsBackend.apply_all]
+##
+## [b]And then it boots brightness[/b] ([method _boot_brightness]), which is not a footnote to that
+## list: brightness is the one persisted setting the backend cannot apply on its own — it needs a live
+## controller node — and it must be on screen at a boot that never opens a menu, for the same reason
+## the rebinds must. This node owns that controller, and [MKRoot] adopts it rather than building a
+## second one.
 ##
 ## [b]It is optional[/b] (decision D3). A host that refuses third-party autoloads disables it in
 ## Project Settings and makes the same three calls from its main scene [method Node._ready];

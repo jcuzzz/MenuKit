@@ -34,6 +34,9 @@ script = ExtResource("2_rowdef")
 id = &"audio/bus/Master"
 label = "Master"
 type = 2
+; 0.8 where the addon row of the same id defaults to 1.0, and that is DELIBERATE. Type and range are
+; shared because they decide what the id can STORE; a default only decides where an unwritten store
+; starts, and the demo starts below full so the slider can move in both directions on first launch.
 default_value = 0.8
 min_value = 0.0
 max_value = 1.0

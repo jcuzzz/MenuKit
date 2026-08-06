@@ -34,6 +34,7 @@ func run_tests() -> void:
 	await _test_dismissal_leaves_a_modal_stacked_above_it_alone()
 	await _test_a_page_change_reverts_an_unconfirmed_countdown()
 	await _test_freeing_the_panel_reverts_an_unconfirmed_countdown()
+	await _test_freeing_the_panel_pops_under_the_shell_layout()
 	await _test_a_synced_control_raises_no_countdown()
 	await _test_untouched_text_row_raises_no_countdown()
 	await _test_shell_teardown_emits_no_modal_pops()
@@ -420,17 +421,23 @@ func _test_a_page_change_reverts_an_unconfirmed_countdown() -> void:
 
 
 ## The other teardown order, and it really happens: the panel is destroyed while the countdown is
-## STILL parented to the modal layer (a host tearing its options screen down, a rebuild). The panel is
-## the only thing that knows what the previous value was, so it resolves what it raised on its way out.
+## STILL parented to the modal layer (a host tearing its options screen down, a rebuild) — but the
+## SHELL survives. The panel is the only thing that knows what the previous value was, so it resolves
+## what it raised on its way out, and here it does a REAL pop.
 ##
-## [b]And it resolves it WITHOUT touching the modal stack.[/b] The orphan path used to call
-## [method MKModalLayer.remove_modal] here, which is a real pop — see
-## _test_shell_teardown_emits_no_modal_pops for what that did on the sequence this same code runs
-## during. So the STORE is put back (the half that outlives the panel and the half D14 promises) and
-## the dialog is left where it is: the layer still owns it, and disposes of it in its own
-## emission-free [method MKModalLayer.clear_for_teardown]. That is asserted here too, because "we
-## stopped removing it" without "somebody still frees it" is a leak, and the harness gate would be the
-## only thing to say so.
+## [b]Leaving it stacked was not a residual, it was a live defect.[/b] The dialog is
+## [constant Node.PROCESS_MODE_ALWAYS], so a stacked one keeps ticking with its owner gone: it
+## repaints, it lapses into a dropped connection, it traps focus, and it holds the suspension its push
+## raised — a shell that is still running, with the world suspended, over a dialog whose Keep button
+## does nothing. Then its first declined cancel unparents it without freeing it: a leaked Control.
+##
+## The suspension is raised here for exactly that reason: "the shell is alive and the suspend depth
+## came back down" is the assertion, and it is unreachable with nothing suspended. The Escape
+## afterwards is the other half — it must reach the PAGE (the root's own quit-confirm) rather than
+## being eaten by a corpse.
+##
+## The teardown case, where an emission really is a hazard, is
+## _test_shell_teardown_emits_no_modal_pops, and the two are what the discriminator has to tell apart.
 func _test_freeing_the_panel_reverts_an_unconfirmed_countdown() -> void:
 	var fixture := await _make_panel_fixture()
 	var backend: MKJsonSettingsBackend = fixture["backend"]
@@ -438,6 +445,56 @@ func _test_freeing_the_panel_reverts_an_unconfirmed_countdown() -> void:
 	var panel: MKSettingsPanel = fixture["panel"]
 	var button: OptionButton = fixture["option"]
 	var layer := root.get_modal_layer()
+
+	check(root.open_pause_menu(&"other"), "the shell is suspended, as it is when display settings are changed")
+	var base_depth := root.get_suspend_depth()
+	check(base_depth > 0, "so the suspend counter is genuinely raised")
+
+	button.select(1)
+	button.item_selected.emit(1)
+	var countdown := layer.top() as MKRevertCountdown
+	check(countdown != null, "the countdown is up and still stacked")
+	if countdown == null:
+		await _drop_fixture(fixture)
+		return
+	check_eq(root.get_suspend_depth(), base_depth + 1, "and the push raised the suspension one further")
+
+	panel.queue_free()
+	await step_frame()
+	await step_frame()
+
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0,
+		"the panel reverted what it had raised on its way out — the backend outlives it, which is why the STORE is the load-bearing half")
+	check_eq(layer.depth(), 0,
+		"and the dialog left the stack: the SHELL is alive, so the pop is not the teardown hazard — it is the unwind")
+	# is_instance_valid FIRST, and not merged into a has_modal() call: passing a freed instance to a
+	# typed Control parameter is itself an engine error, which the gate fails on.
+	check(not is_instance_valid(countdown),
+		"and it was FREED, not merely unparented — an ownerless PROCESS_MODE_ALWAYS dialog is a leak that keeps ticking")
+	check_eq(root.get_suspend_depth(), base_depth,
+		"the suspension the push raised came back down — leaving it stacked held the world suspended under a dead dialog")
+
+	check(_cancel(root), "and the next Escape is consumed")
+	check_eq(layer.depth(), 1, "by the ROOT's own quit-confirm — the gesture reached the page, not a corpse")
+	var top := layer.top()
+	check(top != null and top is MKConfirmDialog, "which is the confirm dialog, not the countdown")
+
+	await _drop_fixture(fixture)
+
+
+## The SAME discriminator, on the layout the shipped shell actually builds: the panel sits several
+## levels down inside the page host, so it and the modal layer are detached in a different order than
+## in the flat fixture. Round 3 rested a claim on that ordering; [method Node.is_queued_for_deletion]
+## does not move with it, and this is the assertion that says so rather than the reasoning.
+func _test_freeing_the_panel_pops_under_the_shell_layout() -> void:
+	var fixture := await _make_panel_fixture(null, true)
+	var backend: MKJsonSettingsBackend = fixture["backend"]
+	var root: MKRoot = fixture["root"]
+	var panel: MKSettingsPanel = fixture["panel"]
+	var button: OptionButton = fixture["option"]
+	var layer := root.get_modal_layer()
+
+	check(panel.get_parent() != root, "the panel is nested inside the page host, not a direct child of the shell")
 
 	button.select(1)
 	button.item_selected.emit(1)
@@ -451,17 +508,11 @@ func _test_freeing_the_panel_reverts_an_unconfirmed_countdown() -> void:
 	await step_frame()
 	await step_frame()
 
-	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0,
-		"the panel reverted what it had raised on its way out — the backend outlives it, which is why the STORE is the load-bearing half")
-	check_eq(layer.depth(), 1,
-		"and left the dialog ON the stack: a removal here is a real pop, and a pop during teardown drives MKRoot's suspend edge into a detached pause policy")
-	check(layer.has_modal(countdown),
-		"the layer still owns the entry, so nothing is wedged behind the panel's back either")
-	check(is_instance_valid(countdown), "and the panel did not free what it no longer owns")
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0, "the store is put back")
+	check_eq(layer.depth(), 0, "and the dialog is popped here too — the nesting does not change the answer")
+	check(not is_instance_valid(countdown), "and freed, so neither layout leaks one")
 
 	await _drop_fixture(fixture)
-	check(not is_instance_valid(countdown),
-		"the LAYER's own teardown disposes of it, through _mk_layer_teardown — the ownership handoff is complete, not abandoned")
 
 
 ## [b]Teardown must be silent, including the part of it the settings panel runs.[/b]
@@ -842,7 +893,12 @@ class OrderProbeBackend extends MKJsonSettingsBackend:
 ## requires_confirm ENUM row — the shipped Video page's window-mode shape, minus the rest.
 ##
 ## [param backend_override] lets a test supply an observing subclass; null builds the plain one.
-func _make_panel_fixture(backend_override: MKJsonSettingsBackend = null) -> Dictionary:
+##
+## [param nest_in_page_host] parents the panel inside the shell's page host instead of directly under
+## [MKRoot] — the layout a host really gets when the panel is page content, and a DIFFERENT
+## detach order relative to the modal layer. The orphan discriminator is asserted under both.
+func _make_panel_fixture(backend_override: MKJsonSettingsBackend = null,
+		nest_in_page_host := false) -> Dictionary:
 	_clean()
 	var backend := backend_override
 	if backend == null:
@@ -893,7 +949,13 @@ func _make_panel_fixture(backend_override: MKJsonSettingsBackend = null) -> Dict
 	panel.bind_backend(backend)
 	# Parented under MKRoot so the panel's ancestor walk finds a real modal layer, which is how a host
 	# embedding it in a page gets one.
-	root.add_child(panel)
+	var host: Node = root
+	if nest_in_page_host:
+		var page_host := root.find_child("PageHost", true, false)
+		check(page_host != null, "the shell built a page host to nest the panel in")
+		if page_host != null:
+			host = page_host.get_child(0) if page_host.get_child_count() > 0 else page_host
+	host.add_child(panel)
 	await step_frame()
 
 	var option := _first_option(panel)
@@ -951,6 +1013,18 @@ func _first_option(node: Node) -> OptionButton:
 		if found != null:
 			return found
 	return null
+
+
+## Feeds a real ui_cancel through the viewport's unhandled-input path, so the precedence ladder is
+## exercised through the engine's own dispatch order rather than by calling a handler directly.
+## Returns whether the viewport marked the event handled, so a check against it can actually fail.
+func _cancel(root: MKRoot) -> bool:
+	var viewport := root.get_viewport()
+	var ev := InputEventAction.new()
+	ev.action = &"ui_cancel"
+	ev.pressed = true
+	viewport.push_input(ev)
+	return viewport.is_input_handled()
 
 
 ## Advances frames until [param predicate] holds or [param limit] frames elapse. Bounded rather than

@@ -42,7 +42,9 @@ enum RowType {
 ## Some ids are [b]reserved[/b]: the shipped [MKJsonSettingsBackend] applies
 ## [code]video/window_mode[/code], [code]video/resolution[/code], [code]video/vsync[/code],
 ## [code]video/max_fps[/code] and [code]audio/bus/<BusName>[/code] to the engine, and the panel gives
-## [code]video/resolution[/code] and [code]video/brightness[/code] extra behaviour. Every other id is
+## [code]video/window_mode[/code], [code]video/resolution[/code] and [code]video/brightness[/code]
+## behaviour of its own (its ID_ constants — the window-mode row drives the resolution row's
+## enablement, which is why it belongs on this list). Every other id is
 ## a plain value the host consumes — which is normal operation, not a misconfiguration.
 @export var id: StringName = &""
 

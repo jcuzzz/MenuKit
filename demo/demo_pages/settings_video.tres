@@ -45,25 +45,29 @@ option_values = [Vector2i(1280, 720), Vector2i(1600, 900), Vector2i(1920, 1080),
 tooltip = "Only applies in windowed mode."
 requires_confirm = true
 
+; TOGGLE and a bool default, matching the addon row of the SAME id. It was an ENUM of four
+; VSyncMode integers here: one persisted id, two incompatible stored types. A store written by the
+; demo hands the addon's page an int where it expects a bool (and vice versa), and the shipped
+; backend applies whichever it got. A shared id means a shared type and a shared range; only the
+; DEFAULT is a demo-flavour decision.
 [sub_resource type="Resource" id="row_vsync"]
 script = ExtResource("2_rowdef")
 id = &"video/vsync"
 label = "V-Sync"
-type = 3
-default_value = 1
-options = Array[String](["Off", "On", "Adaptive", "Mailbox"])
-option_values = [0, 1, 2, 3]
-tooltip = "Adaptive disables V-Sync when the frame rate drops below the refresh rate."
+type = 1
+default_value = true
+tooltip = "Removes tearing at the cost of input latency."
 
+; ENUM over the addon's cap list, for the same reason as V-Sync above: a SLIDER over 0-240 step 10
+; wrote arbitrary caps under an id whose addon twin only ever stores one of its authored values.
 [sub_resource type="Resource" id="row_max_fps"]
 script = ExtResource("2_rowdef")
 id = &"video/max_fps"
 label = "Max FPS"
-type = 2
+type = 3
 default_value = 0
-min_value = 0.0
-max_value = 240.0
-step = 10.0
+options = Array[String](["Unlimited", "30", "60", "120", "144", "240"])
+option_values = [0, 30, 60, 120, 144, 240]
 tooltip = "0 means unlimited."
 
 [sub_resource type="Resource" id="row_camera_header"]
@@ -89,9 +93,11 @@ id = &"video/brightness"
 label = "Brightness"
 type = 2
 default_value = 1.0
+; Range matched to the addon row of the same id, step included: a coarser step is still a different
+; set of storable values under one shared key.
 min_value = 0.5
 max_value = 2.0
-step = 0.05
+step = 0.01
 tooltip = "Adjust until the darkest band of the reference gradient is barely visible."
 
 [resource]

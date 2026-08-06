@@ -12,6 +12,26 @@ extends Resource
 ## loop, and every message names the resource path and the field rather than saying "invalid
 ## setting". [MKRoot] runs it at [method Node._ready].
 
+## Where the optional [code]MKSettingsService[/code] autoload lives once [code]plugin.gd[/code] has
+## registered it (plan §4.2), and the ONE place that name is written down.
+##
+## [b]Shared because a rename must break loudly, in one edit.[/b] Three runtime sites resolve this
+## node — [code]MKRoot[/code] adopting the service's backend and brightness controller,
+## [MKSettingsPanel] resolving its backend, and [code]plugin.gd[/code] registering the autoload — and
+## the name was spelled out at each. Change one and nothing fails: the lookups simply find nothing and
+## fall back to their no-autoload paths, so the host silently ends up with a SECOND settings backend
+## over the same JSON file and a SECOND brightness controller stacked over the first. That is the
+## exact double-instance failure the service exists to prevent, arriving with no diagnostic anywhere.
+##
+## It lives on [MKConfig] because this is the runtime class every user already reaches; the service
+## script itself cannot host it (it deliberately has no [code]class_name[/code] — see its class doc),
+## and [code]plugin.gd[/code] is an [EditorPlugin] absent from an exported game.
+const SETTINGS_SERVICE_NAME := "MKSettingsService"
+
+## Absolute node path to [constant SETTINGS_SERVICE_NAME], for [method Node.get_node_or_null].
+## Derived rather than spelled again: an autoload is always a direct child of the scene-tree root.
+const SETTINGS_SERVICE_PATH := "/root/" + SETTINGS_SERVICE_NAME
+
 @export_group("Backends")
 ## Application actions — start game, return to menu, quit. Leaving it unassigned is valid config:
 ## it warns when something invokes it, never at boot, so a cold drop stays warning-free.
