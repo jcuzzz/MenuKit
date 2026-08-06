@@ -33,9 +33,19 @@ extends Control
 ## [method notify_archetype_chosen] skips it again on every choice. So the two authors of a payload key
 ## are disjoint by construction: every key in the payload was written either by a seed or by a commit,
 ## never by both, and "steps win" is a statement about who is ALLOWED to write a key rather than about
-## the order two writes landed in. That distinction matters to anyone reading this class for a
-## precedence rule to rely on: there is no ordering hazard to get wrong here, because a contested key
-## cannot exist. What IS ordered — and is a real invariant — is that a seed for an UNOWNED key survives
+## the order two writes landed in.
+##
+## [b]The exclusion holds whatever order the steps are authored in, and that takes an explicit
+## mechanism.[/b] [method configure] runs in THREE passes: every surviving step's owned keys are
+## claimed first (collisions resolved), THEN the archetype defaults are validated against the complete
+## ownership map, and only THEN is any step scene bound. The order matters because binding is not inert
+## — [MKStepArchetype] auto-selects its first card at bind and calls
+## [method notify_archetype_chosen] from there, so a seed can happen DURING the build. Claiming every
+## key before the first bind runs is what makes that seed consult a finished map rather than a
+## half-built one; with the passes interleaved, an archetype step declared before the step that owns
+## [code]name[/code] seeded that key while the F8 error line said it had not been.
+##
+## What IS ordered — and is a real invariant — is that a seed for an UNOWNED key survives
 ## from [method notify_archetype_chosen] through to [method _confirm] unless the player changes
 ## archetype, at which point exactly that choice's own keys are cleared and no others.
 ##
@@ -55,11 +65,6 @@ signal creation_cancelled()
 ## Emitted after [method configure] has finished building the flow, so tests and hosts act on a real
 ## tree rather than guessing at a frame boundary. Same convention as [signal MKSettingsPanel.built].
 signal built()
-
-## Grow applied to a selected/focused ring beyond the control it traces. A layout rhythm, like
-## [constant MKSettingsPanel.FOCUS_RING_GROW]; the ring's COLOUR comes from the palette through the
-## [constant MKTheme.FOCUS_RING] variation, never from an override (ship gate 1).
-const FOCUS_RING_GROW := 4.0
 
 ## Shown on the last step when [method MKProfileBackend.create_profile] returns an empty dictionary.
 ## Inline on the host rather than as a modal, deliberately: the fix is on this screen (change the
@@ -92,6 +97,9 @@ var _seeded_keys: Array[String] = []
 var _seeded_archetype: MKArchetype
 
 var _index := 0
+## Set when [method MKProfileBackend.create_profile] refused the payload, and cleared as soon as every
+## step answers valid again. While it is set, Confirm is gated on the WHOLE flow — see [method _confirm].
+var _refusal_pending := false
 var _title_label: Label
 var _progress_label: Label
 var _content: MarginContainer
@@ -120,9 +128,12 @@ func _ready() -> void:
 ## [param profile_backend] may be null — see the class doc for why that builds disabled rather than
 ## refusing. [param stat_schema] may be null, which DROPS a point-buy step from [param steps] with a
 ## debug line: point-buy is disabled by default (D17), so declining it is normal operation and not
-## something to warn about.
+## something to warn about. A schema that is present but fails [method MKStatSchema.is_valid] drops the
+## same step with a WARNING naming the resource — that one is an authoring mistake, not a declined
+## feature.
 ##
-## The step contract, in the order this method exercises it:
+## The step contract, in the order this method exercises it — note that every step's step 1 runs before
+## any step's step 2, which is the ordering the class doc's exclusion paragraph depends on:
 ## [br]1. [code]_mk_step_owned_keys() -> Array[String][/code] — the payload keys this step writes.
 ##   Called BEFORE the bind, which is why it must be a static declaration and not a function of the
 ##   context: a step that loses the ownership race is dropped, and calling its bind first would leave
@@ -155,6 +166,7 @@ func configure(steps: Array[MKCreationStepDef], archetypes: Array[MKArchetype],
 	_seeded_keys = []
 	_seeded_archetype = null
 	_index = 0
+	_refusal_pending = false
 
 	if _backend == null:
 		# ONE warning for the whole flow, not one per step — the settings panel's rule, for the same
@@ -164,8 +176,11 @@ func configure(steps: Array[MKCreationStepDef], archetypes: Array[MKArchetype],
 			% _context("configure"))
 
 	_build_shell()
+	# Three passes, and the order is load-bearing — see the class doc. Binding is the only one of them
+	# with side effects, so it runs last, after ownership and the archetype defaults are both settled.
 	_accept_steps(steps)
 	_validate_archetype_defaults()
+	_bind_steps()
 
 	if _step_nodes.is_empty():
 		# A flow with no usable step is not something to render half of. Said out loud and left showing
@@ -336,13 +351,15 @@ func _make_button(text: String, variation: StringName) -> Button:
 	return button
 
 
-## Validates, instantiates and binds each def, in order, keeping the ones that survive.
+## Pass 1: validates and instantiates each def, in order, CLAIMS the owned keys of the ones that
+## survive, and parents them hidden. Nothing is bound here — see [method _bind_steps].
 ##
 ## Every rejection is named and every rejection is loud enough to find, but the LEVEL differs by what
 ## the rejection means: a missing scene or an unimplemented contract is a host authoring mistake
 ## ([method MKLog.warn], the CUSTOM-row precedent); a duplicate owned key is a contract violation
 ## ([method MKLog.error]); a point-buy step with no schema is a supported configuration
-## ([method MKLog.debug]).
+## ([method MKLog.debug]); a point-buy step with an UNUSABLE schema is an authoring error
+## ([method MKLog.warn], naming the resource).
 func _accept_steps(steps: Array[MKCreationStepDef]) -> void:
 	for i in steps.size():
 		var def := steps[i]
@@ -362,9 +379,9 @@ func _accept_steps(steps: Array[MKCreationStepDef]) -> void:
 		_step_nodes.append(node)
 
 
-## Returns the bound step root, or null when the def could not produce one. Every early return frees
-## the instance it made: an orphaned instantiate is a leak the editor reports at exit with no hint of
-## which step produced it.
+## Returns the accepted (not yet bound) step root, or null when the def could not produce one. Every
+## early return frees the instance it made: an orphaned instantiate is a leak the editor reports at
+## exit with no hint of which step produced it.
 func _instantiate_step(def: MKCreationStepDef) -> Control:
 	var inst := def.scene.instantiate()
 	if not inst.has_method("_mk_step_bind"):
@@ -381,34 +398,59 @@ func _instantiate_step(def: MKCreationStepDef) -> Control:
 			% [MKLog.context(def, "scene"), def.id, inst.get_class()])
 		inst.free()
 		return null
-	# D17: a point-buy step with no schema is DROPPED, quietly. See configure()'s doc.
 	if control.has_method("_mk_step_requires_stat_schema") \
-			and bool(control.call("_mk_step_requires_stat_schema")) and _schema == null:
-		MKLog.debug("%s: step '%s' needs an MKStatSchema and none was supplied — dropping it (point-buy is disabled by default)"
-			% [MKLog.context(def, "scene"), def.id])
-		control.free()
-		return null
+			and bool(control.call("_mk_step_requires_stat_schema")):
+		# D17: a point-buy step with no schema is DROPPED, quietly. See configure()'s doc.
+		if _schema == null:
+			MKLog.debug("%s: step '%s' needs an MKStatSchema and none was supplied — dropping it (point-buy is disabled by default)"
+				% [MKLog.context(def, "scene"), def.id])
+			control.free()
+			return null
+		# An UNUSABLE schema is the other half of the same drop, at WARN rather than debug: declining
+		# point-buy is a choice, but authoring a schema with no stats or a non-positive pool is a mistake
+		# — the step would render a budget readout over an empty list, or one where every + is dead from
+		# the first frame. Both look like the step is broken, so the resource is named instead.
+		if not _schema.is_valid():
+			MKLog.warn("%s: step '%s' needs a usable MKStatSchema — this one has no valid stat or a non-positive total_points, so the step is dropped rather than rendered dead"
+				% [MKLog.context(_schema, "total_points"), def.id])
+			control.free()
+			return null
 
-	# Ownership is settled BEFORE the bind, so a step that loses the race never runs any of its own
-	# wiring. This is why _mk_step_owned_keys must be answerable without a context.
+	# Ownership is settled BEFORE any bind (pass 2), so a step that loses the race never runs any of its
+	# own wiring. This is why _mk_step_owned_keys must be answerable without a context.
 	var keys := _declared_keys(control, def)
 	if not _claim_keys(def, keys):
 		control.free()
 		return null
 
+	# Parented hidden here rather than at bind: the step's widgets are built by _mk_step_bind, and a
+	# step that grabbed focus or measured itself would otherwise do so from outside the tree.
 	control.visible = false
 	_content.add_child(control)
-	control.call("_mk_step_bind", self, def, _make_context())
-	if control.has_signal("step_state_changed"):
-		control.connect("step_state_changed", _on_step_state_changed)
-	else:
-		# Not fatal: a step with no mutable input (the appearance placeholder is exactly that) has nothing
-		# to announce, and its validity is polled once at every _show_step anyway. Said at debug level so
-		# a step that DOES have inputs and forgot the signal — the "Next stays greyed out while I type"
-		# report — has a line to find.
-		MKLog.debug("%s: step '%s' declares no step_state_changed signal — validity is polled on navigation only"
-			% [MKLog.context(def, "scene"), def.id])
 	return control
+
+
+## Pass 3: binds every accepted step, in order. Split from the claim pass because binding is where a
+## step wires signals and may call back into this host — [MKStepArchetype] auto-selects its first card
+## at bind and seeds the payload through [method notify_archetype_chosen] from there. Running that
+## while the ownership map was still half-built let an archetype declared BEFORE a claiming step seed
+## that step's key, and the F8 error printed at the same configure said the opposite.
+func _bind_steps() -> void:
+	for i in _step_nodes.size():
+		var control := _step_nodes[i]
+		var def := _steps[i]
+		if control == null or not is_instance_valid(control):
+			continue
+		control.call("_mk_step_bind", self, def, _make_context())
+		if control.has_signal("step_state_changed"):
+			control.connect("step_state_changed", _on_step_state_changed)
+		else:
+			# Not fatal: a step with no mutable input (the appearance placeholder is exactly that) has
+			# nothing to announce, and its validity is polled once at every _show_step anyway. Said at debug
+			# level so a step that DOES have inputs and forgot the signal — the "Next stays greyed out while
+			# I type" report — has a line to find.
+			MKLog.debug("%s: step '%s' declares no step_state_changed signal — validity is polled on navigation only"
+				% [MKLog.context(def, "scene"), def.id])
 
 
 ## The step's declared payload keys, defensively normalised. A step is allowed to own NOTHING (the
@@ -534,7 +576,12 @@ func _refresh_buttons() -> void:
 	# required beats skippable, and the def's doc says why the two flags are not one.
 	_skip_button.visible = def.skippable and not def.required
 	_skip_button.disabled = _backend == null
-	_next_button.disabled = _backend == null or not _step_is_valid(_index)
+	# After a refused create, the whole flow is re-polled rather than only the current step: the step
+	# whose answer changed (the name, taken by another route) is usually behind the player. See _confirm.
+	var refused_and_still_invalid := _refusal_pending and not _all_steps_valid()
+	_next_button.disabled = _backend == null or not _step_is_valid(_index) or refused_and_still_invalid
+	if _refusal_pending and not refused_and_still_invalid:
+		_refusal_pending = false
 
 
 ## Polls the current step's validity. A step that does not implement the method is treated as VALID:
@@ -549,6 +596,16 @@ func _step_is_valid(index: int) -> bool:
 	if not node.has_method("_mk_step_is_valid"):
 		return true
 	return bool(node.call("_mk_step_is_valid"))
+
+
+## True only when every step in the flow answers valid. Used exclusively by the post-refusal re-gate:
+## the ordinary Next gate is per-step by design, because a step the player has not reached yet is
+## legitimately incomplete.
+func _all_steps_valid() -> bool:
+	for i in _step_nodes.size():
+		if not _step_is_valid(i):
+			return false
+	return true
 
 
 func _on_step_state_changed() -> void:
@@ -610,8 +667,13 @@ func _confirm() -> void:
 	if profile.is_empty():
 		MKLog.warn("%s: create_profile refused the payload — staying on the last step" % _context("_confirm"))
 		_set_message(REFUSAL_MESSAGE)
-		# Re-poll: the refusal is usually a name that is no longer available, and the name step's own
-		# check will now agree, so the gating has to be re-read rather than left enabled.
+		# Re-gate over EVERY step, not just the current one. The refusal is usually a name that is no
+		# longer available, and the name step's own check does now agree — but that step is almost never
+		# the last one, and re-polling only the current step therefore left Confirm enabled on a payload
+		# the backend had just rejected, one press away from an identical refusal. So the flag below makes
+		# _refresh_buttons ask the whole flow instead; it lifts as soon as every step answers valid again
+		# (the player fixes the field, or navigates, which is a fresh attempt either way).
+		_refusal_pending = true
 		_refresh_buttons()
 		return
 	creation_confirmed.emit(profile)

@@ -36,9 +36,14 @@ extends Resource
 ## True when this schema can produce a usable step. A schema with no stats would render a pool readout
 ## over an empty list, and one with a non-positive pool would render a step where every [code]+[/code]
 ## is disabled from the first frame — both look like the step is broken, so the host drops the step and
-## names the resource instead.
+## names the resource instead ([method MKCreationHost.configure], at WARN — an unusable schema is an
+## authoring mistake, unlike the ABSENT schema that simply declines the feature).
+##
+## Non-positive, not merely negative: a zero pool is a point-buy step in which every [code]+[/code] is
+## dead on the first frame, which is the same dead step a negative pool produces and reads exactly as
+## broken to the player.
 func is_valid() -> bool:
-	if total_points < 0:
+	if total_points <= 0:
 		return false
 	for stat in stats:
 		if stat != null and stat.is_valid():

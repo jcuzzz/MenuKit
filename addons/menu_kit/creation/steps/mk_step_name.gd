@@ -43,6 +43,10 @@ var _backend: MKProfileBackend
 var _edit: LineEdit
 var _reason: Label
 var _regex: RegEx
+## The last answer [method _mk_step_is_valid] gave, as -1/0/1 so "not asked yet" is distinguishable
+## from "answered false" — the first poll must not count as a flip and rebuild a label the bind just
+## wrote.
+var _last_valid_answer := -1
 
 
 func _ready() -> void:
@@ -79,8 +83,21 @@ func _mk_step_bind(host: MKCreationHost, def: MKCreationStepDef, ctx: Dictionary
 	_refresh_reason()
 
 
+## Answers the gate AND repairs the label when the answer moved without the text moving.
+##
+## Availability is the one input to [method _validation_error] the player does not drive: another
+## route can take the name while this step sits open, and [MKProfileBackend] has no
+## "availability changed" signal to subscribe to — the host's poll on every navigation and state
+## change is the only moment this step ever hears about it. Without the refresh below, a name that
+## BECOMES taken disables Next while the label underneath still reads "Looks good.", which is exactly
+## the unexplained dead end the class doc says this step exists to prevent. Cheap: the comparison is
+## against the last answer, so the label is rebuilt only when it actually flipped.
 func _mk_step_is_valid() -> bool:
-	return _validation_error().is_empty()
+	var valid := _validation_error().is_empty()
+	if _last_valid_answer != int(valid):
+		_last_valid_answer = int(valid)
+		_refresh_reason()
+	return valid
 
 
 func _mk_step_commit(payload: Dictionary) -> void:

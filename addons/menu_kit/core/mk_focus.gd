@@ -29,8 +29,9 @@ static func collect_focusables(root: Node) -> Array[Control]:
 	return _collect(root, true)
 
 
-## The collector both public entry points share. [param skip_disabled] false keeps disabled buttons in
-## the list, which is what [method release] and [method trap]'s last-resort fallback need: they are
+## The collector every caller shares — [method collect_focusables] with the filter on,
+## [method release] and [method trap]'s last-resort fallback with it off. [param skip_disabled] false
+## keeps disabled buttons in the list, which is what those two latter callers need: they are
 ## answering "which controls did trap TOUCH" and "what is inside this subtree at all", not "where
 ## should focus go" — and a control can be disabled AFTER it was wired, so the enabled-only view no
 ## longer describes the set whose neighbours exist.
@@ -42,7 +43,7 @@ static func _collect(root: Node, skip_disabled: bool) -> Array[Control]:
 	return out
 
 
-static func _collect_recursive(node: Node, out: Array[Control], skip_disabled := true) -> void:
+static func _collect_recursive(node: Node, out: Array[Control], skip_disabled: bool) -> void:
 	for child in node.get_children():
 		if child is Control:
 			var c := child as Control
@@ -142,6 +143,17 @@ static func link_containers(from_container: Node, to_container: Node, vertical :
 static func trap(root: Node) -> Control:
 	if root == null or not is_instance_valid(root):
 		return null
+	if root.has_meta(TRAP_META):
+		# Already trapped: return the focus that is inside it and change nothing. A second trap is not a
+		# harmless repeat — it re-collects (over a set that may have changed shape since) and re-grabs,
+		# so a modal that re-traps on a resize or a rebuild would yank the ring back to its first control
+		# under the player's hands. The no-op is what makes trap safe to call defensively, which is how a
+		# modal layer with more than one path to "this is now on top" ends up calling it.
+		var owner := _focus_owner(root)
+		if owner != null and is_within(owner, root):
+			return owner
+		# Trapped, but focus escaped anyway (the holder was freed or disabled out of the tree). Falling
+		# through re-wires and re-grabs, which is the repair this state actually needs.
 	var controls := collect_focusables(root)
 	if controls.is_empty():
 		# Last resort: a modal whose every button is disabled (a confirm dialog awaiting an async
@@ -189,6 +201,18 @@ static func release(root: Node) -> void:
 		c.focus_neighbor_right = NodePath()
 		c.focus_next = NodePath()
 		c.focus_previous = NodePath()
+
+
+## The control currently holding GUI focus in [param root]'s viewport, or null when there is none (or
+## when root is not in a tree to have one). Static, so it cannot reach for a node's own get_viewport
+## without checking that there is one.
+static func _focus_owner(root: Node) -> Control:
+	if root == null or not is_instance_valid(root) or not root.is_inside_tree():
+		return null
+	var viewport := root.get_viewport()
+	if viewport == null:
+		return null
+	return viewport.gui_get_focus_owner()
 
 
 ## True when [param node] is [param root] or a descendant of it.

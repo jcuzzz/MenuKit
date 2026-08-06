@@ -40,7 +40,12 @@ extends Resource
 ##
 ## Both flags exist because they answer different questions: this one is about the FLOW ("the payload
 ## is incomplete without it"), and [member skippable] is about the CONTROL ("offer a Skip button").
-## Required wins, and the host says so rather than silently rendering a Skip that refuses to work.
+## Required wins by HIDING the Skip control ([code]skippable and not required[/code], in
+## [method MKCreationHost._refresh_buttons]) rather than by rendering one that refuses to work: the
+## player is never offered a gesture that does nothing. It is not reported anywhere, because the
+## combination is a legitimate authoring state — a step toggled back to required keeps its skippable
+## flag for when it is toggled again, and warning about that would fire on every well-formed flow that
+## ever changed its mind.
 @export var required: bool = true
 
 ## Shows a Skip control while this step is current — and only when [member required] is false.

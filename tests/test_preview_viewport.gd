@@ -31,6 +31,9 @@ func run_tests() -> void:
 	await _test_the_subviewport_owns_its_own_world_by_default()
 	await _test_clearing_the_slot_is_legal()
 	await _test_framing_falls_back_when_the_content_has_no_bounds()
+	await _test_deferred_built_content_frames_on_the_second_pass()
+	await _test_framing_is_idempotent_and_tracks_content_that_grows()
+	await _test_a_swap_keeps_the_zoom_the_user_chose()
 	await _test_a_non_node3d_scene_warns_and_parents_nothing()
 	await _test_zoom_clamps_at_both_bounds_and_survives_an_inverted_pair()
 	await _test_preview_changed_fires_once_per_swap()
@@ -148,6 +151,136 @@ func _test_framing_falls_back_when_the_content_has_no_bounds() -> void:
 		"and the fitted distance is clamped into the zoom range (got %s)" % preview._distance)
 	check(_pivot(preview).position != Vector3.ZERO,
 		"the pivot is lifted to the content's centre, so the subject spins about its middle rather than its ankles")
+
+	await _drop(preview)
+
+
+## [b]The case the three shipped demo previews are.[/b] CSG builds its mesh on a DEFERRED call, so
+## [method VisualInstance3D.get_aabb] reads zero on the frame the node is added — measured here and in
+## isolation: a bare CSGBox3D reports a zero AABB immediately and its real one on the next frame. A
+## widget that framed only immediately therefore took the no-bounds fallback for every CSG preview
+## (pivot at the origin, fallback distance, engine-default near/far) while ALSO logging that the
+## content had no bounds, which it plainly did.
+##
+## So both halves are asserted: the second pass really measures, and the immediate zero — the expected
+## reading for deferred-built content — says nothing in the log.
+func _test_deferred_built_content_frames_on_the_second_pass() -> void:
+	var preview := await _make_preview()
+	# The REAL shipped demo scene, not a stand-in: the finding is that the addon fails on the content it
+	# ships with, and a hand-built CSG node in this file could drift away from what demo_creation holds.
+	var vanguard := load("res://demo/demo_creation/preview_vanguard.tscn") as PackedScene
+	check(vanguard != null, "the shipped demo preview scene loads")
+	if vanguard == null:
+		await _drop(preview)
+		return
+
+	_watch_log()
+	preview.set_preview_scene(vanguard)
+	check_eq(preview._distance, 3.0,
+		"precondition: the IMMEDIATE pass measures nothing, because the CSG mesh does not exist yet")
+	await step_frame()
+	var messages := _stop_watching()
+
+	check(preview._distance != 3.0,
+		"after the deferred pass the camera sits at a DERIVED distance, not the fallback (got %s)"
+			% preview._distance)
+	check(preview._distance >= preview.zoom_min and preview._distance <= preview.zoom_max,
+		"clamped into the zoom range")
+	check_eq(_count_containing(messages, "no VisualInstance3D bounds"), 0,
+		"and the immediate zero is NOT reported — it is the expected reading for deferred-built content, so a line here fires for every CSG preview ever shown")
+	var camera := _viewport(preview).get_node_or_null(MKPreviewViewport.CAMERA_NAME) as Camera3D
+	check(camera != null and camera.near != 0.05,
+		"the near plane is derived from the subject's radius rather than left at the engine default (got %s)"
+			% (camera.near if camera != null else -1.0))
+	check(camera != null and camera.far > preview.zoom_max,
+		"and far clears the furthest the camera can be pushed")
+
+	# Off-origin: the pivot has to reach the subject's real centre, or a demo preview authored anywhere
+	# but the origin spins about a point beside itself. Measured after the deferred pass, because the
+	# immediate one has no bounds to centre on.
+	preview.set_preview_scene(_offset_csg_scene())
+	await step_frame()
+	check(_pivot(preview).position.is_equal_approx(Vector3(0.0, 2.0, 0.0)),
+		"content authored two units up is centred by the deferred pass (pivot at %s)"
+			% _pivot(preview).position)
+	check(preview.get_content().position.is_equal_approx(Vector3.ZERO),
+		"with the content shifted back under the pivot by the same amount — its authored +2 cancels exactly, so the subject did not visibly move (got %s)"
+			% preview.get_content().position)
+
+	await _drop(preview)
+
+
+## [method MKPreviewViewport.frame_content] is the advertised call for content that changed size after
+## it was instanced, so it is called more than once BY DESIGN — and must therefore be idempotent. The
+## pivot write is relative (`+= centre`) precisely because it is paired with a relative content shift:
+## an absolute write measured a second centre of zero and wrote zero, throwing the first call's
+## centring away while the content kept its -centre offset. The subject then hung a metre below the
+## point it spins around.
+func _test_framing_is_idempotent_and_tracks_content_that_grows() -> void:
+	var preview := await _make_preview()
+	preview.set_preview_scene(_mesh_scene())
+	await step_frame()
+
+	var pivot_after_first := _pivot(preview).position
+	check(pivot_after_first.is_equal_approx(Vector3(0.0, 1.0, 0.0)),
+		"precondition: the cube is authored a unit up, so the pivot lifted to its centre (got %s)"
+			% pivot_after_first)
+
+	preview.frame_content()
+	check(_pivot(preview).position.is_equal_approx(pivot_after_first),
+		"a SECOND framing over unchanged content measures a centre of ~zero and no-ops, rather than resetting the pivot to the origin (got %s)"
+			% _pivot(preview).position)
+	preview.frame_content()
+	check(_pivot(preview).position.is_equal_approx(pivot_after_first),
+		"and a third — idempotence, not an alternation between two states")
+
+	# The advertised case: content that GROWS after it was instanced (a weapon is equipped, meshes
+	# stream in). The merged centre moves, and the pivot has to move with it.
+	var grown := MeshInstance3D.new()
+	grown.name = "LateArrival"
+	grown.mesh = BoxMesh.new()
+	grown.position = Vector3(0.0, 5.0, 0.0)
+	preview.get_content().add_child(grown)
+	await step_frame()
+	preview.frame_content()
+
+	# Content-local: the original cube sits at y=1 and the new one at y=5, each a unit box, so the
+	# merged box spans y=0.5..5.5 about a centre at y=3 — which is 2 above where the pivot already was.
+	check(_pivot(preview).position.is_equal_approx(Vector3(0.0, 3.0, 0.0)),
+		"re-framing after growth tracks the NEW merged centre (got %s)" % _pivot(preview).position)
+	check(preview._distance > 3.0,
+		"and the distance refits to the larger subject — frame_content is the call that DOES refit (got %s)"
+			% preview._distance)
+
+	await _drop(preview)
+
+
+## The comparison story the class doc tells: a user cycling a character list keeps the angle AND the
+## zoom they chose. Yaw and pitch were already preserved across a swap; the distance was not — every
+## swap refitted it, so a player who zoomed in to look at a helmet was pushed back out by the next
+## card. The FIRST content still fits, because there is no user choice to preserve yet, and an explicit
+## frame_content() still refits — that is what the previous test asserts.
+func _test_a_swap_keeps_the_zoom_the_user_chose() -> void:
+	var preview := await _make_preview()
+	preview.set_preview_scene(_mesh_scene())
+	await step_frame()
+	var fitted := preview._distance
+	check(fitted != 3.0, "precondition: the FIRST content fitted the distance to its own bounds")
+
+	preview._pitch_deg = 30.0
+	preview._gui_input(_wheel(MOUSE_BUTTON_WHEEL_DOWN))
+	preview._gui_input(_wheel(MOUSE_BUTTON_WHEEL_DOWN))
+	var chosen := preview._distance
+	check(chosen != fitted, "precondition: the user wheeled away from the fitted distance")
+
+	preview.set_preview_scene(_mesh_scene())
+	await step_frame()
+	check_eq(preview._distance, chosen,
+		"a SWAP keeps the zoom the user chose — refitting it here is a comparison list that shoves the camera every time the player changes card")
+	check_eq(preview._pitch_deg, 30.0, "along with the pitch, as it always did")
+	check(_pivot(preview).position.is_equal_approx(Vector3(0.0, 1.0, 0.0)),
+		"while the new content is still CENTRED, which is the half of framing a swap must always do (got %s)"
+			% _pivot(preview).position)
 
 	await _drop(preview)
 
@@ -295,6 +428,19 @@ func _mesh_scene() -> PackedScene:
 	mesh.position = Vector3(0.0, 1.0, 0.0)
 	root.add_child(mesh)
 	mesh.owner = root
+	var packed := PackedScene.new()
+	packed.pack(root)
+	root.free()
+	return packed
+
+
+## A CSG subject authored AWAY from the origin: deferred-built bounds AND an offset to centre, which
+## is the pair the deferred pass has to get right together.
+func _offset_csg_scene() -> PackedScene:
+	var root := CSGBox3D.new()
+	root.name = "Offset"
+	root.size = Vector3(1.0, 1.0, 1.0)
+	root.position = Vector3(0.0, 2.0, 0.0)
 	var packed := PackedScene.new()
 	packed.pack(root)
 	root.free()

@@ -9,7 +9,8 @@ extends SubViewportContainer
 ## genre. A [MeshInstance3D] cube frames and spins exactly as happily as an authored character, which
 ## is what makes the same node usable from the Appearance creation step, from character select, and
 ## from a host's weapon/armour viewer. Everything size-dependent is derived from the content's own
-## bounds at swap time ([method frame_content]), never from a number a host had to know.
+## bounds when it is shown ([method set_preview_scene]) and on demand ([method frame_content], the one
+## call that refits the camera DISTANCE unconditionally), never from a number a host had to know.
 ##
 ## [b]There is no [code].tscn[/code] for this class, deliberately.[/b] The camera, the pivot and the
 ## three lights are built in code with stable names ([code]ContentPivot[/code],
@@ -112,6 +113,13 @@ var _pitch_deg := 15.0
 var _distance := _FALLBACK_DISTANCE
 var _spin_velocity := 0.0
 var _built := false
+## True once a piece of content with real bounds has had the camera distance FITTED to it. Subsequent
+## swaps re-centre and re-derive near/far but keep the distance the user is at — see
+## [method set_preview_scene]. Reset when the slot is cleared, so refilling it fits again.
+var _fitted_once := false
+## One deferred re-frame at a time. call_deferred is not de-duplicated, so a host swapping the scene
+## twice in one frame would otherwise queue two passes over the same content.
+var _reframe_queued := false
 
 
 func _ready() -> void:
@@ -120,8 +128,14 @@ func _ready() -> void:
 	# those pages need is against unowned children being serialised into the instancing scene, and it
 	# does not apply here — every child below is created with owner left null, so Godot excludes it
 	# from the saved scene exactly as it excludes any runtime child. _built guards the other hazard:
-	# in the editor _ready can run again after a script reload, and a second build would stack a
-	# duplicate camera and a second set of lights (visibly doubling the exposure).
+	# a second _build within one instance's life would stack a duplicate camera and a second set of
+	# lights (visibly doubling the exposure).
+	# [b]Caveat, stated because the guard looks stronger than it is:[/b] _built is ordinary script
+	# state, so an editor script RELOAD that re-runs _ready on a re-created script instance starts it
+	# back at false and the children ARE rebuilt on top of the previous set. What _built actually
+	# covers is a second _ready/_build on the SAME instance (a re-add to the tree, set_preview_scene's
+	# own _build call). The reload case is left to the editor's own node rebuild rather than defended
+	# here with a name-scan that would then have to stay in sync with the builder.
 	_build()
 	# stretch alone is the whole resolution story: a SubViewportContainer with stretch enabled OWNS its
 	# SubViewport's size and drives it to the container's pixel rect every layout pass — the engine
@@ -140,8 +154,21 @@ func _ready() -> void:
 ## expected call — "no selection" is a real state in every host this serves, and making it an error
 ## would force each of them to invent an empty placeholder scene.
 ##
-## The camera is re-framed from the new content's bounds; the current yaw/pitch/zoom are NOT reset, so
-## a user comparing two characters keeps the angle they chose while cycling through a list.
+## The camera is re-CENTRED on the new content's bounds; yaw, pitch and zoom are NOT reset, so a user
+## comparing two characters keeps the angle AND the zoom they chose while cycling through a list. The
+## FIRST content this slot is given fits the distance to its bounds (there is no user choice to
+## preserve yet); every swap after that keeps the current distance, clamped, and only re-centres the
+## pivot and re-derives near/far. A host that genuinely wants a refit on a swap — content whose scale
+## differs by an order of magnitude, not two characters in a list — calls [method frame_content]
+## afterwards, which is that method's documented job.
+##
+## [b]The framing runs TWICE: immediately, and again deferred.[/b] CSG meshes (and anything else that
+## builds its geometry on a deferred call, which is most procedural content) report a ZERO
+## [method VisualInstance3D.get_aabb] on the frame they are added — measured on all three shipped demo
+## previews, every one of which is a CSG primitive. A single immediate pass therefore measures nothing,
+## takes the no-bounds fallback, and the demo's previews never frame at all. The immediate pass is kept
+## because content that IS built (an imported mesh) frames on the same frame it appears, with no
+## visible pop; the deferred pass is what catches everything else.
 func set_preview_scene(scene: PackedScene) -> void:
 	# Writing the backing property from inside its own setter does NOT re-enter it — GDScript's
 	# setter/getter dispatch is suppressed for self-assignment within the accessor. So the guard flag
@@ -166,8 +193,36 @@ func set_preview_scene(scene: PackedScene) -> void:
 		else:
 			_content = node_3d
 			_pivot.add_child(_content)
-	frame_content()
+	# The pivot is zeroed HERE, on the swap, and nowhere inside the framing. Framing accumulates (see
+	# _frame) so that re-framing the SAME content is idempotent, and accumulation is only meaningful
+	# against content that has already been shifted by it — a fresh instance has not, so its centring
+	# must start from zero or the previous subject's centre is added to it.
+	_pivot.position = Vector3.ZERO
+	# Immediate pass: silent about zero bounds, because for deferred-built content zero IS the expected
+	# reading on this frame and a debug line here would fire for every CSG preview ever shown.
+	_frame(false)
+	_queue_reframe()
 	preview_changed.emit()
+
+
+## Queues the second framing pass. Deferred rather than a timer or a frame counter: call_deferred runs
+## at the end of the current frame, after the deferred mesh builds this exists to wait for, and before
+## anything renders — so the re-frame is invisible rather than a one-frame jump.
+func _queue_reframe() -> void:
+	if _reframe_queued:
+		return
+	_reframe_queued = true
+	call_deferred("_deferred_reframe")
+
+
+func _deferred_reframe() -> void:
+	_reframe_queued = false
+	# The node may have been freed, removed from the tree, or had its content swapped again between the
+	# queue and the call. Off-tree the global transforms _merge_bounds reads are meaningless, so there
+	# is nothing to measure and the next add will queue its own pass.
+	if not is_inside_tree() or not _built:
+		return
+	_frame(true)
 
 
 ## The live content instance, or null when the slot is empty. Always checked for validity, so a caller
@@ -178,9 +233,11 @@ func get_content() -> Node3D:
 	return _content
 
 
-## Re-derives the camera distance from the content's merged bounds. Called automatically on every
-## swap; exposed because content can change size AFTER it is instanced (an equipped weapon appears, a
-## rig's meshes stream in) and only the host knows when that happened.
+## Re-derives the camera distance from the content's merged bounds, ALWAYS — this is the one call that
+## refits distance unconditionally, which is why a swap (see [method set_preview_scene]) does not use
+## it that way. Called automatically on every swap for its centring half; exposed because content can
+## change size AFTER it is instanced (an equipped weapon appears, a rig's meshes stream in) and only
+## the host knows when that happened.
 ##
 ## The math: merge every [VisualInstance3D] descendant's global AABB into one box, take the pivot-space
 ## radius of that box (half its diagonal — orientation-independent, so spinning never clips), and place
@@ -189,34 +246,61 @@ func get_content() -> Node3D:
 ## the box centre so the subject spins about ITS middle rather than about the scene origin — content
 ## authored with its feet at y=0 otherwise orbits around its ankles.
 func frame_content() -> void:
+	_frame(true, true)
+
+
+## The framing body. [param report_no_bounds] is false for the immediate half of a swap, where a zero
+## reading is the EXPECTED state for deferred-built content rather than news. [param fit_distance]
+## false keeps the current zoom and re-centres only.
+func _frame(report_no_bounds: bool, fit_distance := false) -> void:
 	_build()
 	var content := get_content()
 	if content == null:
 		_pivot.position = Vector3.ZERO
 		_distance = clampf(_FALLBACK_DISTANCE, zoom_min, zoom_max)
+		# An empty slot has no subject to have chosen a zoom for, so the next content fits from scratch.
+		_fitted_once = false
 		_apply_transforms()
 		return
 	var bounds := _merge_bounds(content)
 	if bounds.size == Vector3.ZERO:
-		# Not a crash and not a warning: a scene with no visual instances yet is a legitimate state
-		# (streamed meshes, a logic-only probe scene). Debug so --mk-verbose explains a preview that
-		# looks empty, without spamming a host that does this on purpose.
-		MKLog.debug("%s: preview content '%s' has no VisualInstance3D bounds; using fallback distance"
-			% [name, content.name])
-		_pivot.position = Vector3.ZERO
-		_distance = clampf(_FALLBACK_DISTANCE, zoom_min, zoom_max)
+		if report_no_bounds:
+			# Not a crash and not a warning: a scene with no visual instances yet is a legitimate state
+			# (streamed meshes, a logic-only probe scene). Debug so --mk-verbose explains a preview that
+			# looks empty, without spamming a host that does this on purpose. Reported only from the
+			# DEFERRED pass, by which point a CSG or otherwise procedurally built mesh has been built and
+			# a zero reading really does mean "there is nothing here".
+			MKLog.debug("%s: preview content '%s' has no VisualInstance3D bounds; using fallback distance"
+				% [name, content.name])
+		if not _fitted_once:
+			_distance = clampf(_FALLBACK_DISTANCE, zoom_min, zoom_max)
+		# The pivot is deliberately NOT reset here: it may already carry a centre from an earlier pass
+		# over content that HAD bounds, and zeroing it would throw that centring away (with the content's
+		# matching -centre shift left in place) the moment the bounds momentarily read empty.
 		_apply_transforms()
 		return
 	# The pivot's children carry the content in pivot-local space; offsetting the pivot by -centre
-	# would move the content, so instead the pivot node itself sits at the centre and the content is
+	# would move the content, so instead the pivot node itself moves to the centre and the content is
 	# shifted back under it by the same amount.
+	#
+	# [b]Both writes are RELATIVE, and that is what makes this idempotent.[/b] _merge_bounds reports in
+	# pivot space, so a second call over unchanged content measures a centre of ~zero and both lines
+	# no-op. An absolute `_pivot.position = centre` paired with the relative content shift would instead
+	# measure zero and WRITE zero, throwing the first call's centring away — and re-framing is the
+	# advertised gesture for content that grew, so it is called more than once by design.
 	var centre := bounds.position + bounds.size * 0.5
-	_pivot.position = centre
+	_pivot.position += centre
 	content.position -= centre
 	var radius := maxf(bounds.size.length() * 0.5, 0.001)
-	var half_fov := deg_to_rad(_camera.fov) * 0.5
-	var fitted := radius / maxf(tan(half_fov), 0.001) * _FRAME_MARGIN
-	_distance = clampf(fitted, zoom_min, zoom_max)
+	if fit_distance or not _fitted_once:
+		var half_fov := deg_to_rad(_camera.fov) * 0.5
+		var fitted := radius / maxf(tan(half_fov), 0.001) * _FRAME_MARGIN
+		_distance = clampf(fitted, zoom_min, zoom_max)
+	else:
+		# A swap keeps the user's zoom, but the new subject's bounds may have moved the legal range's
+		# meaning; clamping keeps it inside the exports either way.
+		_distance = clampf(_distance, minf(zoom_min, zoom_max), maxf(zoom_min, zoom_max))
+	_fitted_once = true
 	# Near/far are derived rather than left at defaults: a 3cm gemstone previewed at 0.1 units would
 	# sit inside a 0.05 default near plane on some fov/zoom_min combinations and vanish.
 	_camera.near = maxf(radius * 0.01, 0.01)

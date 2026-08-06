@@ -19,6 +19,7 @@ func run_tests() -> void:
 	await _test_settings_round_trip()
 	await _test_settings_type_changing_write()
 	await _test_settings_corrupt_recovery()
+	await _test_a_settings_root_that_is_not_an_object_is_reported_as_itself()
 	await _test_profiles_round_trip()
 	await _test_profiles_corrupt_recovery()
 	await _test_profile_payload_keeps_its_types()
@@ -92,6 +93,35 @@ func _test_settings_corrupt_recovery() -> void:
 	# with DirAccess.remove_absolute kept the suite green.
 	check(_corrupt_sibling_exists(SETTINGS_PATH),
 		"settings: the bad file was renamed aside, not deleted — the user's data is recoverable")
+	backend.free()
+
+
+## [b]A file that PARSES but is not an object is a different fault, and has to say so.[/b] Folded into
+## one branch with the parse failure, it borrowed the parse error's line and message — which are empty
+## after a successful parse — and reported "(line 0: )" against a file with nothing wrong on any line.
+## The profile backend already split the two; this is the settings backend catching up to it.
+func _test_a_settings_root_that_is_not_an_object_is_reported_as_itself() -> void:
+	var f := FileAccess.open(SETTINGS_PATH, FileAccess.WRITE)
+	check(f != null, "settings: could open the store to write a valid non-object")
+	if f == null:
+		return
+	# Valid JSON, wrong shape: an array parses cleanly, so there is no line to name.
+	f.store_string('["video/max_fps", 144]')
+	f.close()
+
+	var seen: Array[String] = []
+	MKLog.observer = func(_level: MKLog.Level, message: String) -> void: seen.append(message)
+	var backend := _make_settings()
+	backend.load()
+	MKLog.observer = Callable()
+
+	check_eq(backend.get_value(&"video/max_fps", 60), 60,
+		"settings: a non-object root boots defaults, like any other unreadable store")
+	var joined := "\n".join(seen)
+	check(joined.contains("root of the file is not a JSON object"),
+		"settings: and the message names THAT fault (got %s)" % joined)
+	check(not joined.contains("line 0"),
+		"settings: without a line number borrowed from a parse error that never happened")
 	backend.free()
 
 

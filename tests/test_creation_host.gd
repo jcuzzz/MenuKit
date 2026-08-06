@@ -34,12 +34,15 @@ func run_tests() -> void:
 	expect_engine_error(F8_NOISE)
 	await _test_duplicate_owned_key_drops_the_later_step()
 	await _test_f8_archetype_collision_is_reported_once_and_never_seeded()
+	await _test_ownership_is_claimed_before_any_step_binds()
 	await _test_merge_order_defaults_first_steps_win()
 	await _test_switching_archetype_clears_only_its_own_seeds()
 	await _test_refusal_stays_on_the_last_step_and_says_so()
+	await _test_a_refusal_re_gates_the_whole_flow_not_just_the_current_step()
 	await _test_skip_never_commits_and_a_skipped_last_step_still_confirms()
 	await _test_back_keeps_committed_keys_and_a_recommit_overwrites()
 	await _test_a_pointbuy_shaped_step_with_no_schema_is_dropped_quietly()
+	await _test_a_pointbuy_step_with_an_unusable_schema_is_dropped_and_named()
 	await _test_a_null_backend_warns_once_and_disables_navigation()
 	await _test_the_confirmed_payload_reaches_create_profile_verbatim()
 
@@ -116,6 +119,48 @@ func _test_f8_archetype_collision_is_reported_once_and_never_seeded() -> void:
 	host.notify_archetype_chosen(arch)
 	check_eq(_count_containing(_stop_watching(), "already reported"), 0,
 		"re-choosing the archetype already seeded logs nothing at all")
+
+	await _drop(host, backend)
+
+
+## [b]F8's exclusion must not depend on the order the steps were authored in — and it used to.[/b]
+##
+## Binding is not inert: [MKStepArchetype] auto-selects its first card at bind (§3.1, so the grid is
+## never an empty dead end) and reports it through [method MKCreationHost.notify_archetype_chosen] from
+## there. With claiming and binding interleaved, an archetype step declared BEFORE the step that owns
+## [code]name[/code] seeded that key into the payload while [code]_owned_by[/code] was still empty — so
+## the same configure printed "it is NOT seeded" and seeded it.
+##
+## Driven through the REAL shipped archetype step rather than a probe: the seeding-at-bind behaviour
+## that makes this reachable is that scene's, and a probe reproducing it would be asserting the test's
+## own re-implementation of the hazard.
+func _test_ownership_is_claimed_before_any_step_binds() -> void:
+	var backend := _spy_backend()
+	var arch := _archetype(&"knight", {"name": "Ser Default", "gold": 50})
+	var arch_def := MKCreationStepDef.new()
+	arch_def.id = &"pick"
+	arch_def.title = "Archetype"
+	arch_def.scene = load("res://addons/menu_kit/creation/steps/mk_step_archetype.tscn") as PackedScene
+	check(arch_def.scene != null, "precondition: the shipped archetype step scene loads")
+	if arch_def.scene == null:
+		await _drop(null, backend)
+		return
+
+	MKProbeCreationStep.reset()
+	# ORDER IS THE WHOLE POINT: the archetype step is declared FIRST, ahead of the step that owns "name".
+	var host := await _make_host([arch_def, _step(&"name", ["name"], {"name": "Typed"})],
+		[arch], backend, null)
+
+	var payload := host.get_payload()
+	check(not payload.has("name"),
+		"the archetype's default for an OWNED key is absent even though the seeding step bound first — every step's keys are claimed before any bind runs (got %s)"
+			% payload)
+	check_eq(payload.get("gold", null), 50,
+		"while the UNOWNED default seeded normally at bind, so the pass split did not simply stop the seeding")
+	check(not payload.has("archetype"),
+		"and the archetype step's own key is still written on commit rather than seeded")
+	check_eq(host.get_step_count(), 2, "both steps survived — this is an ordering case, not a drop case")
+	check_eq(MKProbeCreationStep.binds, 1, "and the probe bound exactly once")
 
 	await _drop(host, backend)
 
@@ -221,6 +266,43 @@ func _test_refusal_stays_on_the_last_step_and_says_so() -> void:
 	await _drop(host, backend)
 
 
+## [b]A refusal re-gates the WHOLE flow, not just the step the player is standing on.[/b]
+##
+## The refusal is usually a name taken between the name step's pre-check and Confirm — and the name
+## step is almost never the last one. Re-polling only the current step therefore left Confirm enabled
+## over a payload the backend had just rejected: the player pressed it again and got the identical
+## message, with nothing on screen pointing at the field that had gone stale.
+func _test_a_refusal_re_gates_the_whole_flow_not_just_the_current_step() -> void:
+	var backend := _spy_backend()
+	backend.refuse = true
+	MKProbeCreationStep.reset()
+	var host := await _make_host([
+		_step(&"name", ["name"], {"name": "Taken"}),
+		_step(&"tail", [], {}),
+	], [], backend, null)
+
+	await _press(host._next_button)
+	check_eq(host.current_step_index(), 1, "precondition: the player is past the name step")
+	# The name went stale while they walked forward — which is exactly the situation the backend is
+	# about to refuse over. The step behind them now answers invalid; the current one still answers valid.
+	var name_step := host._step_nodes[0] as MKProbeCreationStep
+	name_step.set_valid(false)
+	check(not host._next_button.disabled,
+		"precondition: Confirm is enabled — the CURRENT step is still valid, which is all the gate asks before an attempt")
+
+	await _confirm(host)
+	check_eq(backend.created.size(), 1, "precondition: the attempt reached the backend and was refused")
+	check_eq(host.get_message(), MKCreationHost.REFUSAL_MESSAGE, "and said so inline")
+	check(host._next_button.disabled,
+		"after the refusal Confirm is DISABLED, because a step behind the player now answers invalid — a re-poll of the current step alone could never see that")
+
+	name_step.set_valid(true)
+	check(not host._next_button.disabled,
+		"and it re-enables as soon as every step answers valid again, so the refusal gate is not a dead end")
+
+	await _drop(host, backend)
+
+
 ## Skip is Next MINUS the commit, and that is the only difference — including on the last step, which
 ## must still finish the flow or a trailing skippable step is a dead end.
 func _test_skip_never_commits_and_a_skipped_last_step_still_confirms() -> void:
@@ -307,6 +389,39 @@ func _test_a_pointbuy_shaped_step_with_no_schema_is_dropped_quietly() -> void:
 		"with one line explaining the drop")
 	check_eq(_count_containing(_warnings_only(messages), "point-buy is disabled by default"), 0,
 		"at DEBUG, never WARN — declining an optional feature is not a misconfiguration")
+
+	await _drop(host, backend)
+
+
+## The other half of the D17 drop, and the one that had no implementation at all:
+## [method MKStatSchema.is_valid] described a mechanism ("the host drops the step and names the
+## resource") that no caller performed, so a schema with a zero pool reached the step and rendered a
+## budget every [code]+[/code] was dead against from the first frame. WARN rather than the null
+## schema's debug: declining point-buy is a choice, authoring an unusable schema is a mistake.
+func _test_a_pointbuy_step_with_an_unusable_schema_is_dropped_and_named() -> void:
+	var backend := _spy_backend()
+	var stat := MKStatDef.new()
+	stat.id = &"might"
+	stat.label = "Might"
+	var schema := MKStatSchema.new()
+	schema.stats = [stat]
+	schema.total_points = 0
+	check(stat.is_valid(), "precondition: the stat row itself is fine, so the pool is the only fault")
+	check(not schema.is_valid(),
+		"a ZERO pool is invalid, not merely a negative one — a step where every + is dead reads exactly as broken however it got that way")
+
+	MKProbeCreationStep.reset()
+	_watch_log()
+	var host := await _make_host([_step(&"name", ["name"], {"name": "T"}), _step(&"stats", ["stats"], {})],
+		[], backend, schema, true)
+	var messages := _stop_watching()
+
+	check_eq(host.get_step_count(), 1, "the point-buy step is dropped rather than rendered dead")
+	check_eq(MKProbeCreationStep.binds, 1, "and it never bound")
+	check_eq(_count_containing(_warnings_only(messages), "needs a usable MKStatSchema"), 1,
+		"with ONE warning — an authoring error, unlike the declined-feature debug line")
+	check_eq(_count_containing(messages, "point-buy is disabled by default"), 0,
+		"and NOT the null-schema line: a schema that is present but unusable is a different mistake with a different fix")
 
 	await _drop(host, backend)
 

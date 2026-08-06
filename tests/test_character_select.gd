@@ -290,11 +290,13 @@ func _test_the_page_is_drivable_by_keyboard_alone() -> void:
 	await step_frame()
 	check(_is_footer_button(panel, get_root().gui_get_focus_owner()),
 		"walking off the last card reaches the footer (got %s)" % get_root().gui_get_focus_owner())
-	# Which footer button, specifically. MKFocus collects only ENABLED controls, so a footer chained
-	# while Play and Delete were still disabled from the cleared selection wires a ring over New
-	# Character ALONE — and the cross-container link then lands on New, with the two live actions
-	# reachable only through neighbours an earlier pass happened to leave behind. That is why _refresh
-	# settles the selection (and with it the disabled flags) BEFORE it chains.
+	# Which footer button, specifically — and ORDERING-BLIND, which is what this block is and is not.
+	# The roster here is seeded before the page is built, so Play and Delete have never been disabled
+	# and the chain would come out the same under any _refresh order. These assertions are therefore
+	# plain traversal coverage of the first-build footer shape (the ring exists, it walks across every
+	# action, and it walks back), not a guard on the chain-vs-disabled-flags ordering. The guard for
+	# that is _test_the_footer_chain_is_built_over_the_buttons_the_rebuild_ends_with, which reaches the
+	# footer from an EMPTY roster — the only state in which the two orders differ.
 	check_eq(get_root().gui_get_focus_owner(), _button(panel, "Play"),
 		"landing on the FIRST footer button, not skipping the two actions that were disabled a moment earlier in the rebuild (got %s)"
 			% get_root().gui_get_focus_owner())

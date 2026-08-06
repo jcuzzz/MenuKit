@@ -5,15 +5,19 @@ extends RefCounted
 ## visual by construction, same argument as the settings rig.
 ##
 ## MK_CAPTURE_SEED=<n>  creates n throwaway profiles through the demo's real profile backend before
-##                      the shot. The isolation that makes this safe lives in the WRAPPER
+##                      the shot, CAPPED AT 5 — the rig carries five authored names and seeds
+##                      mini(n, 5), so a larger number is silently the same picture as 5. The
+##                      isolation that makes this safe lives in the WRAPPER
 ##                      (tools/capture_scene.ps1 redirects APPDATA into .agent_tmp for the child
 ##                      engine, the same mechanism check.ps1 uses for the test sweep) — this script
 ##                      writes through the ordinary backend and knows nothing about where user://
 ##                      resolves. Absent/0 = the empty-roster state, which is itself a Phase 5
 ##                      deliverable worth a picture.
-## MK_CAPTURE_CREATE=<step-id or index> non-empty pushes the character_create page after seeding, so
-##                      the shot is the creation host; a numeric value advances Next that many times
-##                      first, to reach later steps.
+## MK_CAPTURE_CREATE=<n> non-empty pushes the character_create page after seeding, so the shot is the
+##                      creation host; a NUMERIC value additionally advances Next that many times, to
+##                      reach later steps. Any non-numeric value is accepted and ignored beyond the
+##                      push — there is no step-id form, deliberately: reaching a step by id would mean
+##                      committing every step before it with values the rig would have to invent.
 ##
 ## [b]Advancing needs a valid step 1.[/b] The first step is the name field and its Next is disabled
 ## until the name validates, so a rig that only pressed Next never left step 1 and every

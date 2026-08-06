@@ -28,8 +28,9 @@ const PAYLOAD_KEY := "archetype"
 ## of empty cells.
 const MAX_COLUMNS := 3
 
-## Ring inset, matching [constant MKSettingsPanel.FOCUS_RING_GROW]'s role: a layout rhythm, with the
-## colour coming from the palette through the variation.
+## Ring OUTSET — the ring is grown beyond the card it traces on all four sides, not inset within it —
+## matching [constant MKSettingsPanel.FOCUS_RING_GROW]'s role: a layout rhythm, with the colour coming
+## from the palette through the variation.
 const RING_GROW := 3.0
 
 var _host: MKCreationHost

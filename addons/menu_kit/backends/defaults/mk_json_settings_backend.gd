@@ -258,11 +258,17 @@ func load() -> void:
 	# corrupt file would have failed the suite. The instance method reports through its return value
 	# instead, which is what a handled path should do.
 	var json := JSON.new()
-	if json.parse(text) != OK or not (json.data is Dictionary):
-		_quarantine("not valid JSON, or not a JSON object (line %d: %s)"
+	# The two failures are reported separately, as MKJsonProfileBackend already does: a SUCCESSFUL parse
+	# whose root is an array leaves the error line and message empty, so folding them together printed
+	# "(line 0: )" — a diagnostic that names a line number for a file with nothing wrong on any line.
+	if json.parse(text) != OK:
+		_quarantine("file is not valid JSON (line %d: %s)"
 			% [json.get_error_line(), json.get_error_message()])
 		return
 	var parsed: Variant = json.data
+	if not (parsed is Dictionary):
+		_quarantine("root of the file is not a JSON object")
+		return
 
 	var data := parsed as Dictionary
 	if not data.has(KEY_VERSION) or not _is_number(data[KEY_VERSION]):
