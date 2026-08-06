@@ -94,7 +94,7 @@ func refresh() -> void:
 	if _refreshing:
 		return
 	_refreshing = true
-	_after(_refresh_delay, func() -> void:
+	var scheduled := _after(_refresh_delay, func() -> void:
 		_refreshing = false
 		for i in _servers.size():
 			var entry := _servers[i]
@@ -104,6 +104,9 @@ func refresh() -> void:
 			_servers[i] = entry
 		servers_changed.emit()
 	)
+	if not scheduled:
+		# Nothing will ever clear the flag, so a later refresh would be refused forever.
+		_refreshing = false
 
 
 ## Starts a fake connection. Reports progress through
@@ -130,7 +133,7 @@ func connect_to(entry: Dictionary) -> void:
 	_generation += 1
 	var generation := _generation
 	_set_state(ConnectState.CONNECTING, "Connecting to %s…" % String(known.get("name", id)))
-	_after(_connect_delay, func() -> void:
+	var scheduled := _after(_connect_delay, func() -> void:
 		if generation != _generation:
 			return
 		if id == FAILING_SERVER_ID:
@@ -138,6 +141,10 @@ func connect_to(entry: Dictionary) -> void:
 		else:
 			_set_state(ConnectState.CONNECTED, "Connected to %s." % String(known.get("name", id)))
 	)
+	if not scheduled:
+		# Out of the tree there is no timer, so nothing would ever move this off CONNECTING and the
+		# panel would sit on a spinner forever. Report the terminal state the caller is owed.
+		_set_state(ConnectState.FAILED, "Connection unavailable.")
 
 
 ## Aborts an in-flight attempt. Safe when idle: with nothing connecting there is no state to leave,
@@ -163,13 +170,19 @@ func _set_state(state: ConnectState, message: String) -> void:
 ## Runs [param action] after [param seconds]. Connected as a one-shot rather than awaited: a
 ## [SceneTreeTimer] drops its connection when this node is freed, whereas an awaited coroutine would
 ## resume inside a freed instance if the menu is torn down mid-connect.
-func _after(seconds: float, action: Callable) -> void:
+## Returns whether the delay was actually scheduled, so a caller that has already announced
+## CONNECTING can report a terminal state instead of stranding the panel on a spinner.
+##
+## Warn rather than error: being out of the tree is recoverable, and [code]MKLog.error[/code] is
+## reserved for contract violations (it also fails the verification gate's output scan).
+func _after(seconds: float, action: Callable) -> bool:
 	var tree := get_tree()
 	if tree == null:
-		MKLog.error("MKStubNetworkBackend needs to be in the tree to run its simulated delays")
-		return
+		MKLog.warn("MKStubNetworkBackend is out of the tree; cannot run its simulated delay")
+		return false
 	var timer := tree.create_timer(maxf(seconds, 0.0))
 	timer.timeout.connect(action, CONNECT_ONE_SHOT)
+	return true
 
 
 func _find(id: StringName) -> Dictionary:

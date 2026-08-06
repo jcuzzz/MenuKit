@@ -116,8 +116,12 @@ func set_value(id: StringName, value: Variant) -> void:
 ## caller; it lives here because the override set is part of the persisted format and only this class
 ## knows how to serialise an [InputEvent] for it.
 ##
-## Writing does [b]not[/b] touch the live [InputMap] — [method apply_all] is the single application
-## point, so "what is stored" and "what the engine is running" cannot drift into two answers.
+## Writing does [b]not[/b] touch the live [InputMap]; call [method apply_all] to push it.
+##
+## There are exactly two application points, both in this class: [method apply_all] and the restore
+## inside [method reset_action_to_default]. Reset needs its own because [method apply_all] walks the
+## overrides that EXIST, so an action that just lost one is never revisited — dropping the override
+## alone left the engine running the binding the user asked to undo, while the row redrew as default.
 func set_action_events(action: StringName, events: Array) -> void:
 	var rows: Array = []
 	for event in events:
@@ -142,8 +146,9 @@ func get_default_action_events(action: StringName) -> Array[InputEvent]:
 	return _deserialize_events(_input_defaults.get(String(action), []))
 
 
-## Drops [param action]'s override so it falls back to its stock bindings. Call [method apply_all]
-## (or re-apply the action) afterwards for the engine to follow.
+## Drops [param action]'s override and restores its stock bindings to the live [InputMap]
+## immediately — no [method apply_all] needed, and see [method _restore_default_events] for why it
+## cannot wait for one.
 func reset_action_to_default(action: StringName) -> void:
 	_input_overrides.erase(String(action))
 	_restore_default_events(action)

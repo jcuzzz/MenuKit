@@ -20,6 +20,18 @@ window/stretch/aspect="expand"
 
 enabled=PackedStringArray("res://addons/menu_kit/plugin.cfg")
 
+[autoload]
+
+; Registered here so EVERY headless gate run loads the service the way a real host does.
+;
+; Without this the demo project never instantiated the autoload, and the one configuration that
+; ships was the only one nothing tested: the service script declared a `class_name` matching its own
+; autoload name, which Godot forbids, so it failed to parse at every boot and §4.2's whole mechanism
+; was absent from every real project — while the suite stayed green because its tests mount the node
+; directly. With the autoload registered, that collision surfaces as a SCRIPT ERROR, and check.ps1's
+; output scan fails the run automatically.
+MKSettingsService="*res://addons/menu_kit/core/mk_settings_service.gd"
+
 [menu_kit]
 
 config_path="res://demo/demo_config.tres"

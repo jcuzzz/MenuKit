@@ -536,7 +536,10 @@ func _resolve_settings_backend() -> MKSettingsBackend:
 	if service.has_method("get_settings_backend"):
 		live = service.call("get_settings_backend")
 	if live == null:
-		MKLog.warn("%s exists but exposes no settings backend — falling back to this scene's slot"
+		# Debug, not warn: the service treats an unassigned settings slot as valid config and stays
+		# deliberately inert, so warning here would give the same fact two verdicts and put a warning
+		# in front of a host that configured nothing wrong.
+		MKLog.debug("%s is present but inert — this scene builds and owns its own settings backend"
 			% SETTINGS_SERVICE_PATH)
 		return _boot_own_settings_backend()
 	_adopted_settings = true

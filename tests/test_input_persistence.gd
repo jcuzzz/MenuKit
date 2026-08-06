@@ -101,6 +101,19 @@ func _test_reset_to_default_uses_the_boot_snapshot() -> void:
 	check(not _action_has_physical(ACTION, KEY_J), "and dropped the override")
 	check(not backend.has_action_override(ACTION), "the action no longer reports as overridden")
 
+	# The global reset — the Controls page's recovery button — takes the same restore path. It had no
+	# coverage, so dropping the restore from it alone would have gone unnoticed.
+	var rebound := InputEventKey.new()
+	rebound.physical_keycode = KEY_K
+	backend.set_action_events(ACTION, [rebound])
+	backend.apply_all()
+	check(_action_has_physical(ACTION, KEY_K), "precondition: rebound again for the global reset")
+
+	backend.reset_all_actions_to_defaults()
+	check(_action_has_physical(ACTION, KEY_F),
+		"reset_all_actions_to_defaults restores stock bindings to the live InputMap too")
+	check(not backend.has_action_override(ACTION), "and clears the override flags")
+
 	backend.free()
 
 

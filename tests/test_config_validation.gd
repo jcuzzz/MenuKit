@@ -83,6 +83,11 @@ func _test_slot_params_reach_the_backend() -> void:
 		check_eq(backend.get_file_path(), "user://test_params_route.json",
 			"the slot's params reached the backend through _mk_configure")
 
+	# §4.8 requires the diagnostics dump to carry resolved user:// paths, and ship gate 9 checks for
+	# them: "settings don't persist" is really a question about WHICH file was written.
+	check(root.dump_diagnostics().contains("store: user://test_params_route.json"),
+		"dump_diagnostics names each backend's resolved store, not just its script")
+
 	# The consumed-keys contract itself: _mk_configure must report exactly what it took, because that
 	# return value is the only thing that makes the unknown-key warning possible. A backend that
 	# quietly returned everything (or nothing) would silence a typo'd config key forever.

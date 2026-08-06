@@ -114,6 +114,23 @@ func _test_profiles_corrupt_recovery() -> void:
 		"profiles: the backend still works after a quarantine")
 	backend.free()
 
+	# A file written by a NEWER MenuKit is left alone, not quarantined. The two backends took
+	# opposite positions on this, and the profile side did exactly what the settings side's comment
+	# named as the harm: renaming aside destroys the roster the newer install still reads.
+	_clean(PROFILES_PATH)
+	var newer := FileAccess.open(PROFILES_PATH, FileAccess.WRITE)
+	check(newer != null, "profiles: could write a future-version store")
+	if newer != null:
+		newer.store_string('{"version": 99, "next_id": 1, "profiles": []}')
+		newer.close()
+	var downgraded := _make_profiles()
+	check_eq(downgraded.list_profiles().size(), 0, "profiles: a newer store boots an empty roster")
+	check(FileAccess.file_exists(PROFILES_PATH),
+		"profiles: and is LEFT IN PLACE — renaming it would destroy what the newer install reads")
+	check(not _corrupt_sibling_exists(PROFILES_PATH),
+		"profiles: specifically, it is not quarantined")
+	downgraded.free()
+
 
 func _make_settings() -> MKJsonSettingsBackend:
 	var backend := MKJsonSettingsBackend.new()

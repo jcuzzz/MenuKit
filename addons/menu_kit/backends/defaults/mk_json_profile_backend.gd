@@ -42,8 +42,12 @@ extends MKProfileBackend
 ## }
 ## [/codeblock]
 
-## Bumped only when the on-disk layout changes in a way this script must branch on. A file whose
-## version is unknown (a newer MenuKit wrote it) is treated as unreadable rather than guessed at.
+## Bumped only when the on-disk layout changes in a way this script must branch on.
+##
+## A file written by a NEWER MenuKit is left exactly where it is: this build boots an empty roster
+## and warns. Renaming it aside would destroy the roster the newer install still reads, which is the
+## harm quarantine exists to prevent. Only a file that is genuinely unreadable — bad JSON, wrong
+## shape, or a version below 1 — is quarantined. [MKJsonSettingsBackend] takes the same position.
 const SCHEMA_VERSION := 1
 
 const DEFAULT_FILE_PATH := "user://menukit_profiles.json"

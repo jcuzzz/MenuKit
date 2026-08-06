@@ -18,10 +18,19 @@ const SERVICE_NAME := "MKSettingsService"
 
 
 func run_tests() -> void:
+	# The project registers the real MKSettingsService autoload so every gate run loads it the way a
+	# host does. These tests mount their own service instances under the same node name, so the real
+	# one is parked for the duration — otherwise Godot renames the duplicate and
+	# get_node_or_null("/root/MKSettingsService") keeps resolving to the autoload, silently testing
+	# something other than the instance under test.
+	var parked_for_suite := _park_autoload()
+
 	await _test_standalone()
 	await _test_adopt()
 	await _test_mismatch_keeps_service_instance()
 	await _test_service_resolves_from_project_setting()
+
+	_restore_autoload(parked_for_suite)
 
 
 ## The SHIPPED resolution route, not the injection seam.
@@ -92,17 +101,21 @@ func _test_standalone() -> void:
 	await step_frame()
 
 
-func _clean_store(path: String) -> void:
-	var dir := DirAccess.open(path.get_base_dir())
-	if dir == null:
-		return
-	var stem := path.get_file().get_basename()
-	for file in dir.get_files():
-		if file.begins_with(stem):
-			dir.remove(file)
+## Takes the registered autoload out of the tree and hands it back for restoration.
+##
+## Returns null when there is none, so the caller needs no branch. Removing rather than freeing:
+## the node belongs to the engine's autoload list, and freeing it would break every later test.
+func _park_autoload() -> Node:
+	var service := get_root().get_node_or_null(SERVICE_NAME)
+	if service == null:
+		return null
+	get_root().remove_child(service)
+	return service
 
-	root.free()
-	await step_frame()
+
+func _restore_autoload(service: Node) -> void:
+	if service != null and is_instance_valid(service):
+		get_root().add_child(service)
 
 
 ## With the service present, MKRoot must borrow — not build a second instance over the same file.

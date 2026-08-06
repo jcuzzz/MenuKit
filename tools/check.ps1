@@ -196,10 +196,14 @@ if ($Smokes) {
                     $unmatched = @()
                     foreach ($e in $expected) {
                         if ($e -eq "") { continue }
+                        # Search only lines that are ACTUALLY errors. Scanning every line let a
+                        # declaration be satisfied by ordinary output - "passed" matches the harness's
+                        # own summary line - which both faked the match and silently exempted any real
+                        # error containing that word.
                         $seen = $false
                         foreach ($f in @($log, "$log.err")) {
                             if (-not (Test-Path $f)) { continue }
-                            foreach ($line in Get-Content $f) {
+                            foreach ($line in (Get-Content $f | Where-Object { $_ -match $noisePattern })) {
                                 if ($line -notmatch 'MKTEST_EXPECT_NOISE:' -and $line.Contains($e)) {
                                     $seen = $true; break
                                 }
