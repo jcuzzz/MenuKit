@@ -237,11 +237,14 @@ func has_modal(control: Control) -> bool:
 ##   here, not a hazard: the emissions unwind the host's suspend depth and mouse mode, which the push
 ##   had raised.
 ##
-## The guard is still load-bearing on top of the drop, because the drop is not universal: a host that
-## DETACHES the shell and then queues it ([code]remove_child(root)[/code] then
-## [code]root.queue_free()[/code]) runs the owner's [method Node._exit_tree] a flush earlier than the
-## deletion, so the deferred call really does arrive — on a layer that is alive but doomed. Emitting
-## there is the exact mid-teardown pop [method clear_for_teardown] exists to prevent. Hence the walk:
+## The guard is still load-bearing on top of the drop, because the drop is not universal: a shell
+## QUEUED but still in the tree when a panel under it dies ([code]root.queue_free()[/code] followed by
+## [code]panel.free()[/code] in the same frame — a page swap on the way out) runs the owner's
+## [method Node._exit_tree] immediately while this layer survives until the delete queue flushes, so
+## the deferred call really does arrive — on a layer that is alive but doomed. Emitting there is the
+## exact mid-teardown pop [method clear_for_teardown] exists to prevent. (Detach-then-queue is NOT
+## that shape: [code]remove_child(root)[/code] runs [method clear_for_teardown] synchronously inside
+## the detach, so the stack is already empty at reap time — measured, round 6.) Hence the walk:
 ## whether this layer, or anything above it, is queued for deletion. It is a walk rather than a check
 ## on this node because the queued flag is set on whichever ancestor the host called
 ## [method Node.queue_free] on and is not propagated down.
@@ -249,6 +252,10 @@ func has_modal(control: Control) -> bool:
 ## Tolerant by design: the dialog may already have been popped, or freed, in the frame between the
 ## schedule and the flush (a cancel gesture in that window is declined by the resolved dialog, so the
 ## layer pops it and self-heals). Both are no-ops here rather than errors.
+##
+## [b]Ownership exception[/b]: unlike [method pop_modal], which returns ownership to whoever pushed,
+## this method DESTROYS what it is handed. It exists for resolved corpses whose owner is already
+## dead. A host reusing a cached dialog must never route it through here — use [method remove_modal].
 func reap_modal(control: Control) -> void:
 	if control == null or not is_instance_valid(control):
 		return

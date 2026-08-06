@@ -579,6 +579,12 @@ func _test_the_corpse_frame_is_inert_and_self_heals() -> void:
 	check_eq(layer.depth(), 1, "the dialog is still stacked the instant its owner died — the reap is deferred, by design")
 	check(layer.top() == countdown, "and it is still the top, so it is what a cancel gesture would reach")
 
+	# The process-flag half of mark_resolved, asserted directly: the manual _process() call below
+	# ignores set_process(), so WITHOUT these two lines that half is unprovable in principle
+	# (round 6, MAJOR 2 — a mark_resolved reduced to the latch alone stayed green).
+	check(not countdown.is_running(), "mark_resolved stopped the countdown running the moment its owner died")
+	check(not countdown.is_processing(), "and turned its _process off — the corpse does not tick between frames")
+
 	countdown._process(MKSettingsPanel.REVERT_SECONDS * 2.0)
 	check_eq(resolutions[0], 0,
 		"an advance of twice the full duration emits NOTHING — mark_resolved stopped it and latched it, so the corpse cannot lapse into handlers whose panel is gone")

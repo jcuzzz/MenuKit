@@ -54,6 +54,7 @@ func run_tests() -> void:
 	await _test_no_backend_renders_disabled()
 	await _test_resolution_row()
 	await _test_resolution_uses_authored_labels()
+	await _test_resolution_diagnostics_name_their_defs()
 	await _test_resolution_enabled_rechecks_on_reshow()
 	await _test_external_write_syncs_the_control()
 	await _test_row_interaction_applies_one()
@@ -651,6 +652,38 @@ func _test_resolution_uses_authored_labels() -> void:
 	button.item_selected.emit(0)
 	check_eq(backend.get_value(MKSettingsPanel.ID_RESOLUTION, null), Vector2i(1280, 720),
 		"and the label change did not disturb the VALUE the entry writes")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## The two resolution-row authoring diagnostics (round 6, MAJOR 3: both shipped with nothing that
+## failed when they were deleted). Debug-level, so the observer — which sees debug regardless of the
+## verbose gate — is the assertable surface, exactly the class MKLog.observer exists for.
+func _test_resolution_diagnostics_name_their_defs() -> void:
+	var backend := _make_backend()
+	backend.set_value(MKSettingsPanel.ID_WINDOW_MODE, 0)
+
+	# Same size authored twice under different labels, AND one more label than there are values —
+	# both editing slips in one def, so each message must appear and each must name the def.
+	var resolution := _enum_def(MKSettingsPanel.ID_RESOLUTION,
+		["Native", "Also Native", "Attached To Nothing"],
+		[Vector2i(1920, 1080), Vector2i(1920, 1080)])
+	_watch_log()
+	var panel := await _make_panel(backend, [_page("video", "Video", [resolution])])
+	var messages := _stop_watching()
+
+	check_eq(_count_containing(messages, "twice with different labels"), 1,
+		"a size authored twice under different labels is said out loud — the symptom is otherwise a label that never appears, with nothing anywhere to explain it")
+	check_eq(_count_containing(messages, "belong to no size"), 1,
+		"and a trailing label past the values array is reported too — the mirror of the surplus-values line, so neither direction of the slip is silent")
+
+	var button := panel._resolution_button
+	check(button != null, "the row still builds — both are diagnostics, not refusals")
+	if button != null:
+		check_eq(button.get_item_text(0), "Also Native",
+			"and the documented behaviour holds: one entry per distinct size, the LAST label wins")
 
 	panel.queue_free()
 	backend.queue_free()
