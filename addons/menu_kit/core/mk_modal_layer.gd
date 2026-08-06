@@ -207,6 +207,17 @@ func remove_modal(control: Control) -> bool:
 	return true
 
 
+## Whether [param control] is currently on this stack. A read-only query, so an owner can decide
+## whether it still has to dispose of a modal without mutating the stack to find out — which
+## [method remove_modal] would, and which is exactly what a teardown path must not do.
+##
+## [MKSettingsPanel._resolve_orphaned_countdown] is the caller this exists for: it must free a dialog
+## the layer has already let go of (a [method pop_all] on a page change) and must NOT free one the
+## layer still owns and will dispose of in [method clear_for_teardown].
+func has_modal(control: Control) -> bool:
+	return _stack.has(control)
+
+
 ## Empties the stack during teardown [b]without emitting [signal modal_popped][/b].
 ##
 ## Teardown must not route through the normal pop path. [constant Node.NOTIFICATION_EXIT_TREE]
@@ -221,10 +232,21 @@ func remove_modal(control: Control) -> bool:
 ## So teardown discards rather than unwinds: MKRoot zeroes its own counters, and each policy undoes
 ## its own effects in its own [method Node._exit_tree] while its tree reference is still valid.
 func clear_for_teardown() -> void:
+	# DRAINED FROM A SNAPSHOT, and the stack is emptied BEFORE the loop body runs — not iterated in
+	# place. remove_child() fires NOTIFICATION_EXIT_TREE synchronously, so any handler an entry (or one
+	# of its descendants) has on tree_exited can re-enter remove_modal and shrink _stack underneath the
+	# cursor: an entry removed at or below the current index slides the rest down one, and the entry
+	# that lands on the vacated index is SKIPPED — never untrapped, never unparented, never told the
+	# layer went away, and then destroyed by the root's own free. Emptying first also makes any such
+	# re-entrant remove_modal a no-op that finds nothing and emits nothing, which is what teardown
+	# requires of it.
+	var draining := _stack.duplicate()
+	_stack.clear()
+	_focus_memory.clear()
 	# Unparent and untrap each entry, exactly as a pop would — just without the signal. This layer
 	# never frees what it did not create (a host may cache a dialog and reuse it), so leaving entries
 	# parented here would hand them to the root's own free and destroy them with it.
-	for control in _stack:
+	for control in draining:
 		if control == null or not is_instance_valid(control):
 			continue
 		MKFocus.release(control)
@@ -236,8 +258,6 @@ func clear_for_teardown() -> void:
 		# away. Host-owned modals implement nothing and are simply handed back.
 		if control.has_method("_mk_layer_teardown"):
 			control.call("_mk_layer_teardown")
-	_stack.clear()
-	_focus_memory.clear()
 	_sync_scrim()
 
 

@@ -36,6 +36,10 @@ func run_tests() -> void:
 	await _test_freeing_the_panel_reverts_an_unconfirmed_countdown()
 	await _test_a_synced_control_raises_no_countdown()
 	await _test_untouched_text_row_raises_no_countdown()
+	await _test_shell_teardown_emits_no_modal_pops()
+	await _test_teardown_disconnects_the_backend_before_reverting()
+	await _test_a_second_change_replaces_the_live_countdown()
+	await _test_different_rows_keep_independent_countdowns()
 	_clean()
 
 
@@ -417,8 +421,16 @@ func _test_a_page_change_reverts_an_unconfirmed_countdown() -> void:
 
 ## The other teardown order, and it really happens: the panel is destroyed while the countdown is
 ## STILL parented to the modal layer (a host tearing its options screen down, a rebuild). The panel is
-## the only thing that knows what the previous value was, so it resolves what it raised before it lets
-## go of the backend.
+## the only thing that knows what the previous value was, so it resolves what it raised on its way out.
+##
+## [b]And it resolves it WITHOUT touching the modal stack.[/b] The orphan path used to call
+## [method MKModalLayer.remove_modal] here, which is a real pop — see
+## _test_shell_teardown_emits_no_modal_pops for what that did on the sequence this same code runs
+## during. So the STORE is put back (the half that outlives the panel and the half D14 promises) and
+## the dialog is left where it is: the layer still owns it, and disposes of it in its own
+## emission-free [method MKModalLayer.clear_for_teardown]. That is asserted here too, because "we
+## stopped removing it" without "somebody still frees it" is a leak, and the harness gate would be the
+## only thing to say so.
 func _test_freeing_the_panel_reverts_an_unconfirmed_countdown() -> void:
 	var fixture := await _make_panel_fixture()
 	var backend: MKJsonSettingsBackend = fixture["backend"]
@@ -441,8 +453,195 @@ func _test_freeing_the_panel_reverts_an_unconfirmed_countdown() -> void:
 
 	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0,
 		"the panel reverted what it had raised on its way out — the backend outlives it, which is why the STORE is the load-bearing half")
-	check_eq(layer.depth(), 0, "and took the dialog off the stack")
-	check(not is_instance_valid(countdown), "and freed it")
+	check_eq(layer.depth(), 1,
+		"and left the dialog ON the stack: a removal here is a real pop, and a pop during teardown drives MKRoot's suspend edge into a detached pause policy")
+	check(layer.has_modal(countdown),
+		"the layer still owns the entry, so nothing is wedged behind the panel's back either")
+	check(is_instance_valid(countdown), "and the panel did not free what it no longer owns")
+
+	await _drop_fixture(fixture)
+	check(not is_instance_valid(countdown),
+		"the LAYER's own teardown disposes of it, through _mk_layer_teardown — the ownership handoff is complete, not abandoned")
+
+
+## [b]Teardown must be silent, including the part of it the settings panel runs.[/b]
+##
+## [constant Node.NOTIFICATION_EXIT_TREE] propagates children first, so on
+## [code]MKRoot.queue_free()[/code] the panel's [method Node._exit_tree] runs BEFORE MKRoot's. Its
+## orphan-revert path called [method MKModalLayer.remove_modal], which pops for real: that emitted
+## [signal MKModalLayer.modal_popped] and [signal MKModalLayer.emptied] mid-teardown, drove MKRoot's
+## suspend counter to its 1→0 edge, called [method MKPausePolicy.exit_menu] on a policy already out of
+## the tree, and restored the GAMEPLAY mouse mode onto the menu — every failure
+## [method MKModalLayer.clear_for_teardown] exists to prevent, routed around it by its own caller. And
+## MKRoot's own repair ran afterwards, reading a suspend depth the pop had already zeroed.
+##
+## The suspension is real here (the pause menu is open) because that is the state that makes the
+## emission harmful; with nothing suspended the pops are silent and the bug is invisible.
+func _test_shell_teardown_emits_no_modal_pops() -> void:
+	var fixture := await _make_panel_fixture()
+	var backend: MKJsonSettingsBackend = fixture["backend"]
+	var root: MKRoot = fixture["root"]
+	var button: OptionButton = fixture["option"]
+	var layer := root.get_modal_layer()
+
+	check(root.open_pause_menu(&"other"),
+		"the shell is suspended — the pause menu is where a player changes display settings")
+	check(root.get_suspend_depth() > 0, "so the suspend counter is genuinely raised")
+
+	button.select(1)
+	button.item_selected.emit(1)
+	var countdown := layer.top() as MKRevertCountdown
+	check(countdown != null, "and a requires_confirm change stacked its countdown")
+	if countdown == null:
+		await _drop_fixture(fixture)
+		return
+
+	var pops := [0]
+	var empties := [0]
+	layer.modal_popped.connect(func(_c: Control) -> void: pops[0] += 1)
+	layer.emptied.connect(func() -> void: empties[0] += 1)
+
+	root.queue_free()
+	await step_frame()
+	await step_frame()
+
+	check_eq(pops[0], 0,
+		"tearing the whole shell down emits NO modal_popped — the panel's teardown revert never reaches the modal stack")
+	check_eq(empties[0], 0, "and no emptied either, which is the edge a host acts on")
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0,
+		"while the unconfirmed change is still put back, which is what D14 owes the player")
+	check(not is_instance_valid(countdown),
+		"and the dialog was disposed of by the layer's teardown, so silence did not cost a leak")
+
+	await _drop_fixture(fixture)
+
+
+## [b]The backend is disconnected BEFORE the teardown revert, and the order is the assertion.[/b]
+##
+## The revert is a real [method MKSettingsBackend.set_value], so with the connection still live it came
+## straight back through [code]_on_setting_changed[/code] and re-entered [code]_sync_control[/code] on
+## a panel that is mid-[method Node._exit_tree] — writing widgets from inside the notification that is
+## freeing them. Asserting "no error appeared" would pass against either order, so the probe backend
+## records, at the moment of each write, whether the panel was still subscribed.
+func _test_teardown_disconnects_the_backend_before_reverting() -> void:
+	var probe := OrderProbeBackend.new()
+	probe._mk_configure({"file_path": STORE_PATH})
+	var fixture := await _make_panel_fixture(probe)
+	var panel: MKSettingsPanel = fixture["panel"]
+	var button: OptionButton = fixture["option"]
+	probe.watch(panel)
+
+	button.select(1)
+	button.item_selected.emit(1)
+	check(probe.last_write_was_connected(),
+		"an ordinary row write lands while the panel IS subscribed — that is the live path, and the probe can see it")
+
+	panel.queue_free()
+	await step_frame()
+	await step_frame()
+
+	check(not probe.last_write_was_connected(),
+		"but the TEARDOWN revert lands with the panel already disconnected — resolving first sent it back through _on_setting_changed and into _sync_control on a dying panel")
+
+	await _drop_fixture(fixture)
+
+
+## [b]A second change to the SAME row replaces its countdown; it does not stack another.[/b]
+##
+## Two live dialogs over one setting meant two timers, and the older one carried the intermediate value
+## as its [code]previous[/code]: a player who pressed Keep on the second dialog watched the first lapse
+## a moment later and drag the setting back over the change they had just confirmed. And the chain is
+## the other half — A→B→C reverts to A, because B was never confirmed either, so restoring B would
+## restore a value the user never agreed to keep.
+func _test_a_second_change_replaces_the_live_countdown() -> void:
+	var fixture := await _make_panel_fixture()
+	var backend: MKJsonSettingsBackend = fixture["backend"]
+	var root: MKRoot = fixture["root"]
+	var panel: MKSettingsPanel = fixture["panel"]
+	var layer := root.get_modal_layer()
+
+	var slider := _first_slider(panel)
+	check(slider != null, "the fixture carries a requires_confirm SLIDER row")
+	if slider == null:
+		await _drop_fixture(fixture)
+		return
+	check_eq(slider.value, 1.0, "which starts on its default — the value a full revert must reach")
+
+	slider.value = 1.5
+	check_eq(layer.depth(), 1, "the first change raises one countdown")
+	var countdown := layer.top() as MKRevertCountdown
+	check(countdown != null, "which is the revert dialog")
+	if countdown == null:
+		await _drop_fixture(fixture)
+		return
+
+	# Let it tick, so a restarted timer is distinguishable from an untouched one.
+	await step_frame()
+	await step_frame()
+	check(countdown.get_time_left() < MKSettingsPanel.REVERT_SECONDS, "and it is counting down")
+
+	slider.value = 1.8
+	check_eq(layer.depth(), 1,
+		"a SECOND change to the same row stacks NOTHING — one dialog per setting, or two timers race over one value")
+	check_eq(layer.top(), countdown, "it is the same dialog, still the top of the stack")
+	check_eq(countdown.get_time_left(), MKSettingsPanel.REVERT_SECONDS,
+		"with its timer RESTARTED — the user just acted, so they get the full window to react to what they can now see")
+	check_eq(backend.get_value(&"video/gamma_probe", 0.0), 1.8,
+		"and the newest change is applied immediately, as D14 requires")
+
+	countdown.start(0.1)
+	await _advance_until(func() -> bool: return layer.depth() == 0, 120)
+
+	check_eq(backend.get_value(&"video/gamma_probe", 0.0), 1.0,
+		"the lapse restores the value from before the FIRST unconfirmed change — chaining to the intermediate 1.5 would restore something the user never confirmed either")
+	check(is_equal_approx(slider.value, 1.0), "and the control goes back with it")
+
+	await _drop_fixture(fixture)
+
+
+## Different ids stay independent: a window-mode countdown has nothing to say about a gamma change,
+## and collapsing them onto one entry would let either revert overwrite the other's row.
+func _test_different_rows_keep_independent_countdowns() -> void:
+	var fixture := await _make_panel_fixture()
+	var backend: MKJsonSettingsBackend = fixture["backend"]
+	var root: MKRoot = fixture["root"]
+	var panel: MKSettingsPanel = fixture["panel"]
+	var button: OptionButton = fixture["option"]
+	var layer := root.get_modal_layer()
+
+	var slider := _first_slider(panel)
+	check(slider != null, "the fixture carries the SLIDER row")
+	if slider == null:
+		await _drop_fixture(fixture)
+		return
+
+	slider.value = 1.5
+	button.select(1)
+	button.item_selected.emit(1)
+	check_eq(layer.depth(), 2,
+		"two DIFFERENT requires_confirm rows raise two countdowns — each def's revert is its own")
+
+	# Resolve the window-mode one on top by keeping it; the gamma one underneath must be untouched.
+	var top := layer.top() as MKRevertCountdown
+	check(top != null, "the window-mode dialog is on top")
+	if top != null:
+		top.get_keep_button().pressed.emit()
+	await step_frame()
+
+	check_eq(layer.depth(), 1, "keeping one leaves the other stacked")
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 3,
+		"the kept row keeps its new value")
+
+	var remaining := layer.top() as MKRevertCountdown
+	check(remaining != null, "and the gamma dialog is still live")
+	if remaining != null:
+		remaining.start(0.1)
+		await _advance_until(func() -> bool: return layer.depth() == 0, 120)
+
+	check_eq(backend.get_value(&"video/gamma_probe", 0.0), 1.0,
+		"whose lapse reverts ITS row")
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 3,
+		"and leaves the row that was confirmed alone — one entry for both ids would have dragged this back too")
 
 	await _drop_fixture(fixture)
 
@@ -614,12 +813,41 @@ func _make_countdown() -> MKRevertCountdown:
 	return countdown
 
 
+## A real [MKJsonSettingsBackend] that records, for every write, whether the panel was still
+## subscribed to [signal MKSettingsBackend.setting_changed] at the moment it landed.
+##
+## A subclass rather than a stub: the ordering under test is between the panel's own
+## [method Node._exit_tree] steps, so everything except the recording must be the shipped backend's
+## behaviour. It observes the CONNECTION rather than a side effect because the side effect — a sync
+## re-entering a panel that is being freed — is invisible to an assertion and only sometimes an error.
+class OrderProbeBackend extends MKJsonSettingsBackend:
+	var _panel: Node
+	## One entry per set_value, in order. The LAST is the teardown revert.
+	var connected_at_write: Array[bool] = []
+
+	func watch(panel: Node) -> void:
+		_panel = panel
+
+	func set_value(id: StringName, value: Variant) -> void:
+		connected_at_write.append(_panel != null and is_instance_valid(_panel)
+			and setting_changed.is_connected(Callable(_panel, "_on_setting_changed")))
+		super(id, value)
+
+	func last_write_was_connected() -> bool:
+		return not connected_at_write.is_empty() \
+			and connected_at_write[connected_at_write.size() - 1]
+
+
 ## A real MKRoot (for its modal layer), a real JSON backend, and a panel carrying one
 ## requires_confirm ENUM row — the shipped Video page's window-mode shape, minus the rest.
-func _make_panel_fixture() -> Dictionary:
+##
+## [param backend_override] lets a test supply an observing subclass; null builds the plain one.
+func _make_panel_fixture(backend_override: MKJsonSettingsBackend = null) -> Dictionary:
 	_clean()
-	var backend := MKJsonSettingsBackend.new()
-	backend._mk_configure({"file_path": STORE_PATH})
+	var backend := backend_override
+	if backend == null:
+		backend = MKJsonSettingsBackend.new()
+		backend._mk_configure({"file_path": STORE_PATH})
 	get_root().add_child(backend)
 	backend.set_value(MKSettingsPanel.ID_WINDOW_MODE, 0)
 
@@ -679,10 +907,13 @@ func _drop_fixture(fixture: Dictionary) -> void:
 	var panel = fixture["panel"]
 	if is_instance_valid(panel):
 		panel.queue_free()
-	var root: MKRoot = fixture["root"]
+	# The ROOT is untyped for the same reason as the panel now: one test frees the whole shell (that IS
+	# the test), and a typed assignment evaluates against the freed instance and raises "Trying to
+	# assign invalid previously freed instance" — an engine error the gate fails on.
+	var root = fixture["root"]
 	if is_instance_valid(root):
 		root.queue_free()
-	var backend: MKJsonSettingsBackend = fixture["backend"]
+	var backend = fixture["backend"]
 	if is_instance_valid(backend):
 		backend.queue_free()
 	await step_frame()

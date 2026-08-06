@@ -24,6 +24,7 @@ func run_tests() -> void:
 	await _test_clear_for_teardown_is_silent()
 	await _test_clear_for_teardown_returns_ownership()
 	await _test_pop_on_detached_layer_is_quiet()
+	await _test_teardown_survives_a_re_entrant_removal()
 
 
 ## A host that frees a dialog it pushed itself leaves a corpse in the stack. Popping it must not
@@ -155,6 +156,60 @@ func _test_pop_on_detached_layer_is_quiet() -> void:
 
 	panel.free()
 	host.free()
+
+
+## [b]Teardown must survive an entry that reaches back into the layer while it is being drained.[/b]
+##
+## [method MKModalLayer.clear_for_teardown] unparents each entry, and [method Node.remove_child] fires
+## [constant Node.NOTIFICATION_EXIT_TREE] SYNCHRONOUSLY — so a modal with a [signal Node.tree_exited]
+## handler runs inside the drain loop. Iterated in place, a handler that removes an entry at or below
+## the cursor shrinks [code]_stack[/code] underneath it: the entry that slides into the vacated index
+## is skipped entirely — never untrapped, never unparented, never told the layer is going away, and
+## then destroyed by the root's own free along with the layer.
+##
+## The shape is not invented for the test. Removing itself from the layer on [signal Node.tree_exited]
+## is precisely what [MKSettingsPanel]'s revert countdown did until this round, and any host modal that
+## keeps the layer's bookkeeping straight from its own teardown does the same thing.
+func _test_teardown_survives_a_re_entrant_removal() -> void:
+	var layer := MKModalLayer.new()
+	layer.name = "ReentrantLayer"
+	get_root().add_child(layer)
+	await step_frame()
+
+	var popped: Array[String] = []
+	layer.modal_popped.connect(func(_c: Control) -> void: popped.append("pop"))
+
+	var first := _make_panel()
+	var second := _make_panel()
+	layer.push_modal(first)
+	await step_frame()
+	layer.push_modal(second)
+	await step_frame()
+	check_eq(layer.depth(), 2, "two modals stacked")
+
+	# `first` is the entry the drain reaches FIRST, and it removes ITSELF — so an in-place loop advances
+	# its cursor past `second`, the entry that just slid down into index 0.
+	first.tree_exited.connect(func() -> void:
+		if is_instance_valid(layer):
+			layer.remove_modal(first)
+	)
+
+	layer.clear_for_teardown()
+
+	check_eq(layer.depth(), 0, "teardown still empties the stack")
+	check_eq(second.get_parent(), null,
+		"and the entry a re-entrant removal shifted past is STILL unparented — skipped, it would be freed with the layer, contradicting the layer's own 'removed but never freed' ownership rule")
+	check(not second.has_meta(MKFocus.TRAP_META),
+		"and its focus trap released, so a host reusing it as page content has no region focus cannot leave")
+	check(not first.has_meta(MKFocus.TRAP_META), "the self-removing entry is released too")
+	check_eq(popped.size(), 0,
+		"and NOTHING was emitted: the stack is emptied before the drain runs, so a re-entrant remove_modal finds nothing and reports false rather than popping during teardown")
+
+	first.free()
+	second.free()
+	layer.queue_free()
+	await step_frame()
+	await step_frame()
 
 
 func _make_panel() -> Control:

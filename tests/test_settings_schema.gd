@@ -25,6 +25,11 @@ const DEFAULT_PAGES := [
 	"res://addons/menu_kit/settings/defaults/gameplay_page.tres",
 ]
 
+## The sentinel [code]tests/probes/mk_probe_line_edit_row.gd[/code] writes into its own display.
+## Spelled out here rather than read off the probe script, so the assertion states the string it
+## expects instead of comparing the probe against itself.
+const _LINE_EDIT_SENTINEL := "row-owned"
+
 ## Messages MKLog emitted while [method _watch_warnings] was armed.
 var _warnings: Array[String] = []
 
@@ -60,6 +65,8 @@ func run_tests() -> void:
 	await _test_slider_sync_snaps_the_widget_and_leaves_the_store()
 	await _test_duplicate_row_ids_are_named()
 	await _test_the_window_beats_the_store()
+	await _test_a_custom_row_is_never_synced_by_the_panel()
+	await _test_a_bad_window_mode_probe_is_refused()
 
 	_clean()
 	_restore_autoload(parked)
@@ -1052,6 +1059,94 @@ func _test_the_window_beats_the_store() -> void:
 	await step_frame()
 
 
+## [b]The panel writes NO custom row's widget, and the exclusion is on the row TYPE — not on luck.[/b]
+##
+## [code]_build_custom[/code] registers the host scene's root in [code]_controls[/code], and
+## [code]_sync_control[/code] dispatches by widget class. A CUSTOM root is legally any Control, so one
+## that happens to be a [LineEdit] (or a [CheckBox], or an [HSlider]) fell into a branch written for a
+## row this panel had built and was assigned the RAW store value — [code]_display_value[/code] has no
+## CUSTOM arm and cannot have one, because the panel does not know what the scene reads.
+##
+## Both halves are asserted, because they fail differently. A String store value lands cleanly and
+## silently overwrites a display the panel does not own; an int is [code]LineEdit.text = 7[/code],
+## which is a SCRIPT ERROR — the engine-noise gate in check.ps1 is the assertion for that one.
+func _test_a_custom_row_is_never_synced_by_the_panel() -> void:
+	var backend := _make_backend()
+	backend.set_value(&"custom/line_edit", "store-a")
+
+	var def := _def(&"custom/line_edit", MKSettingDef.RowType.CUSTOM, "LineEdit root")
+	def.custom_scene = _scene_line_edit_with_bind()
+	var panel := await _make_panel(backend, [_page("cle", "CLE", [def])])
+
+	var edit := _first(panel, LineEdit) as LineEdit
+	check(edit != null, "a CUSTOM row whose root IS a LineEdit builds — the contract asks for a Control, not for a shape")
+	if edit == null:
+		panel.queue_free()
+		backend.queue_free()
+		await step_frame()
+		return
+	check_eq(panel._controls.get(&"custom/line_edit", null), edit,
+		"and the panel registers that root, which is how a custom row gets a revert and a condition lookup at all")
+	check_eq(edit.text, _LINE_EDIT_SENTINEL,
+		"the row filled its own display in _mk_bind, not the panel")
+
+	# A type the LineEdit branch would have taken happily: the failure here is silent, not loud.
+	backend.set_value(&"custom/line_edit", "store-b")
+	await step_frame()
+	check_eq(edit.text, _LINE_EDIT_SENTINEL,
+		"an external write does NOT reach a CUSTOM row's widget — the row owns its backend relationship end to end, and the panel writing it would overwrite a display it does not understand")
+
+	# And the type that used to take the panel down: 'Invalid assignment of property text with value
+	# of type int'. No assertion can see engine output, so the gate is the second half of this one.
+	backend.set_value(&"custom/line_edit", 11)
+	await step_frame()
+	check_eq(edit.text, _LINE_EDIT_SENTINEL,
+		"including a value no LineEdit could take — the row is excluded before any dispatch, so the type never has to line up")
+	check_eq(backend.get_value(&"custom/line_edit", null), 11,
+		"and the store keeps what the host wrote")
+
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
+## [member MKSettingsPanel.window_mode_probe] answers [code]() -> int[/code]. A probe wired to the
+## wrong signature must not be coerced: [code]int("fullscreen")[/code] is 0, which IS
+## [constant DisplayServer.WINDOW_MODE_WINDOWED], so a coercion would silently report the OPPOSITE of
+## what the seam was installed to say — and this row's whole reason to exist is that a wrong answer
+## here leaves it enabled over a [method DisplayServer.window_set_size] that does nothing.
+func _test_a_bad_window_mode_probe_is_refused() -> void:
+	var backend := _make_backend()
+	backend.set_value(MKSettingsPanel.ID_WINDOW_MODE, DisplayServer.WINDOW_MODE_FULLSCREEN)
+	var panel := await _make_panel(backend, [_page("video", "Video", [
+		_enum_def(MKSettingsPanel.ID_RESOLUTION, ["1280 x 720"], [Vector2i(1280, 720)]),
+	])])
+	var button := panel._resolution_button
+	check(button != null, "the resolution row built")
+	if button == null:
+		panel.queue_free()
+		backend.queue_free()
+		await step_frame()
+		return
+	check(button.disabled, "the stored fullscreen mode disables it under headless")
+
+	# "fullscreen" would coerce to 0 — WINDOW_MODE_WINDOWED — and re-enable the row.
+	panel.window_mode_probe = func() -> Variant: return "fullscreen"
+	_watch_warnings()
+	await _reshow(panel)
+	var warnings := _stop_watching()
+
+	check(button.disabled,
+		"a non-int probe return is IGNORED, and the decision falls back to the real path — coercing it would have flipped this row to enabled")
+	check(_count_containing(warnings, "window_mode_probe") >= 1,
+		"and the bad seam is named, because a testing hook that lies about the window is worse than no hook")
+
+	panel.window_mode_probe = Callable()
+	panel.queue_free()
+	backend.queue_free()
+	await step_frame()
+
+
 ## Hides and re-shows the panel, which is one of the three real edges enablement is re-derived on.
 func _reshow(panel: MKSettingsPanel) -> void:
 	panel.visible = false
@@ -1165,6 +1260,20 @@ func _scene_without_bind() -> PackedScene:
 ## A PackedScene whose root DOES implement _mk_bind but is a plain [Node]. The script is a real file
 ## (tests/probes/) rather than a [GDScript] built in memory, because [method PackedScene.pack]
 ## serialises a script by resource path and an unsaved one does not survive the round trip.
+## A PackedScene whose root implements _mk_bind and IS a [LineEdit] — a legal CUSTOM row that happens
+## to collide with one of [code]_sync_control[/code]'s widget-class branches. Same reason the script is
+## a real file as [method _scene_non_control_with_bind]: [method PackedScene.pack] serialises a script
+## by resource path.
+func _scene_line_edit_with_bind() -> PackedScene:
+	var root := LineEdit.new()
+	root.name = "LineEditRow"
+	root.set_script(load("res://tests/probes/mk_probe_line_edit_row.gd"))
+	var scene := PackedScene.new()
+	scene.pack(root)
+	root.free()
+	return scene
+
+
 func _scene_non_control_with_bind() -> PackedScene:
 	var root := Node.new()
 	root.name = "NonControlBound"

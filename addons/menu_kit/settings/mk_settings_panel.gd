@@ -74,6 +74,9 @@ var _syncing := false
 ## Production behaviour is untouched: with no probe installed, a real display still queries
 ## [DisplayServer] and headless still falls back to the stored mode. Same convention as
 ## [member MKSettingsService.override_backend_slot].
+##
+## The return is VALIDATED as an int rather than coerced — see [method _is_windowed] for what a
+## coerced String would silently do to this row's enablement.
 var window_mode_probe := Callable()
 
 ## Row roots keyed by setting id, for [method _sync_control] after a revert.
@@ -177,10 +180,22 @@ func _disconnect_backend() -> void:
 
 ## An unresolved countdown does not survive its owner. See [method _resolve_orphaned_countdown]: the
 ## panel is the only thing that knows how to put the value back, so it resolves anything still live
-## BEFORE it lets go of the backend it would need to do so.
+## on its way out.
+##
+## [b]The backend is disconnected FIRST, and the order is load-bearing.[/b] The teardown revert is a
+## real [method MKSettingsBackend.set_value], so with the connection still live it came straight back
+## through [method _on_setting_changed] and re-entered [method _sync_control] and
+## [method _update_conditional_rows] on a panel that is mid-[method Node._exit_tree] — writing widgets
+## that are being freed, from inside the notification that is freeing them. Resolving first was the
+## original order and the [code]is_inside_tree()[/code] guard in
+## [method _resolve_orphaned_countdown] did not cover it, because that guard is on the panel's OWN
+## sync call and not on the one arriving back through the signal.
+##
+## Nothing in the revert needs the connection: [method _revert_value] calls the backend directly, and
+## since the orphan path no longer touches the modal layer there is no second consumer either.
 func _exit_tree() -> void:
-	_resolve_live_countdowns()
 	_disconnect_backend()
+	_resolve_live_countdowns()
 
 
 # --- Build --------------------------------------------------------------------
@@ -667,9 +682,10 @@ func _current(def: MKSettingDef) -> Variant:
 ## already been taught to survive. Two copies of a coercion rule is how they diverge, so there is one.
 ##
 ## The fallbacks are the build path's, unchanged: TOGGLE false, SLIDER the def's own minimum (which
-## [Range] would clamp to anyway), TEXT the empty string. Types with no coercion of their own (ENUM,
-## and anything a CUSTOM row reads) get the stored value untouched — [method _index_of_value] is
-## type-gated and handles null by simply not matching.
+## [Range] would clamp to anyway), TEXT the empty string. ENUM has no coercion of its own and gets the
+## stored value untouched — [method _index_of_value] is type-gated and handles null by simply not
+## matching. [constant MKSettingDef.RowType.CUSTOM] never arrives here: nothing in this panel reads or
+## writes a custom row's display (see [method _sync_control]), so there is no widget to coerce for.
 func _display_value(def: MKSettingDef) -> Variant:
 	var current: Variant = _current(def)
 	match def.type:
@@ -716,7 +732,34 @@ func _write(def: MKSettingDef, value: Variant) -> void:
 ## With no modal layer reachable (a host embedding this panel bare) the change simply stays applied
 ## and one warning names the gap. Reverting silently instead would undo a change the user asked for
 ## and never saw questioned.
+## [b]One live countdown per setting id, and it keeps the FIRST unconfirmed value.[/b] A second
+## change to the same row while its countdown is up used to push a SECOND dialog carrying the
+## intermediate value as its [code]previous[/code]: two scrimmed dialogs over one row, and — because
+## the first one is still ticking underneath — a player who pressed Keep on the second still had the
+## first lapse a moment later and drag the setting back to the value it had shown, over the change
+## they had just confirmed.
+##
+## Replacement rather than a second dialog: the existing countdown's timer is RESTARTED (the user just
+## acted, so they get the full window again to react to what they can now see) and its
+## [code]previous[/code] is deliberately left alone. A→B→C reverting to A is the correct chain — B was
+## never confirmed either, so restoring it would restore a value the user never agreed to keep.
+##
+## Different ids stay independent: each def's revert is its own, and a window-mode countdown has
+## nothing to say about a resolution change.
 func _start_revert_countdown(def: MKSettingDef, previous: Variant) -> void:
+	for entry in _live_countdowns:
+		var live_def: MKSettingDef = entry["def"]
+		if live_def == null or live_def.id != def.id:
+			continue
+		var live_countdown: Variant = entry["countdown"]
+		if live_countdown == null or not is_instance_valid(live_countdown):
+			# A dialog that was freed without resolving. Drop the stale bookkeeping and fall through to
+			# raise a fresh one rather than restarting a corpse, which would leave the change unguarded.
+			_live_countdowns.erase(entry)
+			break
+		live_countdown.call("start", REVERT_SECONDS)
+		return
+
 	var layer := _find_modal_layer()
 	if layer == null:
 		MKLog.warn("%s: '%s' requires confirmation but no MKModalLayer is reachable — the change stays applied without a countdown"
@@ -732,7 +775,11 @@ func _start_revert_countdown(def: MKSettingDef, previous: Variant) -> void:
 	)
 	countdown.reverted.connect(func() -> void:
 		_live_countdowns.erase(entry)
-		_revert_value(def, previous)
+		# Read from the ENTRY, not from the captured `previous` local. The entry is the ONE place a
+		# countdown's target value lives — the orphan/teardown route already reads it there — so the
+		# same-def replacement rule above governs BOTH routes from a single site, instead of being
+		# silently right here by virtue of what a lambda happened to close over.
+		_revert_value(def, entry["previous"])
 		# Put the CONTROL back too. The store and the engine are restored above, but a dropdown still
 		# reading the rejected value is the shape of this bug that users report as "it didn't revert".
 		_sync_control(def)
@@ -772,11 +819,32 @@ func _revert_value(def: MKSettingDef, previous: Variant) -> void:
 ## [br]- the panel dies first with the dialog still stacked, via [method _exit_tree].
 ## Whichever arrives first erases the entry, so the other is a no-op.
 ##
-## Re-entrancy is why the removal is written defensively. This runs INSIDE
-## [method MKModalLayer.pop_modal] on the pop_all route — the entry has already left the stack, so
-## [method MKModalLayer.remove_modal] finds nothing and reports false, which is exactly the tolerance
-## required rather than an error. The control sync is skipped once the panel is out of the tree: the
-## widgets are being freed and the store, restored above, is the load-bearing half.
+## [b]This path NEVER touches the modal stack, and that is the whole of its second contract.[/b] It
+## used to call [method MKModalLayer.remove_modal], which is a real pop: on
+## [code]MKRoot.queue_free()[/code] the panel's [method Node._exit_tree] runs BEFORE the root's
+## (exit propagates children first), so that pop emitted [signal MKModalLayer.modal_popped] and
+## [signal MKModalLayer.emptied] DURING teardown — driving MKRoot's suspend counter to its 1→0 edge,
+## calling [method MKPausePolicy.exit_menu] on a policy already out of the tree, and restoring the
+## GAMEPLAY cursor onto the menu that is about to be shown. Every one of those is the failure
+## [method MKModalLayer.clear_for_teardown] exists to prevent, routed around it by its own caller.
+##
+## So disposal is decided by ownership instead:
+## [br]- [b]Off the stack[/b] — the [method MKModalLayer.pop_all] on a page change already let go of
+##   it — nobody else will ever free it, so this frees it.
+## [br]- [b]Still stacked[/b] — the layer owns it, and disposes of it in
+##   [method MKModalLayer.clear_for_teardown] through [code]_mk_layer_teardown[/code], which is
+##   emission-free by contract. Freeing it here would leave a corpse in the layer's stack.
+##
+## [b]The residual, stated rather than papered over.[/b] A panel freed under a SURVIVING shell leaves
+## its dialog stacked: dead (its handlers went with the panel) but present. It is not wedged forever —
+## the next page change pops it, and a cancel gesture on a resolved dialog is declined so the layer
+## pops the stale entry and self-heals — but it does outlive the panel. That is the accepted cost of
+## never emitting during teardown, where the alternative crashes a detached pause policy.
+##
+## The control sync is skipped once the panel is out of the tree: the widgets are being freed, and the
+## store — restored above — is the half that outlives the panel and the half D14 actually promises.
+## The guard is REAL, not defensive tidiness: [method _exit_tree] reaches here after
+## [method _disconnect_backend], so this is the only remaining sync call on a dying panel.
 func _resolve_orphaned_countdown(entry: Dictionary) -> void:
 	if not _live_countdowns.has(entry):
 		return
@@ -789,14 +857,14 @@ func _resolve_orphaned_countdown(entry: Dictionary) -> void:
 	var countdown: Variant = entry["countdown"]
 	if countdown == null or not is_instance_valid(countdown):
 		return
-	if layer != null and is_instance_valid(layer):
-		layer.remove_modal(countdown)
+	if layer != null and is_instance_valid(layer) and layer.has_modal(countdown):
+		return
 	countdown.queue_free()
 
 
 func _resolve_live_countdowns() -> void:
-	# Iterated over a copy: _resolve_orphaned_countdown erases from _live_countdowns, and the
-	# remove_modal inside it can re-enter through tree_exited and erase another.
+	# Iterated over a copy: _resolve_orphaned_countdown erases the entry it resolves, and a queue_free
+	# in there can reach tree_exited (hence this same function's callee) for another.
 	for entry in _live_countdowns.duplicate():
 		_resolve_orphaned_countdown(entry)
 
@@ -814,8 +882,12 @@ func _dismiss_countdown(layer: MKModalLayer, countdown: Control) -> void:
 		#
 		# Its false — "not on this stack" — is tolerated rather than reported: the layer may already
 		# have let go of this dialog (a pop_all on a page change, a host popping it) and the free below
-		# is still owed either way. See _resolve_orphaned_countdown, which reaches here re-entrantly
-		# from inside pop_modal.
+		# is still owed either way.
+		#
+		# This is the ONLY remaining remove_modal in this file, and deliberately so: a Keep, a Revert or
+		# a cancel is a real resolution with the shell alive, so a real pop — scrim, focus restoration,
+		# MKRoot's suspend edge — is exactly right here. The teardown route (_resolve_orphaned_countdown)
+		# must not have any of that and therefore does not come through here.
 		layer.remove_modal(countdown)
 	countdown.queue_free()
 
@@ -851,7 +923,24 @@ func _find_modal_layer() -> MKModalLayer:
 ##
 ## Values are coerced through [method _display_value], so an external write of null lands as the same
 ## fallback the build path uses rather than as a script error.
+##
+## [b][constant MKSettingDef.RowType.CUSTOM] rows are excluded outright, before any dispatch.[/b]
+## [method _build_custom] registers the host scene's ROOT in [member _controls] (that is how a custom
+## row gets a revert and a visible_condition lookup at all), and a custom root is legally any Control —
+## including a [LineEdit], a [CheckBox] or an [HSlider]. The dispatch below is by widget CLASS, so such
+## a root fell into a branch written for a row this panel had built: it received an assignment of the
+## RAW store value, uncoerced (a CUSTOM row has no [method _display_value] arm and cannot have one —
+## the panel does not know what the scene reads), and [code]LineEdit.text = 7[/code] is a script error,
+## not a coercion. Even where the type happened to line up, the panel was overwriting a display it
+## does not own, from a value the row may not even be showing.
+##
+## So the rule the class doc on [method _on_setting_changed] states is enforced here rather than
+## assumed: a CUSTOM row owns its backend relationship end to end. It subscribes to
+## [signal MKSettingsBackend.setting_changed] in its own [code]_mk_bind[/code] if it wants liveness —
+## which is exactly what the shipped [MKExampleCustomRow] does.
 func _sync_control(def: MKSettingDef) -> void:
+	if def.type == MKSettingDef.RowType.CUSTOM:
+		return
 	var control: Variant = _controls.get(def.id, null)
 	if control == null or not is_instance_valid(control):
 		return
@@ -1022,7 +1111,16 @@ func _update_resolution_enabled() -> void:
 ## otherwise unobservable. Nothing installs one in production.
 func _is_windowed() -> bool:
 	if window_mode_probe.is_valid():
-		return int(window_mode_probe.call()) == DisplayServer.WINDOW_MODE_WINDOWED
+		# VALIDATED, not coerced. int() on a String parses it ("fullscreen" -> 0, which IS
+		# WINDOW_MODE_WINDOWED) and on a Dictionary or an Object is a script error, so a probe wired to
+		# the wrong signature would either invert this row's enablement silently or take the page down.
+		# A bad probe falls through to the real query below and says so, naming the seam — the seam is a
+		# testing hook, and a testing hook that lies about the window is worse than no hook.
+		var probed: Variant = window_mode_probe.call()
+		if typeof(probed) == TYPE_INT:
+			return int(probed) == DisplayServer.WINDOW_MODE_WINDOWED
+		MKLog.warn("%s: window_mode_probe returned %s (%s), not an int — ignoring it and querying the window as usual"
+			% [_context("window_mode_probe"), probed, type_string(typeof(probed))])
 	if not _is_headless():
 		return DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_WINDOWED
 	if _backend != null:
