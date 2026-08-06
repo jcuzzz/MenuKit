@@ -126,13 +126,13 @@ func _ready() -> void:
 	# in the editor _ready can run again after a script reload, and a second build would stack a
 	# duplicate camera and a second set of lights (visibly doubling the exposure).
 	_build()
-	# stretch makes the SubViewport's texture fill the container; _sync_viewport_size keeps the
-	# viewport's RESOLUTION equal to the container's pixel size, so the preview is rendered at native
-	# scale rather than magnified from whatever the SubViewport's default 512x512 happened to be.
+	# stretch alone is the whole resolution story: a SubViewportContainer with stretch enabled OWNS its
+	# SubViewport's size and drives it to the container's pixel rect every layout pass — the engine
+	# actively refuses a manual size write in that configuration (a WARNING per attempt, measured by
+	# the Phase 5 test leg). So there is deliberately no resized hook and no size sync here; writing
+	# one back would be inert noise pretending to be load-bearing.
 	stretch = true
-	resized.connect(_sync_viewport_size)
 	visibility_changed.connect(_sync_render_mode)
-	_sync_viewport_size()
 	_sync_render_mode()
 	if preview_scene != null:
 		# The export may have been deserialised before the children existed. Apply it now.
@@ -309,15 +309,6 @@ func _apply_transforms() -> void:
 	_camera.look_at(_pivot.position, Vector3.UP)
 
 
-func _sync_viewport_size() -> void:
-	if _viewport == null:
-		return
-	# Integer pixels, floored at 1: a container laid out to zero height for a frame (a collapsing
-	# container, a hidden tab) would otherwise ask for a 0-sized render target and the driver
-	# complains once per frame.
-	_viewport.size = Vector2i(maxi(int(size.x), 1), maxi(int(size.y), 1))
-
-
 ## A SubViewport with UPDATE_ALWAYS renders every frame whether or not anyone can see it — a full 3D
 ## pass paid by a character sheet nobody has open. Gating on visibility costs one signal and makes a
 ## hidden preview genuinely free; UPDATE_ONCE is not usable here because the content animates.
@@ -330,7 +321,20 @@ func _sync_render_mode() -> void:
 
 func _set_use_own_world(value: bool) -> void:
 	use_own_world = value
-	if _viewport != null:
+	if _viewport == null:
+		return
+	# Flipping own_world_3d on a SubViewport whose 3D instances are already registered with a World3D
+	# nulls their scenario mid-flight — the renderer errors ("Parameter \"scenario\" is null", measured
+	# by the Phase 5 test leg) because the instances are torn between worlds while live. Detaching the
+	# viewport first unregisters everything cleanly, the flip then happens on an offline viewport, and
+	# re-adding re-registers the whole subtree with whichever world now applies. One frame of the
+	# preview texture is skipped; nothing else observes the bounce.
+	var parent := _viewport.get_parent()
+	if parent != null and _viewport.is_inside_tree():
+		parent.remove_child(_viewport)
+		_viewport.own_world_3d = value
+		parent.add_child(_viewport)
+	else:
 		_viewport.own_world_3d = value
 
 
