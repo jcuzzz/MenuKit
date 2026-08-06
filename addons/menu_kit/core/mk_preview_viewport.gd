@@ -112,9 +112,6 @@ var _pitch_deg := 15.0
 var _distance := _FALLBACK_DISTANCE
 var _spin_velocity := 0.0
 var _built := false
-## Set while [method set_preview_scene] is applying an assignment, so the exported setter can be
-## called from anywhere (inspector, host code, _ready's deferred first build) without recursing.
-var _applying := false
 
 
 func _ready() -> void:
@@ -146,10 +143,11 @@ func _ready() -> void:
 ## The camera is re-framed from the new content's bounds; the current yaw/pitch/zoom are NOT reset, so
 ## a user comparing two characters keeps the angle they chose while cycling through a list.
 func set_preview_scene(scene: PackedScene) -> void:
+	# Writing the backing property from inside its own setter does NOT re-enter it — GDScript's
+	# setter/getter dispatch is suppressed for self-assignment within the accessor. So the guard flag
+	# this method used to carry was inert, and the "emits exactly once, not twice through its own
+	# setter" assertion in test_preview_viewport.gd is what holds the line if that ever changes.
 	preview_scene = scene
-	if _applying:
-		return
-	_applying = true
 	_build()
 	if _content != null and is_instance_valid(_content):
 		# Detach before free so a same-frame get_content() cannot hand back a queued-for-deletion node.
@@ -169,7 +167,6 @@ func set_preview_scene(scene: PackedScene) -> void:
 			_content = node_3d
 			_pivot.add_child(_content)
 	frame_content()
-	_applying = false
 	preview_changed.emit()
 
 

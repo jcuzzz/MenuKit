@@ -13,9 +13,15 @@
 ; actually poses the trade-off it exists to pose, and every stat starts inside its own range so no
 ; row opens invalid.
 ;
-; require_full_spend is FALSE. Confirm with points left over is a legitimate choice a player may want
-; (banking is a real design), and a demo that refused it would be asserting a rule MenuKit does not
-; hold. A host wanting the stricter flow flips this one bool.
+; require_full_spend is TRUE, and that is a demo decision rather than a MenuKit rule. §5 lists the
+; full-spend flag gating Confirm as an exit criterion, and a criterion only reachable by editing a
+; resource is not demonstrated: with the flag on, the shipped demo shows the readout's
+; "(spend them all to continue)" line and a greyed Confirm until the pool is empty, which is the
+; behaviour someone evaluating the package came to see.
+;
+; The permissive side is not thereby unasserted. Confirm with points banked is a legitimate design
+; and MenuKit holds no rule against it, so test_pointbuy.gd drives BOTH schemas through a real host.
+; A host wanting the lenient flow flips this one bool.
 ;
 ; effect_hint is authored flavour, not a formula. MenuKit never computes anything from these stats —
 ; the spend is handed to the host in the profile payload under "stats" and the host decides what a
@@ -59,4 +65,4 @@ effect_hint = "Better information, sooner — and more of it retained."
 script = ExtResource("1_schema")
 total_points = 10
 stats = Array[Resource]([SubResource("stat_might"), SubResource("stat_finesse"), SubResource("stat_wits")])
-require_full_spend = false
+require_full_spend = true

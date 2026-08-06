@@ -142,11 +142,21 @@ func _build_card(index: int) -> Control:
 	MKTheme.set_variation(card, MKTheme.PANEL_BUTTON)
 	card.pressed.connect(func() -> void: _select(index))
 
+	# The card's content is inset by a MarginContainer rather than laid flush against the button's
+	# border: the description autowraps, so without it the text ran edge to edge and the card read as a
+	# block of type with a line around it. Theme-driven padding (MarginContainer's margin constants come
+	# from the palette, MKThemeGenerator._style_panels), so it re-skins with everything else and no
+	# number is spelled here.
+	var padding := MarginContainer.new()
+	padding.name = "Padding"
+	padding.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	padding.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(padding)
+
 	var column := VBoxContainer.new()
 	column.name = "Content"
-	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(column)
+	padding.add_child(column)
 
 	if archetype.icon != null:
 		var icon := TextureRect.new()

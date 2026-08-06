@@ -5,15 +5,30 @@ extends RefCounted
 ## visual by construction, same argument as the settings rig.
 ##
 ## MK_CAPTURE_SEED=<n>  creates n throwaway profiles through the demo's real profile backend before
-##                      the shot (the capture run uses the wrapper's isolated user://, so nothing
-##                      touches a real roster). Absent/0 = the empty-roster state, which is itself a
-##                      Phase 5 deliverable worth a picture.
+##                      the shot. The isolation that makes this safe lives in the WRAPPER
+##                      (tools/capture_scene.ps1 redirects APPDATA into .agent_tmp for the child
+##                      engine, the same mechanism check.ps1 uses for the test sweep) — this script
+##                      writes through the ordinary backend and knows nothing about where user://
+##                      resolves. Absent/0 = the empty-roster state, which is itself a Phase 5
+##                      deliverable worth a picture.
 ## MK_CAPTURE_CREATE=<step-id or index> non-empty pushes the character_create page after seeding, so
 ##                      the shot is the creation host; a numeric value advances Next that many times
-##                      first (validity permitting), to reach later steps.
+##                      first, to reach later steps.
+##
+## [b]Advancing needs a valid step 1.[/b] The first step is the name field and its Next is disabled
+## until the name validates, so a rig that only pressed Next never left step 1 and every
+## MK_CAPTURE_CREATE=n shot was the same picture. The rig therefore types a name FIRST — and emits
+## text_changed itself, because assigning LineEdit.text emits nothing (the same trap as
+## OptionButton.select) so the step would never re-poll its validity. Presses are then spaced on
+## timers rather than run in a loop: each step builds its widgets on being shown, and the host
+## re-gates Next off the newly visible step, so a same-frame second press reads the previous step's
+## button state.
 
+## Long enough for the whole advance chain to finish before the shot: the timers above run 0.2s to
+## find the host plus 0.15s per press, so a three-step advance needs ~0.65s of frames. 120 frames at
+## the capture's tick rate covers it with room, and an over-long wait costs only capture seconds.
 func wait_frames() -> int:
-	return 40
+	return 120
 
 
 func setup(node: Node, tree: SceneTree) -> void:
@@ -53,8 +68,38 @@ func setup(node: Node, tree: SceneTree) -> void:
 		if host == null:
 			push_error("characters_rig: MK_CAPTURE_CREATE set but no MKCreationHost found")
 			return
-		var next_button := host.find_child("Next", true, false) as Button
-		for i in advances:
-			if next_button != null and not next_button.disabled:
-				next_button.pressed.emit()
+		_fill_name(host)
+		_advance(host, tree, advances)
+	)
+
+
+## Types a valid name into the name step's LineEdit, so the first Next can enable at all.
+## Searched by CLASS rather than by node name: the shipped step names it "NameEdit", but a host that
+## replaced step 1 with its own scene still has to satisfy the same validity gate, and a rig that
+## hard-coded the name would silently do nothing there.
+func _fill_name(host: Node) -> void:
+	for node in host.find_children("*", "LineEdit", true, false):
+		var edit := node as LineEdit
+		if edit == null:
+			continue
+		edit.text = "Capture"
+		# Assignment alone emits NOTHING. The step listens on text_changed to re-validate and to tell
+		# the host to re-poll, so without this the field reads "Capture" on screen and Next stays grey.
+		edit.text_changed.emit(edit.text)
+		return
+
+
+## One Next press per timer tick. Recursive rather than a loop for the reason the class doc gives:
+## the newly shown step has to build and the host has to re-gate Next before the next press is
+## meaningful.
+func _advance(host: Node, tree: SceneTree, remaining: int) -> void:
+	if remaining <= 0:
+		return
+	var next_button := host.find_child("Next", true, false) as Button
+	if next_button == null or next_button.disabled:
+		push_error("characters_rig: Next is unavailable with %d advance(s) left — the shot is an earlier step than requested" % remaining)
+		return
+	next_button.pressed.emit()
+	tree.create_timer(0.15).timeout.connect(func() -> void:
+		_advance(host, tree, remaining - 1)
 	)

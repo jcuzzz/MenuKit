@@ -1,0 +1,16 @@
+[gd_scene load_steps=2 format=3]
+
+; The Scout's preview subject: a cylinder. See preview_vanguard.tscn for why the demo's previews are
+; bare CSG primitives with authored materials and no scripts.
+;
+; Taller than it is wide, deliberately: a non-cubic subject is the one that would clip on a naive
+; fit, so the demo carries a case the frame-from-bounds math has to actually solve.
+
+[sub_resource type="StandardMaterial3D" id="mat_scout"]
+albedo_color = Color(0.36, 0.66, 0.42, 1)
+
+[node name="PreviewScout" type="CSGCylinder3D"]
+radius = 0.45
+height = 1.6
+sides = 20
+material = SubResource("mat_scout")

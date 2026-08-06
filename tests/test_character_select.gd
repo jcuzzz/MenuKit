@@ -30,10 +30,12 @@ func run_tests() -> void:
 	await _test_play_hands_the_selected_entry_over_verbatim()
 	await _test_delete_is_confirmed_before_it_happens()
 	await _test_deleting_the_last_entry_leaves_a_reachable_empty_state()
+	await _test_navigating_to_an_empty_roster_never_focuses_a_disabled_button()
 	await _test_new_character_pushes_and_every_exit_pops_back()
 	await _test_the_page_is_drivable_by_keyboard_alone()
 	await _test_the_selection_survives_a_roster_rebuild()
 	await _test_a_missing_profile_backend_warns_once_and_disables_the_actions()
+	await _test_a_delete_the_backend_refuses_says_so_and_resyncs()
 	_test_config_validation_reports_every_creation_fault()
 	_clean()
 
@@ -169,6 +171,43 @@ func _test_deleting_the_last_entry_leaves_a_reachable_empty_state() -> void:
 		"but New Character stays live — it is the action that creates one")
 	check_eq(get_root().gui_get_focus_owner(), _button(panel, "NewCharacter"),
 		"and it TAKES focus, so the page is not a dead end for a gamepad-only player")
+
+	await _drop(root)
+
+
+## [b]The same empty state, reached by NAVIGATION instead of by deletion — which is a different code
+## path and used to land somewhere else entirely.[/b] The panel grabs New Character for itself, but
+## MKRoot ALSO focuses the new page's first focusable control on every page change (deferred, so it
+## runs last and wins), and MKFocus's collector did not filter disabled buttons: Play sits first in
+## the footer's tree order and is disabled with nothing selected, so arriving at an empty roster left
+## the ring on a button that swallows every press. A gamepad-only player's first action on a fresh
+## install was into silence, with the one live action two controls away.
+##
+## Asserted through a REAL go_to_page rather than by calling the panel's refresh, because the deferred
+## shell-side focus is exactly the half that overrode the panel — and asserted on the button's
+## `disabled` flag too, so the case cannot be satisfied by a future footer whose first control merely
+## happens to be enabled.
+func _test_navigating_to_an_empty_roster_never_focuses_a_disabled_button() -> void:
+	_clean()
+	var root := await _make_root()
+	var panel := _panel(root)
+	if panel == null:
+		await _drop(root)
+		return
+	check_eq(_cards(panel).size(), 0, "precondition: the roster is empty")
+	check(_button(panel, "Play").disabled, "precondition: Play is disabled with nothing to select")
+
+	# The shell's focus is deferred, and it is the LAST writer — settle past it rather than reading a
+	# frame in which only the panel's own grab has landed.
+	await step_frame()
+	await step_frame()
+
+	var owner := get_root().gui_get_focus_owner()
+	check_eq(owner, _button(panel, "NewCharacter"),
+		"focus lands on New Character — the only action an empty roster offers (got %s)" % owner)
+	var owner_button := owner as BaseButton
+	check(owner_button != null and not owner_button.disabled,
+		"and whatever holds focus is ENABLED: Godot lets a disabled control hold focus perfectly happily, which is why this is asserted rather than assumed")
 
 	await _drop(root)
 
@@ -324,6 +363,44 @@ func _test_a_missing_profile_backend_warns_once_and_disables_the_actions() -> vo
 	await step_frame()
 
 
+## [method MKProfileBackend.delete_profile] returns a BOOL, and a false is news: the row on screen
+## describes a profile the backend does not have. The panel's success path deliberately owns no
+## refresh (the redraw rides [signal MKProfileBackend.roster_changed]), and a backend that deleted
+## nothing emits nothing — so without reading the return value the panel silently kept showing a
+## character that is not there and would answer the next Delete identically.
+##
+## Both halves are asserted: the panel says so to the log (DEBUG — a stale id is a query result, not a
+## misconfiguration), and it RESYNCS, which is observable as the card column having been rebuilt.
+func _test_a_delete_the_backend_refuses_says_so_and_resyncs() -> void:
+	var root := await _make_root(RefusingBackend)
+	var panel := _panel(root)
+	var layer := root.get_modal_layer()
+	if panel == null:
+		await _drop(root)
+		return
+
+	check_eq(_cards(panel).size(), 1, "precondition: the refusing backend lists one card")
+	var card_before := _card(panel, "Ghost")
+
+	_watch_debug()
+	await _activate(_button(panel, "Delete"))
+	var dialog := layer.top() as MKConfirmDialog
+	check(dialog != null, "precondition: Delete raised its confirmation")
+	if dialog != null:
+		await _activate(dialog.get_confirm_button())
+	var messages := _stop_watching()
+
+	check_eq(_count_containing(messages, "reported no such profile"), 1,
+		"the refusal is stated once — a panel that noticed nothing has no line to find when the row will not go away")
+	check(_contains(messages, "p_ghost"),
+		"naming the id it asked for, which is the only thing that identifies which row disagreed")
+	check_eq(_cards(panel).size(), 1, "the row is still listed, because the backend still lists it")
+	check(_card(panel, "Ghost") != card_before,
+		"but the column was REBUILT from the backend rather than left as it was — the panel resynced instead of doing nothing")
+
+	await _drop(root)
+
+
 ## [method MKConfig.validate]'s Character Creation half. Every rule is asserted to fire ONCE and to
 ## name its own offender, and they are stacked in one config on purpose: the contract is a single pass
 ## that reports everything, so an integrator gets one list to work through rather than a fix-run-fix
@@ -398,11 +475,15 @@ func _seed(entries: Array) -> void:
 ## A real shell on the demo config, with its profile slot re-pointed at this suite's file and its menu
 ## slot at a spy. Duplicated first — the shipped config is a cached resource and mutating it would
 ## leak into every later test in the sweep.
-func _make_root() -> MKRoot:
+## [param profile_script] swaps the shipped JSON backend for a stub in the ONE case that needs a
+## backend behaviour the real one cannot be talked into (a delete that refuses). It still arrives
+## through the slot, so the panel resolves it by the same duck-typed walk as always.
+func _make_root(profile_script: Script = null) -> MKRoot:
 	var config := (ResourceLoader.load(CONFIG_PATH) as MKConfig).duplicate(true)
 	var profile_slot := MKBackendSlot.new()
-	profile_slot.backend_script = MKJsonProfileBackend
-	profile_slot.params = {"file_path": PROFILES_PATH}
+	profile_slot.backend_script = profile_script if profile_script != null else MKJsonProfileBackend
+	if profile_script == null:
+		profile_slot.params = {"file_path": PROFILES_PATH}
 	config.profile_backend = profile_slot
 	var menu_slot := MKBackendSlot.new()
 	menu_slot.backend_script = SpyMenu
@@ -567,6 +648,24 @@ func _key(code: int, pressed: bool) -> InputEventKey:
 	return event
 
 
+## Lists one profile and refuses every delete — the shape a roster takes when the entry went away
+## through a route this panel never saw. The real JSON backend cannot be made to do this: it returns
+## false only for an id that is not in its roster, and an id not in the roster has no card to press
+## Delete on.
+class RefusingBackend extends MKProfileBackend:
+	func list_profiles() -> Array[Dictionary]:
+		return [{"id": "p_ghost", "name": "Ghost"}] as Array[Dictionary]
+
+	func create_profile(_payload: Dictionary) -> Dictionary:
+		return {}
+
+	func delete_profile(_id: String) -> bool:
+		return false
+
+	func load_profile(_id: String) -> Dictionary:
+		return {}
+
+
 ## Records what Play handed over. A Node backend instantiated by MKRoot from the slot, exactly as a
 ## host's own would be — the panel resolves it by the same duck-typed walk either way.
 class SpyMenu extends MKMenuBackend:
@@ -591,6 +690,16 @@ func _watch_warnings() -> void:
 	_warnings = []
 	MKLog.observer = func(level: MKLog.Level, message: String) -> void:
 		if level == MKLog.Level.WARN:
+			_warnings.append(message)
+
+
+## The DEBUG channel, kept separate from the warning watcher above: the refused-delete line is
+## specified as a debug line ("a stale id is a query result, not a misconfiguration"), and a watcher
+## that collected every level could not tell the two apart.
+func _watch_debug() -> void:
+	_warnings = []
+	MKLog.observer = func(level: MKLog.Level, message: String) -> void:
+		if level == MKLog.Level.DEBUG:
 			_warnings.append(message)
 
 

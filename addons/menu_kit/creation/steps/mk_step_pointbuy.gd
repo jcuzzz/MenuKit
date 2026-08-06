@@ -28,6 +28,12 @@ const PAYLOAD_KEY := "stats"
 
 ## Label column width, shared with the settings panel's rhythm so a host mixing the two screens gets one
 ## alignment rather than two.
+##
+## The label is given this as a MINIMUM and is deliberately NOT expand-filled: on a settings row the
+## label and its control both expand, so the two share the width and the control column lands in the
+## middle. Here the -/value/+ cluster does not expand, so an expanding label absorbed every spare pixel
+## and shoved the buttons against the far edge — a stat name at x=0 with its counter a thousand pixels
+## away is two rows, not one. Fixed column, cluster immediately beside it.
 const LABEL_COLUMN_WIDTH := MKSettingsPanel.LABEL_COLUMN_WIDTH
 
 var _host: MKCreationHost
@@ -177,7 +183,6 @@ func _build_row(index: int) -> Control:
 	label.name = "Label"
 	label.text = stat.label if not stat.label.is_empty() else String(stat.id)
 	label.custom_minimum_size = Vector2(LABEL_COLUMN_WIDTH, 0.0)
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	MKTheme.set_variation(label, MKTheme.ROW_LABEL)
 	row.add_child(label)
 

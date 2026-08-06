@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="MKArchetype" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="MKArchetype" load_steps=3 format=3]
 
 ; The demo's melee archetype, and the file that documents the payload_defaults rule for all three.
 ;
@@ -12,10 +12,17 @@
 ; one field and the spend no longer matches the total the schema advertised. Flavour fields here,
 ; stats from the schema, one owner each.
 ;
-; No icon and no preview_scene: the demo ships no art, and both fields are optional by design — an
-; archetype with neither still renders as a titled, described, selectable entry.
+; No icon: the demo ships no 2D art, and the field is optional by design — an archetype without one
+; still renders as a titled, described, selectable entry.
+;
+; preview_scene IS authored, and it is a coloured CSG primitive rather than a character (see
+; demo/demo_creation/preview_vanguard.tscn). It is what the appearance step shows in its
+; MKPreviewViewport, so the shipped flow demonstrates the populated preview path out of the box; the
+; ADDON's own placeholder archetype leaves it null, which is the other half — an empty slot behind
+; the "appearance is host-defined" text.
 
 [ext_resource type="Script" path="res://addons/menu_kit/creation/mk_archetype.gd" id="1_archetype"]
+[ext_resource type="PackedScene" path="res://demo/demo_creation/preview_vanguard.tscn" id="2_preview"]
 
 [resource]
 script = ExtResource("1_archetype")
@@ -23,7 +30,7 @@ id = &"vanguard"
 display_name = "Vanguard"
 description = "Walks into the room first and stays there. Trades reach and options for the ability to hold ground nobody else can."
 icon = null
-preview_scene = null
+preview_scene = ExtResource("2_preview")
 payload_defaults = {
 "kit": "sword_board",
 "starting_stance": "guard"

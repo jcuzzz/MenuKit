@@ -105,11 +105,21 @@ func _build() -> void:
 	scroll.focus_mode = Control.FOCUS_NONE
 	column.add_child(scroll)
 
+	# The cards get their own MarginContainer inside the scroll, so the column is inset from the panel
+	# edge and from the scrollbar the same way the settings panel's rows are inset inside THEIR scroll.
+	# The numbers are not spelled here at all — MarginContainer's four margin constants come from the
+	# theme (MKThemeGenerator._style_panels sets them from the palette's spacing_lg), which is what
+	# makes this the same inset as every other page rather than a number that happens to match today.
+	var card_margin := MarginContainer.new()
+	card_margin.name = "CardMargin"
+	card_margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(card_margin)
+
 	_card_column = VBoxContainer.new()
 	_card_column.name = "Cards"
 	_card_column.custom_minimum_size = Vector2(_CARD_COLUMN_WIDTH, 0.0)
 	_card_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(_card_column)
+	card_margin.add_child(_card_column)
 
 	_footer = HBoxContainer.new()
 	_footer.name = "Footer"
@@ -323,9 +333,18 @@ func _on_delete_pressed() -> void:
 	# cleanup. The id is captured rather than re-read at confirm time: the selection can move while the
 	# dialog is open, and deleting whatever is selected THEN is not what the prompt named.
 	dialog.confirmed.connect(func() -> void:
-		# No manual refresh: delete_profile emits roster_changed, and routing the redraw through that
-		# one subscription keeps this panel correct for host-side deletions too.
-		_profile_backend.delete_profile(id)
+		# On success there is no manual refresh: delete_profile emits roster_changed, and routing the
+		# redraw through that one subscription keeps this panel correct for host-side deletions too.
+		if _profile_backend.delete_profile(id):
+			return
+		# FALSE means the id was not there — the row this panel is still showing describes a profile
+		# that has already gone somewhere else (a second client, a host-side write, a stale card left
+		# by a backend that changed without announcing it). It is a query result, not a
+		# misconfiguration, so it is a debug line rather than a warning; but a panel that did nothing
+		# at all here would leave the vanished character on screen and answer the next Delete the same
+		# way. Say so to the log, and RESYNC from the backend so the screen agrees with it.
+		MKLog.debug("MKCharacterSelect: delete_profile('%s') reported no such profile — the roster moved under this page; refreshing from the backend" % id)
+		_refresh()
 	)
 
 

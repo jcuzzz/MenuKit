@@ -120,18 +120,39 @@ func _test_f8_archetype_collision_is_reported_once_and_never_seeded() -> void:
 	await _drop(host, backend)
 
 
-## The documented merge order: defaults are a starting point, the player's own choices win. Asserted
-## at the END of the flow — what create_profile receives is the only place the order has consequences.
+## The documented merge order, asserted as what it actually IS: enforcement by EXCLUSION.
+##
+## "Steps overwrite defaults" can never literally occur, because F8 refuses an archetype default whose
+## key a step owns — so the owned key is never seeded and there is no second write to be ordered
+## against. The archetype below therefore authors a default for BOTH an owned key and an unowned one,
+## and the payload is read at three moments (after the choice, before any commit; and after the
+## commit; and at the backend seam) rather than only at the end.
+##
+## [b]What these assertions pin:[/b] at no observed moment does the payload carry the owned key's
+## DEFAULT value — not transiently, not before the step ran — while the unowned default is present
+## from the choice onward, and the owned key holds the STEP's value once the step commits.
+## [b]What they cannot pin:[/b] an implementation that re-seeded after every commit would be
+## behaviour-equivalent FOR UNOWNED KEYS by construction (a re-seed writes the same value the first
+## seed wrote, and the owned key is excluded from seeding either way), so no assertion over payload
+## content can distinguish it. That is a consequence of the exclusion rule, not a gap in the suite:
+## with the two authors disjoint, "when the seed ran" has no observable content.
 func _test_merge_order_defaults_first_steps_win() -> void:
 	var backend := _spy_backend()
-	var arch := _archetype(&"scout", {"kit": "bow", "gold": 25})
+	# "name" is OWNED by the step below, so this default is the F8 case: refused, never seeded.
+	var arch := _archetype(&"scout", {"kit": "bow", "gold": 25, "name": "Sir Default"})
 	MKProbeCreationStep.reset()
 	var host := await _make_host([_step(&"name", ["name"], {"name": "Typed"})], [arch], backend, null)
 
 	host.notify_archetype_chosen(arch)
-	check_eq(host.get_payload().get("kit", ""), "bow", "precondition: the unowned default seeded")
+	var after_choice := host.get_payload()
+	check_eq(after_choice.get("kit", ""), "bow", "the unowned default seeded on the choice")
+	check_eq(after_choice.get("gold", null), 25, "including the numeric one")
+	check(not after_choice.has("name"),
+		"and the OWNED key is absent — the archetype's default for it was never seeded, not even transiently before the step ran, which is what makes 'steps win' unfalsifiable by an ordering bug")
 
 	await _confirm(host)
+	check_eq(host.get_payload().get("name", ""), "Typed",
+		"after the owning step's commit the key holds the STEP's value, and it is the only value it has ever held")
 	check_eq(backend.created.size(), 1, "Confirm reached the backend")
 	if backend.created.size() == 1:
 		var sent: Dictionary = backend.created[0]

@@ -1,0 +1,20 @@
+[gd_scene load_steps=2 format=3]
+
+; The Vanguard's preview subject: a box.
+;
+; A plain CSG primitive with a colour and NO script, and that is the whole point of the demo's
+; preview set. MKPreviewViewport assumes nothing about what it is shown — no rig, no skeleton, no
+; scale convention — and a demo that shipped an authored character would prove only that the widget
+; can display an authored character. Three primitives in three colours prove the frame-from-bounds
+; math and the idle turntable on content the reader can see the entirety of in one file.
+;
+; The material is authored HERE rather than assigned in code, so the archetype -> preview_scene
+; -> viewport path carries no demo-side setup step at all: the viewport instantiates the scene and
+; what is in the file is what appears.
+
+[sub_resource type="StandardMaterial3D" id="mat_vanguard"]
+albedo_color = Color(0.78, 0.34, 0.28, 1)
+
+[node name="PreviewVanguard" type="CSGBox3D"]
+size = Vector3(1.1, 1.1, 1.1)
+material = SubResource("mat_vanguard")

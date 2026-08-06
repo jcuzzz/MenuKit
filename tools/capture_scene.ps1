@@ -12,6 +12,13 @@
 #
 # Invoke bare (no pipes/redirects) — allowlists match on command shape. GODOT_BIN env var
 # overrides the engine path, same as check.ps1.
+#
+# user:// isolation is OWNED BY THIS WRAPPER, exactly as check.ps1 owns it for the test sweep: the
+# child engine runs with APPDATA redirected into a repo-local profile that is wiped at the START of
+# every run, so a rig that seeds a roster (characters_rig's MK_CAPTURE_SEED) writes into .agent_tmp
+# and never into the developer's real user://. Without it a capture that seeds three characters left
+# them in the demo's real profile store, which the next F5 run then showed. The redirect is an
+# environment variable only — it does not affect the window the renderer still needs.
 param(
     [Parameter(Mandatory = $true)][string]$Scene,
     [string]$Rig = "",
@@ -52,9 +59,25 @@ if ($Rig -ne "") { $GodotArgs += "rig=$Rig" }
 
 $StdOut = Join-Path $CapDir "_capture_stdout.log"
 $StdErr = Join-Path $CapDir "_capture_stderr.log"
-$p = Start-Process -FilePath $Godot -ArgumentList $GodotArgs -PassThru -NoNewWindow `
-    -RedirectStandardOutput $StdOut -RedirectStandardError $StdErr
-if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+
+# Wrapper-owned user:// isolation, copied from check.ps1's smoke sweep: wiped at the START of the
+# run so a crashed capture still starts clean, and restored in a finally so a failure cannot leak the
+# redirect into the caller's session.
+$CaptureProfile = Join-Path $RepoRoot ".agent_tmp\godot_capture_profile"
+if (Test-Path $CaptureProfile) { Remove-Item $CaptureProfile -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $CaptureProfile | Out-Null
+
+$origAppData = $env:APPDATA
+$env:APPDATA = $CaptureProfile
+try {
+    $p = Start-Process -FilePath $Godot -ArgumentList $GodotArgs -PassThru -NoNewWindow `
+        -RedirectStandardOutput $StdOut -RedirectStandardError $StdErr
+    $timedOut = -not $p.WaitForExit($TimeoutSec * 1000)
+}
+finally {
+    $env:APPDATA = $origAppData
+}
+if ($timedOut) {
     $p.Kill()
     Write-Output "CAPTURE_RESULT status=error exit=3  # timed out after ${TimeoutSec}s (see $StdErr)"
     exit 3

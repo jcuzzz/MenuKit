@@ -21,9 +21,10 @@ const TRAP_META := &"mk_focus_trapped"
 
 
 ## Returns every focusable descendant of [param root] in tree (i.e. visual) order.
-## "Focusable" means [constant Control.FOCUS_ALL] or [constant Control.FOCUS_CLICK] and visible in
-## the tree — a hidden or disabled-by-hiding row must never appear in a chain, otherwise keyboard
-## traversal stops on an invisible control and looks like a hang.
+## "Focusable" means [constant Control.FOCUS_ALL] or [constant Control.FOCUS_CLICK], visible in
+## the tree, and — for a [BaseButton] — not [member BaseButton.disabled]. A hidden or
+## disabled-by-hiding row must never appear in a chain, otherwise keyboard traversal stops on an
+## invisible control and looks like a hang.
 static func collect_focusables(root: Node) -> Array[Control]:
 	var out: Array[Control] = []
 	if root == null or not is_instance_valid(root):
@@ -37,6 +38,16 @@ static func _collect_recursive(node: Node, out: Array[Control]) -> void:
 		if child is Control:
 			var c := child as Control
 			if not c.is_visible_in_tree():
+				continue
+			# A DISABLED button is skipped. Godot lets a disabled control HOLD focus perfectly happily —
+			# so nothing errors, the ring just sits on a control that swallows every activation — and
+			# MKFocus exists to answer "where should focus go", for which "a button that does nothing" is
+			# never the answer. The empty Characters page is the case that named it: its Play button is
+			# disabled with no selection and sits first in tree order, so the shell's deferred
+			# focus_first landed there and a gamepad-only player pressed A into silence while the one
+			# live action (New Character) sat two controls away.
+			var button := c as BaseButton
+			if button != null and button.disabled:
 				continue
 			if c.focus_mode != Control.FOCUS_NONE:
 				out.append(c)

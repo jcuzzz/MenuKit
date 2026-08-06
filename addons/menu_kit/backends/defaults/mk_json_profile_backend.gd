@@ -16,6 +16,12 @@ extends MKProfileBackend
 ## ints are written through [MKJsonCodec]'s [code]{"__mk_type": "int", "v": 3}[/code] envelope and
 ## decoded back on load: [method @GlobalScope.typeof] reports [constant TYPE_INT] after a reload, and
 ## a host may compare a loaded stat against an int literal directly.
+## [br][b][Vector2i] round-trips too[/b], through the same codec and unconditionally (JSON has no form
+## for it at all, so without the envelope the value would be absent rather than merely imprecise). A
+## payload may carry one at any nesting depth and gets a [Vector2i] back.
+## [br][b]A payload may not carry the discriminator key itself.[/b] [constant MKJsonCodec.TYPE_TAG] is
+## the codec's namespace, and a host dictionary containing it — at any depth — is refused by
+## [method create_profile]; see that method for why refusal is the only survivable answer.
 ## [br][b]Floats stay floats and bools stay bools[/b] — only ints are enveloped, and a bool is not an
 ## int for this purpose (a bool that came back as 0/1 would still pass every truthiness test in a
 ## host project, which is precisely why the codec's guard is explicit about it).
@@ -131,8 +137,23 @@ func list_profiles() -> Array[Dictionary]:
 ## is missing, blank, already taken, or the roster is at its configured cap. Those are ordinary
 ## outcomes of a user typing into a form, so they are not warnings; the creation flow is expected
 ## to have asked [method is_name_available] first and to surface the refusal itself.
+##
+## [b]It also refuses a payload carrying [constant MKJsonCodec.TYPE_TAG] anywhere inside it[/b], and
+## THAT one warns, in the same shape as the reserved-id warning below. The tag is the codec's
+## namespace: a host dictionary spelling it is not a coincidence but a wiring mistake, and accepting
+## it writes a file the loader cannot survive. Decoding an entry that contains
+## [code]{"__mk_type": ...}[/code] collapses that dictionary to an int or to null, which fails the
+## "every entry is a JSON object with an id and a name" check — and the answer to THAT is a
+## quarantine of the WHOLE roster file, so one bad create costs every other profile in it. Refusal at
+## the door costs one create; acceptance costs the roster.
 func create_profile(payload: Dictionary) -> Dictionary:
 	_ensure_loaded()
+	var tag_path := _find_type_tag(payload, "payload")
+	if not tag_path.is_empty():
+		MKLog.warn("%s: creation payload contains the reserved key '%s' at %s; MenuKit owns that key as its JSON type discriminator and a file carrying it would be quarantined on load, taking every other profile with it. The create is refused" % [
+			MKLog.context(get_script(), MKJsonCodec.TYPE_TAG), MKJsonCodec.TYPE_TAG, tag_path,
+		])
+		return {}
 	if _max_profiles > 0 and _profiles.size() >= _max_profiles:
 		MKLog.debug("MKJsonProfileBackend: roster is at max_profiles (%d); create refused" % _max_profiles)
 		return {}
@@ -192,6 +213,34 @@ func get_file_path() -> String:
 func reload() -> void:
 	_loaded = false
 	_ensure_loaded()
+
+
+## Returns the path of the first Dictionary under [param value] that carries
+## [constant MKJsonCodec.TYPE_TAG], or "" when there is none.
+##
+## The path is built as it descends ([code]payload/inventory/0[/code]) because "your payload contains
+## a reserved key" is unactionable on a nested host structure — the author has to be told WHERE. The
+## walk mirrors [method MKJsonCodec.encode_value]'s own recursion exactly (dictionaries and arrays,
+## nothing else), so anything the encoder would descend into is something this scan has already seen.
+## First hit wins: one named example is enough to send the author to the field, and enumerating every
+## occurrence of one mistake is the log flood the F8 check already argues against.
+func _find_type_tag(value: Variant, path: String) -> String:
+	if value is Dictionary:
+		var d := value as Dictionary
+		if d.has(MKJsonCodec.TYPE_TAG):
+			return path
+		for key in d.keys():
+			var found := _find_type_tag(d[key], "%s/%s" % [path, key])
+			if not found.is_empty():
+				return found
+		return ""
+	if value is Array:
+		var a := value as Array
+		for i in a.size():
+			var found := _find_type_tag(a[i], "%s/%d" % [path, i])
+			if not found.is_empty():
+				return found
+	return ""
 
 
 func _mint_id() -> String:

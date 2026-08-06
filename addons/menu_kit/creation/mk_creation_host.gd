@@ -23,9 +23,21 @@ extends Control
 ## LATER step is dropped. Dropping is the loud outcome — a visibly missing step sends the author to the
 ## error; a silently overwritten field sends them to their save format.
 ##
-## [b]Merge order, always:[/b] archetype defaults are seeded FIRST, step commits overwrite. So a
-## default is a starting point that the player's own choices win over, which is the only order in which
-## "the Knight starts with 50 gold" and "the player typed a name" can both be true.
+## [b]Merge order, always:[/b] archetype defaults are seeded FIRST, step commits overwrite (the plan's
+## sentence). A default is a starting point that the player's own choices win over, which is the only
+## order in which "the Knight starts with 50 gold" and "the player typed a name" can both be true.
+##
+## [b]It is enforced by EXCLUSION, and an overwrite therefore never actually happens.[/b] Finding F8's
+## check ([method _validate_archetype_defaults]) refuses, at configure and with an error naming both
+## sides, any archetype default whose key a step OWNS — the default is never seeded, and
+## [method notify_archetype_chosen] skips it again on every choice. So the two authors of a payload key
+## are disjoint by construction: every key in the payload was written either by a seed or by a commit,
+## never by both, and "steps win" is a statement about who is ALLOWED to write a key rather than about
+## the order two writes landed in. That distinction matters to anyone reading this class for a
+## precedence rule to rely on: there is no ordering hazard to get wrong here, because a contested key
+## cannot exist. What IS ordered — and is a real invariant — is that a seed for an UNOWNED key survives
+## from [method notify_archetype_chosen] through to [method _confirm] unless the player changes
+## archetype, at which point exactly that choice's own keys are cleared and no others.
 ##
 ## [b]A null backend is not an error[/b] — the same policy [MKSettingsPanel] applies to a null settings
 ## backend. The flow builds, warns ONCE, and renders its navigation disabled. A creation screen that

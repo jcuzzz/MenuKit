@@ -30,6 +30,7 @@ func run_tests() -> void:
 	await _test_the_payload_shape_is_string_keys_and_ints()
 	await _test_a_duplicate_stat_id_warns_and_the_last_row_wins()
 	await _test_a_restore_ignores_a_value_the_current_schema_cannot_honour()
+	await _test_the_range_guard_holds_when_the_button_is_wrongly_enabled()
 	await _test_require_full_spend_gates_next()
 
 
@@ -187,6 +188,53 @@ func _test_a_restore_ignores_a_value_the_current_schema_cannot_honour() -> void:
 	check_eq(_remaining_text(step), "Points remaining: 7",
 		"the pool reflects exactly what was restored")
 	check(step._mk_step_is_valid(), "and the restored state is walkable")
+
+	await _drop(step)
+
+
+## [b]The range guard inside [code]_adjust[/code] is the second line of defence, and this is the case
+## that can see it.[/b] Every other assertion in this file goes through a button the step has already
+## disabled, so the engine's own BaseButton check stops the activation before [code]_adjust[/code]
+## runs — which means deleting the guard changes nothing any of them observe.
+##
+## The race the guard's comment names is a button that is enabled when it should not be: a keyboard
+## activation dispatched between the value changing and [method _refresh] re-computing the disabled
+## flags. That state is reproduced here directly — the step is walked to its ceiling and floor, then
+## the button is re-enabled BY HAND to stand in for the refresh that has not run yet — and the button's
+## own [signal BaseButton.pressed] is emitted, which is exactly what the engine emits at the end of an
+## activation it allowed. The value must not move, and the committed payload must not carry an
+## out-of-range number.
+func _test_the_range_guard_holds_when_the_button_is_wrongly_enabled() -> void:
+	var step := await _bind(_schema(10, [_stat(&"might", 1, 3, 1)]))
+
+	await _press(step._plus_buttons[0])
+	await _press(step._plus_buttons[0])
+	check_eq(step._values[0], 3, "precondition: the stat is at its ceiling")
+	check(step._plus_buttons[0].disabled, "precondition: which the step expressed by disabling +")
+
+	# The refresh that has not run yet.
+	step._plus_buttons[0].disabled = false
+	step._plus_buttons[0].pressed.emit()
+	check_eq(step._values[0], 3,
+		"a press that the disabled check did NOT stop is still refused by _adjust's range guard — the ceiling is the rule, the greyed button is only how it is shown")
+	check_eq(step._value_labels[0].text, "3", "and nothing redrew past it")
+	check_eq(_remaining_text(step), "Points remaining: 8",
+		"the pool is untouched, so no point was spent on a raise that did not happen")
+
+	var payload := {}
+	step._mk_step_commit(payload)
+	check_eq((payload.get("stats") as Dictionary).get("might"), 3,
+		"and the committed payload carries a value the current schema can honour — an over-max number here is what a host would then have to defend against forever")
+
+	# The mirror at the floor: one `if` covers both bounds, so the minimum needs the same case or half
+	# the guard can be deleted while the suite stays green.
+	await _press(step._minus_buttons[0])
+	await _press(step._minus_buttons[0])
+	check_eq(step._values[0], 1, "precondition: walked back down to the floor")
+	check(step._minus_buttons[0].disabled, "precondition: expressed by disabling -")
+	step._minus_buttons[0].disabled = false
+	step._minus_buttons[0].pressed.emit()
+	check_eq(step._values[0], 1, "and a wrongly-enabled - cannot take the stat below its min_value")
 
 	await _drop(step)
 

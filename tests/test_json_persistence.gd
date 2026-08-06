@@ -26,6 +26,7 @@ func run_tests() -> void:
 	await _test_a_legacy_plain_profile_file_still_loads()
 	await _test_a_malformed_envelope_warns_once_and_reads_as_null()
 	await _test_a_profile_entry_that_is_itself_an_envelope_quarantines()
+	await _test_a_payload_carrying_the_discriminator_is_refused_at_the_door()
 	_clean(SETTINGS_PATH)
 	_clean(PROFILES_PATH)
 
@@ -346,6 +347,61 @@ func _test_a_profile_entry_that_is_itself_an_envelope_quarantines() -> void:
 	check(not backend.create_profile({"name": "Recovered"}).is_empty(),
 		"the backend is usable afterwards rather than wedged")
 	backend.free()
+	_clean(PROFILES_PATH)
+
+
+## [b]The other end of the quarantine above, and the reason it is worth refusing a create over.[/b] A
+## host payload carrying [constant MKJsonCodec.TYPE_TAG] is stored verbatim, encoded verbatim, and
+## then DECODED on the next load — where its dictionary collapses to an int or to null, fails the
+## "every entry is a JSON object with an id and a name" check, and takes the ENTIRE roster file aside.
+## One host field named [code]__mk_type[/code] would cost every other profile on the disk.
+##
+## So the create is refused with one warning naming the path, at both nesting depths, and the assertion
+## is made on the BYTES as well as on the return value: a refusal that had already written the file
+## would have done the damage it exists to prevent. The roster is then reloaded from a fresh instance
+## to prove the surviving profile is still readable — the failure mode is a file that looks fine until
+## something reads it.
+func _test_a_payload_carrying_the_discriminator_is_refused_at_the_door() -> void:
+	_clean(PROFILES_PATH)
+	var backend := _make_profiles()
+	check(not backend.create_profile({"name": "Keeper", "level": 3}).is_empty(),
+		"precondition: an ordinary profile is created")
+	var bytes_before := FileAccess.get_file_as_string(PROFILES_PATH)
+
+	_watch_warnings()
+	var top_level := backend.create_profile({"name": "Toplevel", MKJsonCodec.TYPE_TAG: "int"})
+	var top_warnings := _stop_watching()
+	check(top_level.is_empty(), "a payload spelling the discriminator at the TOP level is refused")
+	check_eq(_count_containing(top_warnings, MKJsonCodec.TYPE_TAG), 1,
+		"with exactly one warning, naming the reserved key")
+	check(_contains_any(top_warnings, "at payload;"),
+		"and the PATH of the dictionary carrying it — which for a top-level spelling is the payload itself")
+
+	_watch_warnings()
+	var nested := backend.create_profile({
+		"name": "Nested",
+		"inventory": [{"slot": 1}, {"gem": {MKJsonCodec.TYPE_TAG: "Vector2i", "v": [1, 2]}}],
+	})
+	var nested_warnings := _stop_watching()
+	check(nested.is_empty(),
+		"and so is one that hides it three containers deep — the codec recurses, so the scan must too")
+	check_eq(_count_containing(nested_warnings, MKJsonCodec.TYPE_TAG), 1, "one warning again")
+	check(_contains_any(nested_warnings, "at payload/inventory/1/gem;"),
+		"naming the nested path element by element, so the author can find the field")
+
+	check_eq(FileAccess.get_file_as_string(PROFILES_PATH), bytes_before,
+		"the file is byte-identical: a refusal that had already written is the harm it exists to prevent")
+	check_eq(backend.list_profiles().size(), 1, "the in-memory roster gained nothing either")
+	backend.free()
+
+	var reloaded := _make_profiles()
+	var entries := reloaded.list_profiles()
+	check_eq(entries.size(), 1, "and the roster still LOADS afterwards, with the earlier profile intact")
+	if entries.size() == 1:
+		check_eq((entries[0] as Dictionary).get("name", ""), "Keeper", "by name")
+	check(not _corrupt_sibling_exists(PROFILES_PATH),
+		"nothing was quarantined — which is the whole point of refusing at the door rather than on load")
+	reloaded.free()
 	_clean(PROFILES_PATH)
 
 

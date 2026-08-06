@@ -1,0 +1,17 @@
+[gd_scene load_steps=2 format=3]
+
+; The Arcanist's preview subject: a sphere. See preview_vanguard.tscn for why the demo's previews are
+; bare CSG primitives with authored materials and no scripts.
+;
+; A different PRIMITIVE, not just a different colour: the viewport derives its camera distance from
+; the content's own merged bounds, so three subjects with different shapes are what show that the
+; framing is measured rather than assumed.
+
+[sub_resource type="StandardMaterial3D" id="mat_arcanist"]
+albedo_color = Color(0.35, 0.45, 0.85, 1)
+
+[node name="PreviewArcanist" type="CSGSphere3D"]
+radius = 0.65
+radial_segments = 24
+rings = 12
+material = SubResource("mat_arcanist")
