@@ -32,8 +32,12 @@ func run_tests() -> void:
 	await _test_clearing_the_slot_is_legal()
 	await _test_framing_falls_back_when_the_content_has_no_bounds()
 	await _test_deferred_built_content_frames_on_the_second_pass()
+	await _test_two_swaps_in_one_frame_frame_the_SECOND_content()
+	await _test_frame_content_in_the_swap_frame_is_silent_and_frames_next_frame()
+	await _test_content_assigned_off_tree_frames_when_it_enters_the_tree()
 	await _test_framing_is_idempotent_and_tracks_content_that_grows()
 	await _test_a_swap_keeps_the_zoom_the_user_chose()
+	await _test_clearing_the_slot_gives_the_next_content_a_fresh_fit()
 	await _test_a_non_node3d_scene_warns_and_parents_nothing()
 	await _test_zoom_clamps_at_both_bounds_and_survives_an_inverted_pair()
 	await _test_preview_changed_fires_once_per_swap()
@@ -210,6 +214,125 @@ func _test_deferred_built_content_frames_on_the_second_pass() -> void:
 	await _drop(preview)
 
 
+## [b]Two swaps in ONE frame, which a host does by simply moving the selection twice (a keyboard
+## repeat through a character list, a programmatic "select the default" landing on the same frame as a
+## restored selection).[/b]
+##
+## The framing pass is deferred, and Godot's deferred queue is FIFO. A boolean "one pass queued at a
+## time" de-dup therefore mis-ordered exactly this case: swap 1 queued the pass, swap 2's CSG build
+## enqueued AFTER it, so the pass ran over content whose mesh did not exist yet, read zero bounds,
+## consumed the flag — and nothing re-queued. Measured: pivot at the origin and the fallback distance,
+## permanently, for the content the player is actually looking at.
+##
+## The generation counter is what fixes the ORDER rather than the count: every swap queues its own
+## pass, so the live content's pass sits after its own build, and the earlier passes recognise
+## themselves as stale and return without measuring.
+func _test_two_swaps_in_one_frame_frame_the_SECOND_content() -> void:
+	var preview := await _make_preview()
+
+	_watch_log()
+	preview.set_preview_scene(_offset_csg_scene())
+	preview.set_preview_scene(_csg_scene_at(5.0))
+	await step_frame()
+	await step_frame()
+	var messages := _stop_watching()
+
+	check(_pivot(preview).position.is_equal_approx(Vector3(0.0, 5.0, 0.0)),
+		"the SECOND content is the one that gets centred — the first swap's pass is stale and must not measure the second's unbuilt mesh (pivot at %s)"
+			% _pivot(preview).position)
+	check(preview.get_content() != null
+			and preview.get_content().position.is_equal_approx(Vector3.ZERO),
+		"with the live content shifted back under the pivot, as a single swap does")
+	check(preview._distance != 3.0,
+		"and the distance is DERIVED, not the no-bounds fallback the mis-ordered pass left behind (got %s)"
+			% preview._distance)
+	check_eq(_count_containing(messages, "no VisualInstance3D bounds"), 0,
+		"and nothing claims the content had no bounds — the stale pass never speaks")
+
+	# The other same-frame pair: swap, then clear before the queued pass runs. The pass must tolerate
+	# content that no longer exists rather than measuring a freed node.
+	_watch_log()
+	preview.set_preview_scene(_offset_csg_scene())
+	preview.set_preview_scene(null)
+	await step_frame()
+	await step_frame()
+	var clear_messages := _stop_watching()
+
+	check_eq(preview.get_content(), null, "a swap-then-clear in one frame leaves the slot empty")
+	check_eq(_pivot(preview).get_child_count(), 0, "with nothing under the pivot")
+	check_eq(_count_containing(clear_messages, "no VisualInstance3D bounds"), 0,
+		"and says nothing — an empty slot is not a scene that failed to measure")
+
+	await _drop(preview)
+
+
+## [method MKPreviewViewport.frame_content] called in the SAME frame as a swap is an ordinary host
+## pairing ("show this, and refit for it"). Its immediate pass therefore measures content whose mesh
+## may not be built yet — zero, the expected reading — and reporting that printed "no VisualInstance3D
+## bounds" for content that plainly had them one frame later. The immediate half is silent for the same
+## reason the swap's is; the queued pass is the definitive answer and the one that speaks.
+func _test_frame_content_in_the_swap_frame_is_silent_and_frames_next_frame() -> void:
+	var preview := await _make_preview()
+
+	_watch_log()
+	preview.set_preview_scene(_offset_csg_scene())
+	preview.frame_content()
+	var messages := _stop_watching()
+	check_eq(_count_containing(messages, "no VisualInstance3D bounds"), 0,
+		"not one line in the swap frame — a CSG mesh that does not exist yet is not a preview with no bounds")
+
+	await step_frame()
+	await step_frame()
+	check(_pivot(preview).position.is_equal_approx(Vector3(0.0, 2.0, 0.0)),
+		"and a frame later it IS framed (pivot at %s)" % _pivot(preview).position)
+	check(preview._distance != 3.0,
+		"at a derived distance — frame_content keeps its unconditional refit (got %s)" % preview._distance)
+
+	await _drop(preview)
+
+
+## The authored-export route: a host sets [member MKPreviewViewport.preview_scene] on a node it has not
+## added yet — which is also what [method PackedScene.instantiate] does for a scene carrying the export.
+## Framing off-tree reads global transforms and calls look_at, both of which the engine refuses with an
+## ERROR per attempt (four lines for one assignment, measured). There is no return value to branch on,
+## so the framing simply does not run there and [code]_ready[/code] runs it on entry instead.
+##
+## [b]The clean run IS half the assertion.[/b] check.ps1 fails any test whose output carries an
+## ERROR: line, so re-introducing the off-tree pass fails this suite rather than being waved through.
+## The other half is that skipping it costs nothing: the fit must match what an in-tree assignment
+## produces, to the same number.
+func _test_content_assigned_off_tree_frames_when_it_enters_the_tree() -> void:
+	var content := _mesh_scene()
+
+	var reference := await _make_preview()
+	reference.set_preview_scene(content)
+	await step_frame()
+	var in_tree_distance: float = reference._distance
+	check(in_tree_distance != 3.0, "precondition: an in-tree assignment fits the distance to the bounds")
+
+	var preview := MKPreviewViewport.new()
+	preview.name = "OffTree"
+	preview.custom_minimum_size = Vector2(320, 320)
+	preview.preview_scene = content
+	check_eq(preview._distance, 3.0,
+		"off-tree nothing is measured — there is no tree to read a global transform in")
+	get_root().add_child(preview)
+	await step_frame()
+	await step_frame()
+
+	# Approx, not exact: the fit is derived through the pivot's inverse GLOBAL transform, which is a
+	# float32 round-trip — the same math over a pivot that started at a different position differs in
+	# the seventh digit and means the same framing.
+	check(is_equal_approx(preview._distance, in_tree_distance),
+		"and entering the tree produces the SAME fit as an in-tree assignment, so the skipped pass lost nothing (%s vs %s)"
+			% [preview._distance, in_tree_distance])
+	check(_pivot(preview).position.is_equal_approx(Vector3(0.0, 1.0, 0.0)),
+		"with the pivot on the subject's centre (got %s)" % _pivot(preview).position)
+
+	await _drop(preview)
+	await _drop(reference)
+
+
 ## [method MKPreviewViewport.frame_content] is the advertised call for content that changed size after
 ## it was instanced, so it is called more than once BY DESIGN — and must therefore be idempotent. The
 ## pivot write is relative (`+= centre`) precisely because it is paired with a relative content shift:
@@ -281,6 +404,40 @@ func _test_a_swap_keeps_the_zoom_the_user_chose() -> void:
 	check(_pivot(preview).position.is_equal_approx(Vector3(0.0, 1.0, 0.0)),
 		"while the new content is still CENTRED, which is the half of framing a swap must always do (got %s)"
 			% _pivot(preview).position)
+
+	await _drop(preview)
+
+
+## The documented exception to "a swap keeps the zoom the user chose": [code]_fitted_once[/code] is
+## "reset when the slot is cleared, so refilling it fits again" — an empty slot has no subject the user
+## can have chosen a zoom FOR. So a clear-then-set is the one swap that does refit, and a host cycling
+## a list through a null (a deselect between two cards) is where a player notices. Pinned because the
+## sentence was documented and nothing held it: making the clear preserve the distance would read as a
+## kindness and would silently contradict the doc.
+func _test_clearing_the_slot_gives_the_next_content_a_fresh_fit() -> void:
+	var preview := await _make_preview()
+	preview.set_preview_scene(_mesh_scene())
+	await step_frame()
+	var fitted := preview._distance
+	check(fitted != 3.0, "precondition: the first content fitted")
+
+	preview._gui_input(_wheel(MOUSE_BUTTON_WHEEL_DOWN))
+	preview._gui_input(_wheel(MOUSE_BUTTON_WHEEL_DOWN))
+	var chosen := preview._distance
+	check(chosen != fitted, "precondition: the user wheeled away from it")
+
+	preview.set_preview_scene(null)
+	await step_frame()
+	check_eq(preview._distance, 3.0,
+		"clearing parks the camera at the fallback — there is no subject left to be at a distance from")
+
+	preview.set_preview_scene(_mesh_scene())
+	await step_frame()
+	# Approx for the float32 round-trip reason recorded above; the assertion is refit-vs-preserved, and
+	# the preserved value (the wheeled `chosen`) is nowhere near it.
+	check(is_equal_approx(preview._distance, fitted),
+		"and the next content REFITS rather than restoring the zoom chosen for a subject that is gone (got %s, chosen was %s)"
+			% [preview._distance, chosen])
 
 	await _drop(preview)
 
@@ -441,6 +598,19 @@ func _offset_csg_scene() -> PackedScene:
 	root.name = "Offset"
 	root.size = Vector3(1.0, 1.0, 1.0)
 	root.position = Vector3(0.0, 2.0, 0.0)
+	var packed := PackedScene.new()
+	packed.pack(root)
+	root.free()
+	return packed
+
+
+## A second CSG subject at a DIFFERENT height, so "which of two same-frame swaps got framed" is
+## answered by the pivot rather than inferred.
+func _csg_scene_at(height: float) -> PackedScene:
+	var root := CSGBox3D.new()
+	root.name = "Second"
+	root.size = Vector3(1.0, 1.0, 1.0)
+	root.position = Vector3(0.0, height, 0.0)
 	var packed := PackedScene.new()
 	packed.pack(root)
 	root.free()

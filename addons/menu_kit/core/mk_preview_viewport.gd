@@ -117,9 +117,10 @@ var _built := false
 ## swaps re-centre and re-derive near/far but keep the distance the user is at — see
 ## [method set_preview_scene]. Reset when the slot is cleared, so refilling it fits again.
 var _fitted_once := false
-## One deferred re-frame at a time. call_deferred is not de-duplicated, so a host swapping the scene
-## twice in one frame would otherwise queue two passes over the same content.
-var _reframe_queued := false
+## Bumped by every [method set_preview_scene], and captured by each deferred framing pass so a pass
+## queued for content that has since been replaced can recognise itself as stale — see
+## [method _queue_reframe].
+var _content_gen := 0
 
 
 func _ready() -> void:
@@ -145,8 +146,14 @@ func _ready() -> void:
 	stretch = true
 	visibility_changed.connect(_sync_render_mode)
 	_sync_render_mode()
+	# Entering the tree is the first moment the camera may be pointed at anything: _apply_transforms is
+	# a no-op off-tree (look_at is refused there), so a node built and configured before it was added has
+	# not had one applied yet.
+	_apply_transforms()
 	if preview_scene != null:
-		# The export may have been deserialised before the children existed. Apply it now.
+		# The export may have been deserialised — or assigned by a host — before this node was in the
+		# tree, where the framing pass cannot measure or point anything. Apply it now: this is the pass
+		# that produces the same fit an in-tree assignment gets.
 		set_preview_scene(preview_scene)
 
 
@@ -175,6 +182,9 @@ func set_preview_scene(scene: PackedScene) -> void:
 	# this method used to carry was inert, and the "emits exactly once, not twice through its own
 	# setter" assertion in test_preview_viewport.gd is what holds the line if that ever changes.
 	preview_scene = scene
+	# Every swap is a new generation, so any deferred pass still queued for the OUTGOING content
+	# recognises itself as stale and returns without measuring. See _queue_reframe.
+	_content_gen += 1
 	_build()
 	if _content != null and is_instance_valid(_content):
 		# Detach before free so a same-frame get_content() cannot hand back a queued-for-deletion node.
@@ -201,28 +211,38 @@ func set_preview_scene(scene: PackedScene) -> void:
 	# Immediate pass: silent about zero bounds, because for deferred-built content zero IS the expected
 	# reading on this frame and a debug line here would fire for every CSG preview ever shown.
 	_frame(false)
-	_queue_reframe()
+	_queue_reframe(_content_gen, true)
 	preview_changed.emit()
 
 
 ## Queues the second framing pass. Deferred rather than a timer or a frame counter: call_deferred runs
 ## at the end of the current frame, after the deferred mesh builds this exists to wait for, and before
 ## anything renders — so the re-frame is invisible rather than a one-frame jump.
-func _queue_reframe() -> void:
-	if _reframe_queued:
+##
+## [b]Every call queues a pass; staleness is decided by GENERATION, not by de-duplication.[/b] A
+## boolean "one queued at a time" flag looks like the same saving and is not, because Godot's deferred
+## queue is FIFO and a swap's CSG build enqueues its own deferred work when the content is ADDED —
+## i.e. AFTER a pass queued by an earlier swap in the same frame. Measured: with the flag, two swaps in
+## one frame ran the pending pass BEFORE the second content's mesh existed, read zero bounds, consumed
+## the flag, and nothing re-queued — pivot at the origin and the fallback distance, permanently.
+## Queuing per swap puts the live content's pass after its own build in the same FIFO order, and the
+## generation check is what keeps the earlier, now-meaningless passes from measuring the new content
+## before it is built.
+func _queue_reframe(gen: int, report_no_bounds: bool, fit_distance := false) -> void:
+	call_deferred("_deferred_reframe", gen, report_no_bounds, fit_distance)
+
+
+func _deferred_reframe(gen: int, report_no_bounds: bool, fit_distance: bool) -> void:
+	# Stale: the content this pass was queued for has already been replaced (or cleared). The swap that
+	# replaced it queued its own pass, so returning here loses nothing.
+	if gen != _content_gen:
 		return
-	_reframe_queued = true
-	call_deferred("_deferred_reframe")
-
-
-func _deferred_reframe() -> void:
-	_reframe_queued = false
-	# The node may have been freed, removed from the tree, or had its content swapped again between the
-	# queue and the call. Off-tree the global transforms _merge_bounds reads are meaningless, so there
-	# is nothing to measure and the next add will queue its own pass.
+	# The node may also have been freed or removed from the tree between the queue and the call.
+	# Off-tree the global transforms _merge_bounds reads are meaningless, so there is nothing to measure
+	# and the next tree entry re-frames. _frame itself tolerates content that was freed or cleared.
 	if not is_inside_tree() or not _built:
 		return
-	_frame(true)
+	_frame(report_no_bounds, fit_distance)
 
 
 ## The live content instance, or null when the slot is empty. Always checked for validity, so a caller
@@ -245,15 +265,34 @@ func get_content() -> Node3D:
 ## fills the vertical frame, times [constant _FRAME_MARGIN] for breathing room. The pivot is lifted to
 ## the box centre so the subject spins about ITS middle rather than about the scene origin — content
 ## authored with its feet at y=0 otherwise orbits around its ankles.
+##
+## [b]It refits immediately and again, deferred — and the immediate half is SILENT.[/b] A host that
+## calls this in the same frame as a swap (a perfectly ordinary "show this and refit it" pair) is
+## asking about content whose mesh may not be built yet, so the immediate reading of zero is the
+## expected state rather than news, exactly as it is for the swap's own immediate pass. Reporting it
+## printed "no VisualInstance3D bounds" for content that plainly had them a frame later. The queued
+## pass is the definitive answer and is the one that speaks.
 func frame_content() -> void:
-	_frame(true, true)
+	_frame(false, true)
+	_queue_reframe(_content_gen, true, true)
 
 
 ## The framing body. [param report_no_bounds] is false for the immediate half of a swap, where a zero
 ## reading is the EXPECTED state for deferred-built content rather than news. [param fit_distance]
 ## false keeps the current zoom and re-centres only.
+##
+## [b]Off-tree it does nothing at all.[/b] Every measurement here is a GLOBAL transform read and every
+## write ends in [method _apply_transforms]'s look_at — both of which the engine refuses outside the
+## tree, with an ERROR per attempt rather than a return value anything could branch on. A host that
+## assigns [member preview_scene] on a node it has not added yet (the authored-export route, and what
+## [method PackedScene.instantiate] does for a scene carrying the export) is doing something ordinary,
+## so it must not print four engine errors; [method _ready] re-applies the export once the node is in
+## the tree, which is where the framing this skipped actually happens. The clean run IS the assertion —
+## the test gate fails on any ERROR: line, so re-introducing the off-tree pass fails the suite.
 func _frame(report_no_bounds: bool, fit_distance := false) -> void:
 	_build()
+	if not is_inside_tree():
+		return
 	var content := get_content()
 	if content == null:
 		_pivot.position = Vector3.ZERO
@@ -382,6 +421,12 @@ func _zoom_by(amount: float) -> void:
 ## subject would appear evenly lit from every angle, which is the look this rig exists to avoid.
 func _apply_transforms() -> void:
 	if not _built:
+		return
+	# look_at is one of the calls the engine refuses outside the tree ("Node not inside tree. Use
+	# look_at_from_position() instead."), and _build ends here — so an off-tree construction would print
+	# it before the node has ever been shown. The transforms are re-applied on the next frame this node
+	# runs in-tree, so skipping costs nothing. See _frame.
+	if not is_inside_tree():
 		return
 	_pivot.rotation = Vector3(0.0, _yaw, 0.0)
 	var pitch := deg_to_rad(_pitch_deg)

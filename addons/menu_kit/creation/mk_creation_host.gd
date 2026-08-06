@@ -97,8 +97,10 @@ var _seeded_keys: Array[String] = []
 var _seeded_archetype: MKArchetype
 
 var _index := 0
-## Set when [method MKProfileBackend.create_profile] refused the payload, and cleared as soon as every
-## step answers valid again. While it is set, Confirm is gated on the WHOLE flow — see [method _confirm].
+## Set when [method MKProfileBackend.create_profile] refused the payload, and cleared by the next
+## forward MOVEMENT — a commit or a non-last Skip; see [method _advance] for why movement, not
+## commit, is the rule. While it is set, both buttons that could reach [method _confirm] are
+## disabled — see [method _refresh_buttons].
 var _refusal_pending := false
 var _title_label: Label
 var _progress_label: Label
@@ -575,13 +577,19 @@ func _refresh_buttons() -> void:
 	_back_button.disabled = _index == 0 or _backend == null
 	# required beats skippable, and the def's doc says why the two flags are not one.
 	_skip_button.visible = def.skippable and not def.required
-	_skip_button.disabled = _backend == null
-	# After a refused create, the whole flow is re-polled rather than only the current step: the step
-	# whose answer changed (the name, taken by another route) is usually behind the player. See _confirm.
-	var refused_and_still_invalid := _refusal_pending and not _all_steps_valid()
-	_next_button.disabled = _backend == null or not _step_is_valid(_index) or refused_and_still_invalid
-	if _refusal_pending and not refused_and_still_invalid:
-		_refusal_pending = false
+	# [b]The refusal gate, and it covers BOTH ways out of the last step.[/b] After a refused create,
+	# pressing Confirm again over an unchanged payload can only produce the identical refusal — and so
+	# can SKIPPING a last step, which reaches _confirm by the other door. Gating only Confirm left the
+	# Skip button visible and enabled beside it, and one press fired a second identical attempt at the
+	# backend (measured: two create_profile calls for one refused payload). Skip is gated only where it
+	# would confirm; on any earlier step it is ordinary forward navigation and stays live.
+	# Gated where the press would REACH _confirm — which on the last step is both buttons, and on every
+	# earlier step is neither. Gating Next everywhere would close the recovery it exists to leave open:
+	# the way out of a refusal is Back to a step the player can answer and forward again, and a Next
+	# disabled behind them is the dead end in a different place.
+	var would_confirm := _refusal_pending and is_last
+	_skip_button.disabled = _backend == null or would_confirm
+	_next_button.disabled = _backend == null or not _step_is_valid(_index) or would_confirm
 
 
 ## Polls the current step's validity. A step that does not implement the method is treated as VALID:
@@ -596,16 +604,6 @@ func _step_is_valid(index: int) -> bool:
 	if not node.has_method("_mk_step_is_valid"):
 		return true
 	return bool(node.call("_mk_step_is_valid"))
-
-
-## True only when every step in the flow answers valid. Used exclusively by the post-refusal re-gate:
-## the ordinary Next gate is per-step by design, because a step the player has not reached yet is
-## legitimately incomplete.
-func _all_steps_valid() -> bool:
-	for i in _step_nodes.size():
-		if not _step_is_valid(i):
-			return false
-	return true
 
 
 func _on_step_state_changed() -> void:
@@ -634,9 +632,12 @@ func _on_skip_pressed() -> void:
 	_advance(false)
 
 
-## The one forward path. [param commit] is false for Skip, which is the ONLY difference between the two
-## gestures: a skipped last step still confirms, because the flow has to be finishable from wherever
-## its last skippable step leaves the player.
+## The one forward path. [param commit] is false for Skip, and the commit is the only thing the two
+## gestures differ by. Either gesture lifts a pending refusal when it MOVES the player forward (the
+## in-body comment says why); a last-step Skip is the one forward gesture that lifts nothing, because
+## it is the door the refusal gate exists to keep shut. A skipped last step still confirms, because
+## the flow has to be finishable from wherever its last skippable step leaves the player; it is only
+## a PENDING refusal that closes that door.
 func _advance(commit: bool) -> void:
 	if _backend == null or _step_nodes.is_empty():
 		return
@@ -645,11 +646,29 @@ func _advance(commit: bool) -> void:
 		# not be able to commit an invalid step.
 		_refresh_buttons()
 		return
+	if _refusal_pending and not commit and _index == _step_nodes.size() - 1:
+		# The same defensiveness for the OTHER door into _confirm. A commit clears the refusal three lines
+		# below, so this can only be a Skip on the last step — the gesture _refresh_buttons disables the
+		# Skip button for. Stated here as well because the button state is not the contract: the contract
+		# is that one refused payload cannot produce a second identical attempt.
+		_refresh_buttons()
+		return
 	if commit:
 		_commit_current()
 	if _index < _step_nodes.size() - 1:
+		# Any forward MOVEMENT lifts a refusal — a commit (the player changed or re-affirmed the step's
+		# keys) and equally a non-last Skip (a deliberate fresh walk toward Confirm). The rule was
+		# briefly commit-only, which left one degenerate flow unliftable: nothing but invalid OPTIONAL
+		# steps before a valid last step has no forward commit anywhere, and Cancel became the only
+		# exit (measured). A LAST-step Skip never reaches this line — it falls through to _confirm and
+		# is the exact gesture the refusal gate exists to stop, so the double-create door stays shut.
+		_refusal_pending = false
 		_show_step(_index + 1)
 		return
+	if commit:
+		# A last-step COMMIT is also a fresh attempt (the player re-affirmed the step _confirm is about
+		# to submit); the gate has already blocked the only other route here.
+		_refusal_pending = false
 	_confirm()
 
 
@@ -667,12 +686,22 @@ func _confirm() -> void:
 	if profile.is_empty():
 		MKLog.warn("%s: create_profile refused the payload — staying on the last step" % _context("_confirm"))
 		_set_message(REFUSAL_MESSAGE)
-		# Re-gate over EVERY step, not just the current one. The refusal is usually a name that is no
-		# longer available, and the name step's own check does now agree — but that step is almost never
-		# the last one, and re-polling only the current step therefore left Confirm enabled on a payload
-		# the backend had just rejected, one press away from an identical refusal. So the flag below makes
-		# _refresh_buttons ask the whole flow instead; it lifts as soon as every step answers valid again
-		# (the player fixes the field, or navigates, which is a fresh attempt either way).
+		# Close BOTH doors back into this method until the player has moved forward over a step again.
+		# Re-polling only the current step left Confirm enabled on a payload the backend had just
+		# rejected — the refusal is usually a name that went stale, and the name step is almost never the
+		# last one — so a second press produced the identical message with nothing pointing at the field.
+		#
+		# [b]The gate is "has the player committed anything since?", NOT "does every step answer
+		# valid?".[/b] Polling the whole flow looked stricter and was a dead end: a step the player
+		# legitimately SKIPPED (an optional point-buy under require_full_spend answers invalid until it is
+		# spent) held the gate down forever, with Cancel as the only way off the screen — and it also had
+		# nothing to say about a refusal that was never a validity problem at all (a roster cap that the
+		# server has since freed), where every step already answered valid and the gate lifted without the
+		# player doing anything. So _advance's COMMIT is what lifts it: the player changed or re-affirmed
+		# something, which makes the next press a fresh attempt over a payload they just re-authored.
+		# Back alone deliberately does NOT lift it — Back commits nothing and is how the player reaches
+		# the field to fix, so lifting there would re-enable Confirm over the very payload that was
+		# refused. Walking forward again (Next, which recommits) is the gesture that lifts it.
 		_refusal_pending = true
 		_refresh_buttons()
 		return

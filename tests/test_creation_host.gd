@@ -38,7 +38,10 @@ func run_tests() -> void:
 	await _test_merge_order_defaults_first_steps_win()
 	await _test_switching_archetype_clears_only_its_own_seeds()
 	await _test_refusal_stays_on_the_last_step_and_says_so()
-	await _test_a_refusal_re_gates_the_whole_flow_not_just_the_current_step()
+	await _test_a_refusal_closes_confirm_until_the_player_commits_forward_again()
+	await _test_a_skipped_optional_step_cannot_brick_the_refusal_gate()
+	await _test_a_flow_with_no_forward_commit_still_recovers_from_a_refusal()
+	await _test_the_refusal_gate_also_closes_a_last_step_skip()
 	await _test_skip_never_commits_and_a_skipped_last_step_still_confirms()
 	await _test_back_keeps_committed_keys_and_a_recommit_overwrites()
 	await _test_a_pointbuy_shaped_step_with_no_schema_is_dropped_quietly()
@@ -266,13 +269,17 @@ func _test_refusal_stays_on_the_last_step_and_says_so() -> void:
 	await _drop(host, backend)
 
 
-## [b]A refusal re-gates the WHOLE flow, not just the step the player is standing on.[/b]
+## [b]A refusal closes the flow's exit until the player moves FORWARD over a step again.[/b]
 ##
 ## The refusal is usually a name taken between the name step's pre-check and Confirm — and the name
-## step is almost never the last one. Re-polling only the current step therefore left Confirm enabled
-## over a payload the backend had just rejected: the player pressed it again and got the identical
-## message, with nothing on screen pointing at the field that had gone stale.
-func _test_a_refusal_re_gates_the_whole_flow_not_just_the_current_step() -> void:
+## step is almost never the last one. Re-polling only the current step left Confirm enabled over a
+## payload the backend had just rejected: the player pressed it again and got the identical message,
+## with nothing on screen pointing at the field that had gone stale.
+##
+## What lifts it is a forward COMMIT, not a validity poll. Back is how the player REACHES the field to
+## fix, and it commits nothing — lifting there would re-enable Confirm over the exact payload that was
+## refused. Walking forward again recommits, and that is the gesture that says "this is a new attempt".
+func _test_a_refusal_closes_confirm_until_the_player_commits_forward_again() -> void:
 	var backend := _spy_backend()
 	backend.refuse = true
 	MKProbeCreationStep.reset()
@@ -283,22 +290,193 @@ func _test_a_refusal_re_gates_the_whole_flow_not_just_the_current_step() -> void
 
 	await _press(host._next_button)
 	check_eq(host.current_step_index(), 1, "precondition: the player is past the name step")
-	# The name went stale while they walked forward — which is exactly the situation the backend is
-	# about to refuse over. The step behind them now answers invalid; the current one still answers valid.
 	var name_step := host._step_nodes[0] as MKProbeCreationStep
-	name_step.set_valid(false)
 	check(not host._next_button.disabled,
-		"precondition: Confirm is enabled — the CURRENT step is still valid, which is all the gate asks before an attempt")
+		"precondition: Confirm is enabled — the CURRENT step is valid, which is all the gate asks before an attempt")
 
 	await _confirm(host)
 	check_eq(backend.created.size(), 1, "precondition: the attempt reached the backend and was refused")
 	check_eq(host.get_message(), MKCreationHost.REFUSAL_MESSAGE, "and said so inline")
 	check(host._next_button.disabled,
-		"after the refusal Confirm is DISABLED, because a step behind the player now answers invalid — a re-poll of the current step alone could never see that")
+		"after the refusal Confirm is DISABLED — a second press over an unchanged payload can only produce the identical refusal")
 
+	# A step announcing a state change does NOT lift the gate: the name step agreeing with itself again
+	# says nothing about the payload the backend rejected.
+	name_step.set_valid(false)
 	name_step.set_valid(true)
+	check(host._next_button.disabled,
+		"and a step re-polling valid does not lift it — validity was never what the refusal was about")
+
+	await _press(host._back_button)
+	check_eq(host.current_step_index(), 0, "Back reaches the field that can fix it")
+	check(host._refusal_pending,
+		"and Back alone does NOT lift the gate — it commits nothing, so the payload is still the refused one")
+
+	backend.refuse = false
+	await _press(host._next_button)
+	check_eq(host.current_step_index(), 1, "walking forward again recommits the step")
+	check(not host._refusal_pending, "which IS the fresh attempt, so the gate lifts")
+	check(not host._next_button.disabled, "and Confirm is live again")
+
+	await _confirm(host)
+	check_eq(backend.created.size(), 2, "the second attempt reaches the backend")
+	check_eq(host.get_message(), "", "and succeeds, with the refusal message gone")
+
+	await _drop(host, backend)
+
+
+## [b]The dead end the old whole-flow poll produced, driven through the shipped shape.[/b] An OPTIONAL
+## step that answers invalid until it is completed is exactly the point-buy step under
+## [code]require_full_spend[/code], and the flow INVITES skipping it. Gating the post-refusal Confirm on
+## "every step answers valid" then asked that skipped step forever: it never became valid, so Confirm
+## could never re-enable, and Cancel was the only way off the screen — with the create refused for a
+## reason (a roster cap the server has since freed) that had nothing to do with any step's validity.
+##
+## The commit-based gate is what makes the ordinary recovery gesture work: Back to a step the player
+## can answer, forward again, Confirm.
+func _test_a_skipped_optional_step_cannot_brick_the_refusal_gate() -> void:
+	var backend := _spy_backend()
+	backend.refuse = true
+	MKProbeCreationStep.reset()
+	var pointbuy := _step(&"stats", ["stats"], {"stats": {}})
+	pointbuy.required = false
+	pointbuy.skippable = true
+	var host := await _make_host([
+		_step(&"name", ["name"], {"name": "Typed"}),
+		pointbuy,
+		_step(&"tail", [], {}),
+	], [], backend, null)
+	# Invalid until spent — and never spent, because the player takes the Skip the flow offers.
+	(host._step_nodes[1] as MKProbeCreationStep).set_valid(false)
+
+	await _press(host._next_button)
+	check_eq(host.current_step_index(), 1, "precondition: past the name step")
+	check(host._skip_button.visible and not host._skip_button.disabled,
+		"precondition: the optional step offers Skip, which is what makes it legitimately unanswered")
+	await _press(host._skip_button)
+	check_eq(host.current_step_index(), 2, "precondition: skipped to the last step")
+
+	await _confirm(host)
+	check_eq(backend.created.size(), 1, "precondition: the attempt was refused")
+	check(host._next_button.disabled, "Confirm is gated, as it must be")
+
+	# The condition the refusal was about clears on the backend's side — nothing on this screen changed,
+	# and under the old gate nothing on this screen COULD change, because the skipped step is still
+	# invalid and always will be.
+	backend.refuse = false
+	await _press(host._back_button)
+	check_eq(host.current_step_index(), 1, "Back walks off the last step")
+	await _press(host._back_button)
+	check_eq(host.current_step_index(), 0, "and back to one the player can answer")
+	await _press(host._next_button)
+	check_eq(host.current_step_index(), 1, "forward again, recommitting it")
+	check(not host._refusal_pending,
+		"the recommit lifts the gate — under a whole-flow poll the skipped step held it down forever")
+	await _press(host._skip_button)
+	check_eq(host.current_step_index(), 2, "skip the optional step again, as before")
 	check(not host._next_button.disabled,
-		"and it re-enables as soon as every step answers valid again, so the refusal gate is not a dead end")
+		"and Confirm is ENABLED: the flow is finishable, rather than Cancel being the only way out")
+
+	var confirmed: Array = []
+	host.creation_confirmed.connect(func(profile: Dictionary) -> void: confirmed.append(profile))
+	await _confirm(host)
+	check_eq(backend.created.size(), 2, "the second attempt reaches the backend")
+	check_eq(confirmed.size(), 1, "and creates the character")
+
+	await _drop(host, backend)
+
+
+## The commit-only lift rule left ONE flow shape unliftable: nothing but invalid OPTIONAL steps before
+## a valid required last step has no forward commit ANYWHERE — Next never enables on the invalid step,
+## so the only forward gesture the whole flow offers is Skip, and a rule that only commits could lift
+## made Cancel the sole exit after a single refusal (measured in round 4's fix-leg report). The rule is
+## therefore forward MOVEMENT: a non-last Skip is a deliberate fresh walk toward Confirm and lifts the
+## gate; a LAST-step Skip still lifts nothing, which is what keeps the doubled-create door shut (the
+## test below this one).
+func _test_a_flow_with_no_forward_commit_still_recovers_from_a_refusal() -> void:
+	var backend := _spy_backend()
+	backend.refuse = true
+	MKProbeCreationStep.reset()
+	var optional := _step(&"stats", ["stats"], {"stats": {}})
+	optional.required = false
+	optional.skippable = true
+	var host := await _make_host([
+		optional,
+		_step(&"tail", [], {}),
+	], [], backend, null)
+	(host._step_nodes[0] as MKProbeCreationStep).set_valid(false)
+
+	check(host._next_button.disabled, "precondition: the invalid optional step never enables Next")
+	await _press(host._skip_button)
+	check_eq(host.current_step_index(), 1, "precondition: Skip is the only way forward, and it works")
+	await _confirm(host)
+	check_eq(backend.created.size(), 1, "precondition: the attempt was refused")
+	check(host._next_button.disabled, "precondition: Confirm gated")
+
+	backend.refuse = false
+	await _press(host._back_button)
+	check_eq(host.current_step_index(), 0, "Back returns to the optional step")
+	await _press(host._skip_button)
+	check_eq(host.current_step_index(), 1, "and the SKIP forward is accepted")
+	check(not host._refusal_pending,
+		"a non-last Skip lifts the gate — under the commit-only rule this flow had no liftable gesture at all and Cancel was the only exit")
+	check(not host._next_button.disabled, "Confirm is live again")
+
+	var confirmed: Array = []
+	host.creation_confirmed.connect(func(profile: Dictionary) -> void: confirmed.append(profile))
+	await _confirm(host)
+	check_eq(backend.created.size(), 2, "the retry reaches the backend")
+	check_eq(confirmed.size(), 1, "and creates the character")
+
+	await _drop(host, backend)
+
+
+## [b]Skip is the other door into [method MKCreationHost._confirm], and the refusal gate has to cover
+## it.[/b] A skippable LAST step confirms when skipped — that is the documented rule that keeps a
+## trailing optional step from being a dead end — so a gate that disabled only Confirm left a visible,
+## enabled Skip sitting beside it. One press fired a second identical attempt at the backend (measured:
+## two create_profile calls for one refused payload), which is the doubled create the gate exists to
+## prevent.
+##
+## Skip is gated only where it would CONFIRM. On any earlier step it is ordinary forward navigation and
+## stays live — see the brick test above, which recovers through exactly that.
+func _test_the_refusal_gate_also_closes_a_last_step_skip() -> void:
+	var backend := _spy_backend()
+	backend.refuse = true
+	MKProbeCreationStep.reset()
+	var optional := _step(&"look", ["look"], {"look": "hat"})
+	optional.required = false
+	optional.skippable = true
+	var host := await _make_host([
+		_step(&"name", ["name"], {"name": "Typed"}),
+		optional,
+	], [], backend, null)
+
+	await _press(host._next_button)
+	check_eq(host.current_step_index(), 1, "precondition: on the skippable LAST step")
+	check(host._skip_button.visible and not host._skip_button.disabled,
+		"precondition: Skip is offered and live")
+
+	await _press(host._skip_button)
+	check_eq(backend.created.size(), 1,
+		"precondition: skipping the last step DOES confirm, which is why it is a door into the refusal")
+	check_eq(host.get_message(), MKCreationHost.REFUSAL_MESSAGE, "and it was refused")
+
+	check(host._skip_button.disabled,
+		"so after the refusal Skip is disabled too — one gate, both buttons")
+	check(host._next_button.disabled, "alongside Confirm")
+	await _press(host._skip_button)
+	check_eq(backend.created.size(), 1,
+		"and pressing it again reaches the backend NOT ONCE more — a doubled create is exactly what the gate is for")
+
+	backend.refuse = false
+	await _press(host._back_button)
+	await _press(host._next_button)
+	check_eq(host.current_step_index(), 1, "a forward recommit brings the player back to the last step")
+	check(not host._skip_button.disabled,
+		"with Skip live again — the gate is a pause on a repeat attempt, not a removal of the gesture")
+	await _press(host._skip_button)
+	check_eq(backend.created.size(), 2, "and it confirms, as a skipped last step always did")
 
 	await _drop(host, backend)
 
