@@ -214,8 +214,9 @@ func _test_the_host_refuses_a_second_open() -> void:
 	await _drop(game)
 
 
-## A config with no "pause" page: MKRoot refuses and unwinds its own suspension, and the host unwinds
-## the one thing MKRoot cannot know about — the visibility it set a line earlier. Without that, a
+## A config with no "pause" page: MKRoot's pre-check refuses BEFORE anything is suspended (the
+## round-1 fix moved refusal ahead of the suspension), so the only thing left to undo is the one
+## thing MKRoot cannot know about — the visibility the host set a line earlier. Without that, a
 ## missing page leaves a fully opaque shell over the world with no way back.
 func _test_a_config_without_a_pause_page_unwinds_the_shell_visibility() -> void:
 	var game := await _mount_game(null, true)
@@ -227,7 +228,7 @@ func _test_a_config_without_a_pause_page_unwinds_the_shell_visibility() -> void:
 	check(not menu.is_pause_menu_open(), "the open is refused")
 	check(not menu.is_visible_in_tree(),
 		"and the HOST put its shell back — an opaque full-rect Control over the world would be unrecoverable")
-	check_eq(menu.get_suspend_depth(), 0, "MKRoot unwound the suspension it had already raised")
+	check_eq(menu.get_suspend_depth(), 0, "and no suspension was ever raised — the pre-check refused first")
 	check(not get_root().get_tree().paused, "so the world was not left paused behind nothing")
 
 	await _drop(game)

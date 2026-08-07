@@ -329,8 +329,11 @@ func request_quit_confirm() -> void:
 	)
 
 
-## Returns whether the page actually changed. Callers that took an action conditional on navigation
-## succeeding — [method open_pause_menu] raises a suspension first — need to unwind when it did not.
+## Returns whether the page actually changed, so callers can react to a refused navigation —
+## [method push_page] drops the return address it pushed for a page it never left, and
+## [method open_pause_menu]'s ESC recovery closes the pause state when the pause page cannot be
+## re-shown. (Nobody unwinds a SUSPENSION off this return anymore: open_pause_menu's pre-check
+## refuses before suspending — see the containment comment at its bare call.)
 func _show_page(id: StringName) -> bool:
 	if config == null:
 		return false
