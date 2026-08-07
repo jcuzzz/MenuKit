@@ -1,7 +1,7 @@
 # MenuKit — Build Handoff
 
-**Status:** Phases 1–7 complete and reviewed. Phase 7 (server browser) went terminal at review
-round 2 (zero majors; two prose minors, one fixed with the docs commit, one recorded below).
+**Status:** Phases 1–8 complete and reviewed. Phase 8 (input polish) went terminal at review
+round 2 (zero new findings; spot-checks reproduced; the link_chain redundancy arbitrated KEEP).
 **Repo:** `C:\GodotProjects\MenuKit` (standalone, own git history — not a Workingfile subtree)
 **HEAD:** `d59e383` (+ this docs commit)
 **Engine:** Godot 4.7 (`C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe`)
@@ -30,10 +30,25 @@ Phase 1–2 material below is carried forward unchanged where still true.
 | 5 | Profiles + preview: `MKJsonCodec` int envelope (the owner's int→float call), character select + delete confirm, `MKCreationHost` + Name/Archetype/Appearance/Point-buy steps, `MKPreviewViewport` (D13/F10), config-driven step ordering, demo archetypes + 3-stat schema | **Done.** Test leg + 8 adversarial review rounds (round table below; round 8 terminal) |
 | 6 | Pause menu: `mk_pause_menu` panel + the shipped `&"pause"` page in BOTH configs, `demo_game.tscn/.gd` (grey-box mouse-captured first-person), the pause-shell rules on `MKRoot` (nav hidden, page-aware ESC rung + recovery, pre-check refusal, `show_backdrop`, hide==close, recorded-nav restore, back-stack clear on close), save-on-exit for the settings store (round-2 catch: `save()` had NO production caller) | **Done.** Test leg + 7 adversarial review rounds (round table below; round 7 terminal) |
 | 7 | Server browser: `mk_server_browser` panel (every ConnectState rendered with its message — there is NO TIMEOUT enum member, "timeout" is FAILED + "Connection timed out."), demo Servers page, `servers_rig`, the `_recover_focus` seam (focus loss on rebuild/disable-under-ring), render-after-resolve (the status line lied for any backend without the stub-only `get_connect_state`) | **Done.** Test leg + 2 review rounds (round table below; round 2 terminal) |
-| 8–9 | Input polish, comment diet (8a), handoff | Not started |
+| 8 | Input polish: `MKInputGlyphs` (device-aware prompt vocabulary, hoisted from the rebind row; panel-owned tracker with a DETERMINISTIC dispatch-order contract), the §6 visual debt closed (binding column, label-column FILL, palette-generated CheckBox glyphs, CheckBox/CheckButton focus boxes), destructive dialogs open on Cancel by TREE ORDER, welcome copy, empty-roster geometry, select-panel focus recovery | **Done.** Test leg + 2 review rounds (table below; round 2 terminal) |
+| 8a–9 | Comment diet, handoff | Not started |
 
-**Current metrics:** 111 compiled scripts/scenes, 23 test suites, gate:
-`compile=pass smokes=23/23 isolation=pass exit=0`.
+**Current metrics:** 113 compiled scripts/scenes, 24 test suites, gate:
+`compile=pass smokes=24/24 isolation=pass exit=0`.
+
+### Phase 8 defect-count table
+
+| Stage | Majors | Notes |
+|---|---|---|
+| Integration | 1 trivial | Leg A's comment spelled the forbidden override token in prose; the isolation scan (correctly) flags tokens in comments too — reworded |
+| Test leg | 0 | 24th suite (90 assertions) + three extended; probe finding: `Input.get_joy_button_string` does not exist on 4.7 — the pad-legend branch ships dead, pinned with a future-engine tripwire |
+| Round 1 | 2 | The tracker's dispatch-order contract was stated THREE ways, two contradictory, one probe-false — and inverted across rebuild() (fresh: tracker sees consumed events; rebuilt: blind). And the check-glyph 2px border floor reverted to the shipped palette's defect value (1) undetected. Plus 3 coverage minors |
+| Round 2 | 0 | **TERMINAL** — 3/3 re-runs red; 3/4 new mutations red (the fourth survives by per-process test isolation, scoped claim, argued); the shipped-shape transitivity of reverse dispatch PROBED true; link_chain redundancy arbitrated KEEP (the un-trapped dialog is a documented shape and the only place the flag is live) |
+
+Majors per stage: **1 → 0 → 2 → 0.** The round-1 headline is the Phase 6 mirror lesson inverted:
+not five copies of one dead claim, but one LIVE contract written three ways — single-source a
+mechanism's contract at birth, and make the code (not a comment) the guarantor (the placement
+rule vs three prose promises).
 
 ### Phase 7 defect-count table
 
@@ -107,6 +122,10 @@ against an empty project (Audio Master-only, Controls no-KEYBIND — the §3.1 i
 ### Commit history (each review round its own commit, deliberately)
 
 ```
+cb37ec3 fix(phase8): act on the first review; the tracker's place in line is now a rule
+44b95f1 test(phase8): the dedicated suites; the pad-legend branch was never alive
+b46fa96 feat(phase8): input polish — the vocabulary, the column, and the ring on Cancel
+9381326 docs: Phase 7 build handoff — terminal at round two, one seam for three majors
 29fa619 fix(phase7): act on the first review; the ring learns where the living buttons are
 fbd9561 test(phase7): the dedicated suite; the stranded focus ring is pinned, not endorsed
 ef94157 feat(phase7): server browser — a list that admits what it is
@@ -572,6 +591,26 @@ Phase 7 open items:
   documented and tested; noted here because it reads as an oversight until the carve-out comment
   is found.
 
+Phase 8 open items:
+
+- **`Input.get_joy_button_string` does not exist on 4.7** — every shipped pad label comes from
+  the SDL-positional `JOY_BUTTON_NAMES` table (a DualShock shows "B" for Circle). A test goes
+  red if a future engine restores the API; §6a-25 carries the accept-or-scope question.
+- **The F2 border-floor test preconditions on the DEFAULT palette's `border_width == 1`** — a
+  retune fails LOUD (named precondition), not silent-green; re-home onto a forced-1 duplicate
+  palette if that ever fires.
+- **The tracker's dispatch guarantee is owner-subtree-relative** (probed): an `_input`-consuming
+  node a host mounts AFTER the shell at ancestor level dispatches first and can blind the
+  tracker. No shipped node does (the only `_input` consumers are the row and the tracker;
+  MKRoot/demo consume in `_unhandled_input`). INTEGRATION.md sentence, Phase 9.
+- **Confirm's screen position swaps between dialog shapes** (destructive `Cancel | Delete`,
+  non-destructive `Confirm | Cancel`) — deliberate tree-order consequence, console-convention
+  aligned; §6a-23 eyeballs the muscle-memory question.
+- **The 20px check glyph is fixed-size** beside host-raised font sizes — engine-consistent,
+  accepted.
+- **The welcome page has no focusable control** — focus stays on the nav tab; not stranded, but
+  the shipped first screen has no in-page ring. Recorded (adding a control was out of scope).
+
 ## 6a. Human-only checklist (Phase 3 items requiring F5 / a display / a controller)
 
 1. **Brightness (gate 4c preview):** cold-drop or demo boot with a display — drag the slider,
@@ -646,26 +685,45 @@ proxies; these rows ARE the row-6 mouse-capture evidence):
     world — confirm it reads as harmless on a real display (it is accepted and documented; this
     row exists so a future report of it is expected rather than alarming).
 
+Phase 8 items (the row-8 exit criterion is itself a manual matrix):
+
+20. **Gamepad-only full-demo run:** boot → Characters → full 4-step creation incl. point-buy →
+    Play → pause → settings-from-pause → resume → quit-to-menu → Servers connect/cancel →
+    quit-confirm, keyboard unplugged. The quit and delete dialogs must open with the ring on
+    Cancel; B backs out of every rung.
+21. **Keyboard-only mirror** of the same walk (Tab agreement with arrows on the reversed dialog
+    row included).
+22. **Device-flip hint feel:** alternate key/pad on the Controls page — "Esc to cancel"/"B to
+    cancel" swap; flip devices MID-CAPTURE (the dispatch contract's gesture: the hint must land
+    even while a row is listening, identically before and after a panel rebuild); rest a
+    drifting stick — the hint must not flap.
+23. **Travelling-accept test:** hammer A/Enter while triggering delete and quit — no
+    deletion/quit may land; feel the left/right ring between Cancel and the destructive button;
+    note whether the Confirm position swap (F6) trips muscle memory across quit→conflict.
+24. **CheckBox eyeball on a real display:** unchecked visibility at native resolution,
+    hover/pressed compositing over the white re-tint, focus boxes on CheckBox/CheckButton.
+25. **Pad-legend honesty on a non-Xbox pad:** SDL-positional names only (no engine API on 4.7)
+    — a DualShock reads "B" for Circle; confirm and accept, or scope a legend map for Phase 9.
+
 ---
 
-## 7. Next step: Phase 8 — input polish, then 8a — comment diet
-
-Phase 8 (plan row 8): focus-ring styling, device-aware glyphs (`mk_input_glyphs.gd` in the §3
-layout — does not exist yet; original placeholder art only), cross-panel focus audit; exit =
-full demo completable gamepad-only AND keyboard-only. The deferred visual debt lives in §6
-above and is Phase 8's natural worklist: the binding-button column raggedness, the invisible
-unchecked CheckBox, the empty-roster alignment, the slider/enum ~28px drift, the quit-confirm
-destructive default focus, the welcome-page copy. The §4.7 note stands: every panel already
-passed keyboard-only traversal at its own phase gate, so Phase 8 is polish and the input
-MATRIX, not first-time wiring. Much of the matrix is un-headless — expect a §6a checklist
-growth, not just tests.
+## 7. Next step: Phase 8a — comment diet, then Phase 9 — polish & handoff
 
 Phase 8a (plan row 8a / §4.4a): strip construction-era comments to shipped density. The gate
 is TOKEN-LEVEL: comment-stripped before/after of every .gd must be IDENTICAL (script it in
 tools/), zero authored comments in .tres/project.godot, displaced host knowledge staged for
 the Phase 9 docs, maintainer knowledge into THIS file, one adversarial round asking "did any
 deleted comment carry a constraint the code cannot show". The §6/§4 sections above are the
-receiving vessels — write them BEFORE deleting, not after.
+receiving vessels — write them BEFORE deleting, not after. Two comments the diet must NOT
+flatten below their constraint: the MKInputGlyphs dispatch-order contract paragraph (it is the
+single source three sites reference) and the CheckBox-glyph "why the fix lives in the Theme"
+rationale (its forbidden-token-in-prose note is what keeps the isolation scan story sane).
+
+Phase 9 (plan row 9 + §6): alt skin under demo/alt_skin/ proving re-theme (gate 3), the five
+docs (INTEGRATION/THEMING/API/SETTINGS_SCHEMA/CREATION_STEPS), README, CHANGELOG 0.1.0 (the §6
+initial-format statement list: input event device field, __mk_type int tag + discriminator
+refusal, trimmed names, newer-store latch, save-on-exit crash caveat), MKVersion/plugin.cfg/tag
+agreement (gate 10), and the 13 ship gates — several need a display/editor session (§6a).
 
 ### The completed Phase 6, for reference
 
