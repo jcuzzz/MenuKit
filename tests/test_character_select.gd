@@ -29,6 +29,7 @@ func run_tests() -> void:
 	await _test_the_roster_renders_one_card_per_entry()
 	await _test_play_hands_the_selected_entry_over_verbatim()
 	await _test_delete_is_confirmed_before_it_happens()
+	await _test_a_destructive_dialog_opens_on_cancel()
 	await _test_deleting_the_last_entry_leaves_a_reachable_empty_state()
 	await _test_navigating_to_an_empty_roster_never_focuses_a_disabled_button()
 	await _test_new_character_pushes_and_every_exit_pops_back()
@@ -139,6 +140,48 @@ func _test_delete_is_confirmed_before_it_happens() -> void:
 	check_eq(_cards(panel).size(), 1,
 		"and its card dropped off the page — through roster_changed, so a host-side deletion redraws the same way")
 	check_eq(_card_text(panel, "Bob"), "Bob", "leaving the other entry")
+
+	await _drop(root)
+
+
+## [b]A destructive dialog must not open with the destructive button under the ring.[/b] The delete
+## confirmation and the root's quit-confirm are both one already-travelling accept away from doing
+## the thing they exist to ask about, and Phase 6 recorded that as a real defect rather than a taste.
+##
+## The assertion is on the VIEWPORT's focus owner, not on the dialog's own intent: [method
+## MKFocus.trap] re-grabs during the push, after the dialog's [method Node._ready] has run, so a
+## dialog that only set its own preference would test green and ship the old behaviour. The
+## non-destructive half is asserted from the SAME fixture, because "Cancel is focused" passes just as
+## well against a dialog that always focuses Cancel — which would break the conflict modal's Replace
+## and the demo's OK dialog.
+func _test_a_destructive_dialog_opens_on_cancel() -> void:
+	_seed([{"name": "Alice"}])
+	var root := await _make_root()
+	var layer := root.get_modal_layer()
+
+	var destructive := MKConfirmDialog.open(layer, "Delete Character", "Delete 'Alice'?",
+		"Delete", "Cancel", true)
+	await step_frame()
+	check(destructive != null, "the destructive dialog opened")
+	if destructive != null:
+		check_eq(get_root().gui_get_focus_owner(), destructive.get_cancel_button(),
+			"and the ring starts on CANCEL — an accept that was already travelling must not delete (got %s)"
+				% get_root().gui_get_focus_owner())
+		check(get_root().gui_get_focus_owner() != destructive.get_confirm_button(),
+			"never on the destructive button, which is what the trap's tree-order rule is arranged to produce")
+		layer.pop_modal()
+		await step_frame()
+
+	var safe := MKConfirmDialog.open(layer, "Binding Conflict", "Space is already bound.",
+		"Replace", "Cancel", false)
+	await step_frame()
+	check(safe != null, "a non-destructive dialog opened on the same layer")
+	if safe != null:
+		check_eq(get_root().gui_get_focus_owner(), safe.get_confirm_button(),
+			"and it still opens on CONFIRM — the flip is scoped to destructive dialogs, not applied to all of them (got %s)"
+				% get_root().gui_get_focus_owner())
+		layer.pop_modal()
+		await step_frame()
 
 	await _drop(root)
 

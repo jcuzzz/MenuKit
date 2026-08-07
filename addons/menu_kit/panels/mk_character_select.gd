@@ -202,7 +202,18 @@ func _refresh() -> void:
 		empty.name = "Empty"
 		empty.text = "No characters yet." if _profile_backend != null \
 			else "No profile backend is assigned."
-		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		# LEFT and EXPAND_FILL, matching _make_card exactly: the empty state occupies the same slot in
+		# the same column as a card, so the two states must share geometry. Centred, the sentence
+		# floated over a column whose every populated row starts at the left edge, and the page
+		# visibly re-laid-itself-out the moment the first character existed. The inset is not restated
+		# here — CardMargin already supplies it to cards and to this label alike.
+		#
+		# Residual, and it is a text-metrics one rather than a layout one: a Button adds the theme's
+		# own content margin inside its rect, so this Label's glyphs start a few pixels left of a
+		# card's. Closing that would mean an add_theme_*_override or a hand-copied constant, both of
+		# which ship gate 1 refuses.
+		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		empty.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		MKTheme.set_variation(empty, MKTheme.ROW_LABEL)
 		_card_column.add_child(empty)
@@ -237,7 +248,44 @@ func _refresh() -> void:
 
 	if entries.is_empty() and _new_button != null and not _new_button.disabled:
 		_new_button.grab_focus.call_deferred()
+	elif not entries.is_empty():
+		_recover_focus()
 	built.emit()
+
+
+## Puts the ring back on a card when [method _refresh] freed the control that was holding it.
+##
+## [method Viewport.gui_get_focus_owner] goes NULL when the focused control is freed, and every
+## rebuild frees every card — so a roster that changes under a keyboard or gamepad player (a delete,
+## a host-side write, any [signal MKProfileBackend.roster_changed] this panel did not initiate) left
+## the page alive but undrivable, with no ring anywhere. The empty-roster branch already had its own
+## answer (New Character takes focus); this is the populated half of the same requirement.
+##
+## [b]It recovers ONLY from null[/b], which is the whole of its licence. [MKServerBrowser] additionally
+## recovers from a focus owner that its own rebuild DISABLED under the ring; this panel cannot reach
+## that state — its footer flips are settled before the chain is built, and a card is never disabled —
+## so the wider rule is not copied here. Refusing to act while something live holds focus is what
+## keeps a rebuild triggered from elsewhere on screen (a host page embedding this panel beside its
+## own controls) from yanking the ring out of the player's hands.
+##
+## Prefers the selected card, so recovery lands where the page says the player is rather than at the
+## top of the list.
+func _recover_focus() -> void:
+	if not is_visible_in_tree():
+		return
+	var viewport := get_viewport()
+	if viewport == null or viewport.gui_get_focus_owner() != null:
+		return
+	var selected_card: Variant = _cards.get(_selected_id())
+	if selected_card is Button and is_instance_valid(selected_card) \
+			and (selected_card as Button).is_visible_in_tree():
+		(selected_card as Button).grab_focus()
+		return
+	# No selected card to go back to (a rebuild that dropped it). Anything focusable in the column
+	# beats nothing at all; the footer is the fallback of last resort because a page whose only ring
+	# is on Play reads as a page with no list.
+	if MKFocus.focus_first(_card_column) == null:
+		MKFocus.focus_first(_footer)
 
 
 ## Builds one focusable card. A [Button] rather than a panel with a click handler because focus,

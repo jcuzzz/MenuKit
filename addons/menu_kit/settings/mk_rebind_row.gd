@@ -4,6 +4,10 @@ extends HBoxContainer
 ## One [constant MKSettingDef.RowType.KEYBIND] row: it shows an action's current binding, captures a
 ## new one, and commits it through [MKSettingsBackend] (plan §4.4).
 ##
+## [b]Every event this row PRINTS is spelled by [MKInputGlyphs][/b] — the binding text, the conflict
+## dialog's body, the abort hint. The row owns the capture rules; it does not own a second opinion
+## about what a key is called.
+##
 ## Built entirely in code, like every other MenuKit row — there is no [code].tscn[/code] for it, so
 ## the scene can never drift from the structure this script indexes into. [MKSettingsPanel]
 ## constructs one, names it, and calls [method setup]; nothing else is required of the host.
@@ -70,12 +74,30 @@ const LABEL_COLUMN_WIDTH := 260.0
 ## through [constant MKTheme.FOCUS_RING].
 const FOCUS_RING_GROW := 4.0
 
+## Width reserved for the binding button, so the seven binding buttons on a controls page share one
+## left edge AND one right edge instead of each sizing to its own text ("W" beside "Mouse Middle").
+## A floor, not a cap: a long binding still grows the button rather than clipping, which is the right
+## failure — an unreadable binding is worse than a ragged column.
+##
+## Same discipline (and the same "layout rhythm, not a palette constant" rationale) as
+## [constant LABEL_COLUMN_WIDTH]; sized smaller because a binding is a keycap name, not a sentence.
+const BINDING_COLUMN_WIDTH := 200.0
+
 ## Deadzone for [InputEventJoypadMotion]. Below this a stick is resting or drifting, and binding a
 ## drifting axis would produce an action that fires forever with nothing touching the pad.
-const AXIS_DEADZONE := 0.5
+##
+## Aliased from [constant MKInputGlyphs.AXIS_DEADZONE] rather than restated: "the magnitude below
+## which a stick is not being used" is one fact, shared with the device tracker, and two spellings of
+## it would drift apart the first time either was tuned.
+const AXIS_DEADZONE := MKInputGlyphs.AXIS_DEADZONE
 
 ## Shown while a capture is live.
 const LISTEN_TEXT := "Press any key…"
+
+## The keyboard abort hint, and the base default: a row with no [MKInputGlyphs] tracker shows this
+## and nothing else, so a host embedding the row outside [MKSettingsPanel] sees Phase 4's behaviour
+## unchanged. See [method _cancel_hint_text] for what a pad-active session shows instead.
+const HINT_KEYBOARD := "Esc to cancel"
 
 ## Shown when an action has no events at all. Not an error: an unbound action is a legitimate state
 ## a user can reach by resetting a project whose stock binding list is empty.
@@ -107,6 +129,8 @@ var _managed_actions_provider := Callable()
 ## (joypad B), widened by the host. Supplied by the panel; this row does not derive it, because the
 ## question "what does this shell use to back out" belongs to the shell.
 var _reserved_events: Array[InputEvent] = []
+## The panel's device tracker, or null. See [method set_input_glyphs] — the row never creates one.
+var _glyphs: MKInputGlyphs
 
 var _action: StringName = &""
 ## False when [method InputMap.has_action] said no at setup. The row still builds — see [method setup]
@@ -152,8 +176,13 @@ func _ready() -> void:
 ## controls page that is simply missing a line, with nothing anywhere to say which resource named a
 ## dead action. The backend keeps overrides for unknown actions for the same reason — renaming an
 ## action back restores the user's binding rather than losing it.
+## [param input_glyphs] is OPTIONAL and defaults to null, which is the Phase 4 behaviour verbatim:
+## the abort hint reads [constant HINT_KEYBOARD] and nothing about this row is device-aware. Passing
+## one — [MKSettingsPanel] passes its single per-panel tracker — makes the hint follow the device in
+## use. See [method set_input_glyphs].
 func setup(def: MKSettingDef, backend: MKSettingsBackend, modal_layer: MKModalLayer,
-		managed_actions_provider: Callable, reserved_events: Array[InputEvent]) -> void:
+		managed_actions_provider: Callable, reserved_events: Array[InputEvent],
+		input_glyphs: MKInputGlyphs = null) -> void:
 	# A live capture belongs to the OLD def. Ended before anything is repointed, so the abort path
 	# restores a display that still matches what it is about to be replaced with.
 	if _listening:
@@ -169,6 +198,8 @@ func setup(def: MKSettingDef, backend: MKSettingsBackend, modal_layer: MKModalLa
 	_action_known = _action != &"" and InputMap.has_action(_action)
 
 	_build()
+	# After _build, because it repaints the hint label _build creates.
+	set_input_glyphs(input_glyphs)
 
 	# On the row AND the button: the label is the larger hit area, and a tooltip only reachable over a
 	# narrow button is one most users never find.
@@ -202,12 +233,23 @@ func _build() -> void:
 	_label = Label.new()
 	_label.name = "RowLabel"
 	_label.custom_minimum_size = Vector2(LABEL_COLUMN_WIDTH, 0.0)
-	_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# FILL, never EXPAND_FILL — the same correction [MKSettingsPanel._wrap] carries, for the same
+	# reason. An expanding label is not a column: the HBox hands it a share of the row's LEFTOVER
+	# space, so its final width (and therefore where the control column starts) moves with the total
+	# minimum width of everything else on the line. A keybind row carries three more children than a
+	# toggle row does, so with EXPAND its label column came out narrower and its buttons started left
+	# of the toggles above them.
+	_label.size_flags_horizontal = Control.SIZE_FILL
 	MKTheme.set_variation(_label, MKTheme.ROW_LABEL)
 	add_child(_label)
 
 	_binding_button = Button.new()
 	_binding_button.name = "Binding"
+	# The floor that squares the binding column — see BINDING_COLUMN_WIDTH. SHRINK_BEGIN so the button
+	# is exactly that wide rather than absorbing the row's leftover space, which would put the Reset
+	# button on a different x per row all over again.
+	_binding_button.custom_minimum_size = Vector2(BINDING_COLUMN_WIDTH, 0.0)
+	_binding_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	MKTheme.set_variation(_binding_button, MKTheme.PANEL_BUTTON)
 	# Godot's own button activation covers BOTH gestures the plan requires to start a capture: a mouse
 	# click and ui_accept on the focused button both emit `pressed`. No input handling of our own is
@@ -238,10 +280,9 @@ func _build() -> void:
 
 	_hint_label = Label.new()
 	_hint_label.name = "CancelHint"
-	_hint_label.text = "Esc to cancel"
+	_hint_label.text = _cancel_hint_text()
 	# Beside the Cancel button rather than inside its label: the button already says Cancel, and a
-	# button captioned "Cancel (Esc to cancel)" reads as a stutter. Keyboard is the only device the
-	# hint applies to — the pad's abort is the reserved refusal, which explains itself in the caption.
+	# button captioned "Cancel (Esc to cancel)" reads as a stutter.
 	MKTheme.set_variation(_hint_label, MKTheme.ROW_LABEL)
 	_hint_label.visible = false
 	add_child(_hint_label)
@@ -341,7 +382,7 @@ func _binding_text() -> String:
 	var events := _backend.get_action_events(_action)
 	var parts: Array[String] = []
 	for event in events:
-		var text := _event_label(event)
+		var text := MKInputGlyphs.event_label(event)
 		if text.is_empty():
 			continue
 		parts.append(text)
@@ -350,70 +391,72 @@ func _binding_text() -> String:
 	return ", ".join(parts)
 
 
-## A human label for one event, or "" for an event class this row cannot describe (which is also the
-## set the persisted format cannot carry, so such an event can never have come from the store).
-func _event_label(event: InputEvent) -> String:
-	if event is InputEventKey:
-		return _key_label(event as InputEventKey)
-	if event is InputEventMouseButton:
-		return _mouse_label((event as InputEventMouseButton).button_index)
-	if event is InputEventJoypadButton:
-		return _joypad_button_label((event as InputEventJoypadButton).button_index)
-	if event is InputEventJoypadMotion:
-		var motion := event as InputEventJoypadMotion
-		return "Axis %d %s" % [int(motion.axis), "+" if motion.axis_value >= 0.0 else "-"]
-	return ""
+# --- Device awareness ---------------------------------------------------------
 
-
-## Bindings are stored by PHYSICAL keycode (the backend's format decision, plan §4.4) so they stay
-## under the same finger on an AZERTY layout — but a physical code is a POSITION, and printing it
-## raw would label the AZERTY player's key by its QWERTY name. [method
-## DisplayServer.keyboard_get_keycode_from_physical] maps the position back through the ACTIVE
-## layout, which is what the player sees on the keycap.
+## Points this row at a device tracker, or at null to go back to keyboard prose. Safe to call again
+## and safe to call with the tracker it already has.
 ##
-## Two fallbacks to the plain keycode, both reachable: a synthetic event carries physical_keycode 0
-## (nothing to map), and the mapping itself answers 0 on drivers with no layout information — the
-## headless driver among them, where every row would otherwise read as a blank binding.
-func _key_label(key: InputEventKey) -> String:
-	var physical := int(key.physical_keycode)
-	# The headless driver is skipped BEFORE the call, not diagnosed after it: keyboard_get_keycode_from_
-	# physical there both answers 0 and prints an engine ERROR line per call, and the suite's noise gate
-	# treats engine ERRORs as failures. With no layout to consult, the physical code IS the best
-	# available name — OS.get_keycode_string reads it as the QWERTY position, which for a headless run
-	# (tests, a server) is a log label rather than a keycap.
-	if physical != 0 and DisplayServer.get_name() != "headless":
-		var mapped := DisplayServer.keyboard_get_keycode_from_physical(physical as Key)
-		if int(mapped) != 0:
-			return OS.get_keycode_string(mapped)
-	if physical != 0:
-		return OS.get_keycode_string(physical as Key)
-	return OS.get_keycode_string(int(key.keycode) as Key)
+## [b]The row never creates one.[/b] An [MKInputGlyphs] runs [method Node._input] for its whole life,
+## and a controls page has seven of these rows — seven trackers would be seven dispatches per event
+## to answer the one question they all ask. The PANEL owns exactly one and hands it to every row it
+## builds; a host driving [method setup] directly may pass its own, or nothing.
+##
+## The connection is to [signal MKInputGlyphs.device_class_changed], which only fires on a real flip,
+## so an idle row costs nothing while a player holds a stick.
+func set_input_glyphs(glyphs: MKInputGlyphs) -> void:
+	if glyphs == _glyphs:
+		_refresh_hint()
+		return
+	if _glyphs != null and is_instance_valid(_glyphs) \
+			and _glyphs.device_class_changed.is_connected(_on_device_class_changed):
+		_glyphs.device_class_changed.disconnect(_on_device_class_changed)
+	_glyphs = glyphs
+	if _glyphs != null and not _glyphs.device_class_changed.is_connected(_on_device_class_changed):
+		_glyphs.device_class_changed.connect(_on_device_class_changed)
+	_refresh_hint()
 
 
-## The three buttons every mouse has get their names; the rest are numbered. "Mouse 4" is what a
-## player with a side button expects to read, and Godot's own enum names for them
-## (WHEEL_UP, XBUTTON1) are not.
-func _mouse_label(index: int) -> String:
-	match index:
-		MOUSE_BUTTON_LEFT:
-			return "Mouse Left"
-		MOUSE_BUTTON_RIGHT:
-			return "Mouse Right"
-		MOUSE_BUTTON_MIDDLE:
-			return "Mouse Middle"
-	return "Mouse %d" % index
+func _on_device_class_changed(_pad: bool) -> void:
+	_refresh_hint()
 
 
-## [method Input.get_joy_button_string] gives the pad-appropriate name ("A", "Cross"). It is queried
-## through [method Object.has_method] because it is an engine API this addon does not control the
-## availability of across 4.x builds, and a missing one must degrade to a number rather than take the
-## page down — that is a genuine capability probe, not a guard against our own classes.
-func _joypad_button_label(index: int) -> String:
-	if Input.has_method("get_joy_button_string"):
-		var name: Variant = Input.call("get_joy_button_string", index)
-		if name is String and not (name as String).is_empty():
-			return name as String
-	return "Pad %d" % index
+## The abort hint, repainted. Runs whether or not the hint is currently visible: the label is hidden
+## between captures rather than rebuilt, so writing it eagerly is what makes it correct on the frame
+## [method begin_listen] shows it — computing it only at capture start would leave a device flip that
+## happened DURING a capture (a player putting the keyboard down mid-prompt) showing the other
+## device's key.
+func _refresh_hint() -> void:
+	if _hint_label == null or not is_instance_valid(_hint_label):
+		return
+	_hint_label.text = _cancel_hint_text()
+
+
+## [b]The hint names the gesture that actually aborts on the device in use[/b], which is a different
+## gesture per device (see the abort table in the class doc) — so a controller player was being told
+## to press a key their hands are not on, and the pad's own way out went unnamed.
+##
+## Keyboard (and every row with no tracker): [constant HINT_KEYBOARD], Phase 4's string unchanged.
+##
+## Pad: the reserved event's own name, through [method MKInputGlyphs.event_label] — "B to cancel".
+## Derived from [member _reserved_events] rather than hardcoding B, because that list IS what the
+## refusal path matches against: the panel derives it from the boot-default non-keyboard
+## [code]ui_cancel[/code] bindings, so a project whose menu backs out on Circle or on Start gets a
+## hint naming THAT button, and a hint can never promise an abort the refusal would not perform.
+##
+## Falls back to the keyboard string when the reserved list carries no pad button — which is exactly
+## the configuration where the pad abort does not work either (the derived list is empty when a host
+## never restated [code]ui_cancel[/code] with a pad binding; see
+## [method MKSettingsPanel._reserved_input_events]). Promising "B to cancel" there would be a lie the
+## player discovers by pressing B and watching it get bound.
+func _cancel_hint_text() -> String:
+	if _glyphs == null or not is_instance_valid(_glyphs) or not _glyphs.is_pad_active():
+		return HINT_KEYBOARD
+	for reserved in _reserved_events:
+		if reserved is InputEventJoypadButton:
+			var label := MKInputGlyphs.event_label(reserved)
+			if not label.is_empty():
+				return "%s to cancel" % label
+	return HINT_KEYBOARD
 
 
 # --- Capture ------------------------------------------------------------------
@@ -827,12 +870,12 @@ func _find_conflicting_action(event: InputEvent) -> StringName:
 ## than committed, because committing a conflict the user was never asked about is the one outcome
 ## none of the three buttons produces.
 func _open_conflict_dialog(event: InputEvent, other: StringName) -> void:
-	var body := "%s is already bound to %s." % [_event_label(event), String(other)]
+	var body := "%s is already bound to %s." % [MKInputGlyphs.event_label(event), String(other)]
 	var dialog := MKConfirmDialog.open(_modal_layer, "Binding Conflict", body, "Replace", "Cancel",
 		false, "Keep both")
 	if dialog == null:
 		MKLog.warn("%s: '%s' conflicts with action '%s' but no MKModalLayer is reachable — the new binding was NOT applied"
-			% [MKLog.context(_def, "action_name"), _event_label(event), other])
+			% [MKLog.context(_def, "action_name"), MKInputGlyphs.event_label(event), other])
 		return
 	dialog.confirmed.connect(func() -> void:
 		_strip_event_from(other, event)

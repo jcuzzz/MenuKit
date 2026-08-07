@@ -17,6 +17,20 @@ extends RefCounted
 ##   the only feedback a gamepad or keyboard player gets (D12); a missing focus box ships blind
 ##   traversal.
 ##
+## [b]The focus audit (plan row 8), recorded so the next reader does not have to redo it.[/b] Every
+## focusable control type MenuKit instantiates was walked against the question "does the theme make
+## focus visible here":
+## [br]- [Button] and its four variations, [OptionButton], [LineEdit], the [TabContainer] tab strip —
+##   all carry a [code]focus[/code] StyleBox from [method focus_box], all now with the same content
+##   margins as their own [code]normal[/code] box ([CheckBox]/[CheckButton] were the exception and are
+##   corrected in [method _style_checks]).
+## [br]- [HSlider]/[VSlider] are the one genuine hole and it is the ENGINE's: a Slider defines no
+##   focus StyleBox at all, so there is nothing here to write. That is why [MKSettingsPanel] and
+##   [code]MKRebindRow[/code] parent a [constant MKTheme.FOCUS_RING] [Panel] to the control instead —
+##   the ring is the vocabulary's answer for any control that cannot own a focus box, and it is
+##   themed, so it re-skins with everything else.
+## [br]- [SpinBox] takes focus through its internal [LineEdit], which is styled above.
+##
 ## The result is generated at runtime by [code]MKRoot[/code] and, for editor preview only, baked to
 ## [code]themes/generated_theme.tres[/code]. The bake is a convenience artifact, never the source of
 ## truth (plan §1.2, F6).
@@ -187,6 +201,12 @@ static func _style_slider(theme: Theme, pal: MKPalette) -> void:
 			flat(pal, pal.accent_hover, pal.accent_hover, 0, groove, groove))
 
 
+## Side of the generated check glyph, in pixels. A fixed size rather than a palette step: the box is
+## a GLYPH sitting beside text, so it is sized against the engine's own check icons (which it
+## replaces) and not against the panel's spacing rhythm.
+const CHECK_ICON_SIZE := 20
+
+
 static func _style_checks(theme: Theme, pal: MKPalette) -> void:
 	for type in [&"CheckButton", &"CheckBox"]:
 		_style_button_type(theme, pal, type, Color(pal.surface, 0.0), Color(pal.surface_raised, 0.5),
@@ -194,7 +214,113 @@ static func _style_checks(theme: Theme, pal: MKPalette) -> void:
 		theme.set_stylebox(&"normal", type,
 			flat(pal, Color(pal.surface, 0.0), Color(pal.border, 0.0), 0,
 				pal.spacing_sm, pal.spacing_xs))
+		# The focus box is re-written with the margins the line above just gave `normal`, replacing the
+		# BUTTON margins _style_button_type wrote. Two reasons, and the second is the D12 one: a Button's
+		# minimum size is the largest of its styleboxes' minimum sizes, so a focus box with roomier
+		# margins silently pads every checkbox on the page; and the focus ring is meant to trace the
+		# control the player is looking at — on a check row, a ring inset differently from the control's
+		# own box reads as a ring around nothing. Every other focusable type this generator styles
+		# (Button, LineEdit, OptionButton, the nav tabs) already matches its normal box's margins; this
+		# was the one that did not.
+		theme.set_stylebox(&"focus", type, focus_box(pal, pal.spacing_sm, pal.spacing_xs))
 		theme.set_constant(&"h_separation", type, pal.spacing_sm)
+
+	_style_check_box_icons(theme, pal)
+
+
+## [b]The check glyph is generated from the palette, because the engine's is not ours to re-skin.[/b]
+##
+## An unchecked [CheckBox] rendered near-invisible on the shipped dark panel (recorded as a Phase 3
+## visual defect, seen on the Controls page's Invert Vertical Look): the glyph is an ICON, and icons
+## are the one part of a control that a StyleBox cannot reach — so no amount of palette editing moved
+## it, and the row read as a label with nothing beside it. A per-control theme-item override call is
+## forbidden (plan §1.2, ship gate 1 — the scan matches the call name even in prose, which is why
+## this sentence does not spell it) and would break the alt skin anyway, so the fix belongs here, in
+## the Theme, keyed off [MKPalette] like everything else.
+##
+## [b]Drawn, not bundled.[/b] Two flat boxes and a tick, rasterised at generation time from palette
+## colours — no image file, so ship gate 1's isolation scan and the no-third-party-art rule (plan
+## §2.1) are both untouched, and a host swapping palettes gets a re-coloured glyph for free.
+##
+## [b][CheckButton] is deliberately left on the engine's art.[/b] Its icon is a SWITCH, a different
+## shape with different states; substituting a box there would make the two controls read as the same
+## widget. It was not the reported defect either.
+##
+## The [code]radio_*[/code] icons are likewise untouched: a [CheckBox] only draws them when it carries
+## a [ButtonGroup], and no MenuKit row assigns one.
+static func _style_check_box_icons(theme: Theme, pal: MKPalette) -> void:
+	theme.set_icon(&"unchecked", &"CheckBox", _check_icon(pal, false, true))
+	theme.set_icon(&"checked", &"CheckBox", _check_icon(pal, true, true))
+	theme.set_icon(&"unchecked_disabled", &"CheckBox", _check_icon(pal, false, false))
+	theme.set_icon(&"checked_disabled", &"CheckBox", _check_icon(pal, true, false))
+	# The engine modulates a button's icon per state. The glyphs above already carry their own colours,
+	# so every state is set to plain white — otherwise a hover or a focus would re-tint a box that was
+	# drawn from the palette on purpose.
+	for state in [&"icon_normal_color", &"icon_hover_color", &"icon_pressed_color",
+			&"icon_hover_pressed_color", &"icon_focus_color"]:
+		theme.set_color(state, &"CheckBox", Color.WHITE)
+	# Dimmed rather than white, and the two dimmings are deliberately allowed to compound: if a future
+	# engine version renames the *_disabled icon slots above, the disabled state falls back to the
+	# ENABLED glyph and this modulate is the only thing still saying "unavailable".
+	theme.set_color(&"icon_disabled_color", &"CheckBox", Color(1.0, 1.0, 1.0, 0.6))
+
+
+## One check glyph: a bordered box, plus a tick when [param checked].
+##
+## Contrast is the whole job, so the border is the palette's [member MKPalette.border] (its accent
+## when checked) over the SUNKEN fill rather than the panel fill — the same figure/ground pair the
+## LineEdit and slider groove use, which are the two controls nobody reported as invisible.
+##
+## The border is at least 2px wide regardless of [member MKPalette.border_width]. A panel-scale
+## hairline on a 20px glyph is precisely the thing that vanished; the palette still scales it upward.
+static func _check_icon(pal: MKPalette, checked: bool, enabled: bool) -> ImageTexture:
+	var size := CHECK_ICON_SIZE
+	# No initial fill: the loop below writes EVERY pixel of the box, so a pre-fill would be overwritten
+	# in its entirety. The tick then draws over that.
+	var image := Image.create_empty(size, size, false, Image.FORMAT_RGBA8)
+
+	var line := maxi(2, pal.border_width)
+	var edge := pal.accent if checked else pal.border
+	var fill := Color(pal.accent, 0.30) if checked else pal.surface_sunken
+	if not enabled:
+		edge = pal.text_disabled
+		fill = Color(fill, fill.a * 0.5)
+
+	for y in size:
+		for x in size:
+			var on_border := x < line or y < line or x >= size - line or y >= size - line
+			image.set_pixel(x, y, edge if on_border else fill)
+
+	if checked:
+		# A tick, drawn as two strokes: down-right into the low corner, then up-right. Proportional to
+		# the icon so a host raising CHECK_ICON_SIZE gets the same mark rather than a mark in a corner.
+		var mark := pal.accent_text if enabled else pal.text_disabled
+		var thickness := maxf(2.0, float(size) * 0.12)
+		_stroke(image, Vector2(size * 0.26, size * 0.52), Vector2(size * 0.44, size * 0.72),
+			thickness, mark)
+		_stroke(image, Vector2(size * 0.44, size * 0.72), Vector2(size * 0.76, size * 0.30),
+			thickness, mark)
+
+	return ImageTexture.create_from_image(image)
+
+
+## Draws a round-capped line into [param image] by testing every pixel's distance to the segment.
+## Per-pixel rather than a Bresenham walk because the caps and the width come out right for free, and
+## a 20x20 glyph generated once per Theme build is not a budget worth optimising.
+static func _stroke(image: Image, from: Vector2, to: Vector2, thickness: float,
+		color: Color) -> void:
+	var half := thickness * 0.5
+	var segment := to - from
+	var length_squared := segment.length_squared()
+	for y in image.get_height():
+		for x in image.get_width():
+			var point := Vector2(float(x) + 0.5, float(y) + 0.5)
+			# Zero-length segments would divide by zero; clamping t to 0 turns the segment into its own
+			# start point, which is the correct degenerate answer (a dot) rather than a skipped stroke.
+			var t := 0.0 if length_squared <= 0.0 \
+				else clampf((point - from).dot(segment) / length_squared, 0.0, 1.0)
+			if point.distance_to(from + segment * t) <= half:
+				image.set_pixel(x, y, color)
 
 
 static func _style_option_button(theme: Theme, pal: MKPalette) -> void:

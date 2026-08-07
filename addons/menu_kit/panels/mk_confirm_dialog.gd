@@ -16,6 +16,26 @@ extends Control
 ## The whole UI is built in code (plan §1.2's runtime-generation half): the accompanying
 ## [code].tscn[/code] is the root node plus this script, so the scene can never drift from the
 ## structure the script indexes into.
+##
+## [b]Default focus follows [method open]'s [param destructive] flag, and it is decided by BUTTON
+## ORDER.[/b] A
+## non-destructive dialog opens with Confirm focused; a destructive one opens with Cancel focused, so
+## an [code]ui_accept[/code] that was already travelling when "Quit to desktop?" or "Delete
+## character?" appeared cannot commit the destructive action.
+##
+## There are three separate routes that decide where focus lands on a dialog, and only one of them is
+## this script's own [method _ready] grab: [method MKFocus.trap] re-grabs during
+## [method MKModalLayer.push_modal] (after [method _ready] has run), and both
+## [code]MKModalLayer._restore_focus[/code] (a modal stacked ABOVE this one popping) and its
+## focus-pullback re-grab later still. All three take the FIRST focusable in tree order. So the
+## decision is single-sourced as tree order rather than as a grab: [method _build] puts the default
+## button first among the dialog's buttons, and [method get_default_focus_button] names the same rule for
+## the one explicit grab. A dialog that only agreed with itself in [method _ready] would be overridden
+## by the very next trap.
+##
+## The visible consequence for a destructive dialog is the button row reading Cancel → (alternate) →
+## Confirm rather than the other way round, which also puts the red button furthest from the one the
+## ring starts on. Escape/cancel semantics are unchanged in both shapes.
 
 ## The user chose the confirm action. Emitted before the dialog is popped, so a handler can inspect
 ## the still-live instance.
@@ -45,7 +65,8 @@ var _owns_self := false
 ## Builds a dialog, pushes it onto [param layer] and returns the instance so the caller can connect
 ## [signal confirmed]/[signal cancelled] in the same expression that opened it.
 ## [param destructive] styles the confirm button with [constant MKTheme.DANGER_BUTTON] — a delete
-## and a quit must not look like an OK.
+## and a quit must not look like an OK — and moves the default focus (and the confirm button itself)
+## to the far side of the row, so the dialog opens on Cancel. See the class doc.
 ## [param alt_text] adds the third button; empty means a 2-button dialog.
 ## A dialog opened this way frees itself when it is popped (see [method _on_popped]), so callers
 ## never own cleanup. Building one with [method Object.new] and pushing it yourself keeps ownership
@@ -86,10 +107,13 @@ func _ready() -> void:
 	# STOP so a click on the dialog body never reaches the scrim or anything behind it.
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_build()
-	# Grab focus on the default button so the dialog is usable keyboard/gamepad-only from Phase 1;
-	# MKModalLayer.push_modal traps focus, this decides WHICH control starts with it.
-	if _confirm_button != null:
-		_confirm_button.grab_focus()
+	# The dialog must be usable keyboard/gamepad-only from the frame it appears, including when nobody
+	# pushed it onto an MKModalLayer (a host parenting it itself gets no trap). _build has already put
+	# the same button first in tree order, so this grab and every later trap/restore/pullback agree —
+	# see the class doc's focus paragraph.
+	var default_button := get_default_focus_button()
+	if default_button != null:
+		default_button.grab_focus()
 	if _owns_self and _layer != null and is_instance_valid(_layer):
 		_layer.modal_popped.connect(_on_popped)
 
@@ -186,7 +210,6 @@ func _build() -> void:
 	MKTheme.set_variation(_confirm_button,
 		MKTheme.DANGER_BUTTON if _destructive else MKTheme.PRIMARY_BUTTON)
 	_confirm_button.pressed.connect(_on_confirm)
-	buttons.add_child(_confirm_button)
 
 	var alt_text := String(get_meta(&"mk_alt", ""))
 	if not alt_text.is_empty():
@@ -195,22 +218,42 @@ func _build() -> void:
 		_alt_button.text = alt_text
 		MKTheme.set_variation(_alt_button, MKTheme.PANEL_BUTTON)
 		_alt_button.pressed.connect(_on_alternate)
-		buttons.add_child(_alt_button)
 
 	_cancel_button = Button.new()
 	_cancel_button.name = "Cancel"
 	_cancel_button.text = String(get_meta(&"mk_cancel", "Cancel"))
 	MKTheme.set_variation(_cancel_button, MKTheme.PANEL_BUTTON)
 	_cancel_button.pressed.connect(_on_cancel)
-	buttons.add_child(_cancel_button)
 
-	# Built explicitly rather than via Array.filter — filter returns an untyped Array, which
-	# link_chain's Array[Control] parameter refuses at runtime.
-	var row: Array[Control] = [_confirm_button]
+	# ORDER IS THE FOCUS DECISION, not a layout preference: every focus route into this dialog takes
+	# the first focusable in tree order (class doc), and an HBoxContainer's child order is also what the
+	# player sees left-to-right. Destructive therefore parents Cancel first — the default-focus rule and
+	# the visual row are the same single fact, so neither can be changed without the other following.
+	# Built as a typed local rather than an inline literal, for the reason the footer chain in
+	# MKCharacterSelect._build records: an untyped Array is refused at runtime by link_chain's
+	# Array[Control] parameter.
+	var row: Array[Control] = [get_default_focus_button()]
 	if _alt_button != null:
 		row.append(_alt_button)
-	row.append(_cancel_button)
+	row.append(_confirm_button if _destructive else _cancel_button)
+	for control in row:
+		buttons.add_child(control)
 	MKFocus.link_chain(row, false, true)
+
+
+## The button this dialog opens with focused: Cancel when it is destructive, Confirm otherwise.
+##
+## The ONE place that rule is written. [method _build] parents this button first so tree order carries
+## the same decision to [method MKFocus.trap] and to [code]MKModalLayer[/code]'s focus restoration and
+## pullback — all of which take the first focusable and none of which can be told about a preference.
+##
+## Null only before [method _build] has run (i.e. before the dialog entered the tree). A destructive
+## dialog whose Cancel button a host later DISABLES loses the guarantee at the trap seam rather than
+## here: [method MKFocus.collect_focusables] skips disabled buttons, so the ring would then start on
+## Confirm. No shipped path disables Cancel, and a dialog whose decline is unavailable has bigger
+## problems than its focus.
+func get_default_focus_button() -> Button:
+	return _cancel_button if _destructive and _cancel_button != null else _confirm_button
 
 
 ## Returns the confirm button so a caller can retitle or disable it after opening (a countdown

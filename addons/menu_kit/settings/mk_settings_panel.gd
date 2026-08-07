@@ -112,6 +112,9 @@ var _resolution_button: OptionButton
 ## one whose id lost the [method _register_control] race to a duplicate and is therefore absent from
 ## [member _controls] while still being on screen and still showing a binding.
 var _rebind_rows: Array[MKRebindRow] = []
+## The ONE device tracker for this panel, created on demand by [method _ensure_input_glyphs] and
+## handed to every rebind row. See that method for why it is one and not one per row.
+var _input_glyphs: MKInputGlyphs
 
 
 func _ready() -> void:
@@ -379,7 +382,18 @@ func _wrap(def: MKSettingDef, control: Control) -> Control:
 	var label := Label.new()
 	label.text = def.label if not def.label.is_empty() else String(def.id)
 	label.custom_minimum_size = Vector2(LABEL_COLUMN_WIDTH, 0.0)
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# [b]FILL, not EXPAND_FILL — this is the mechanism behind the slider/enum column drift.[/b] With
+	# EXPAND the label was not a COLUMN at all: an HBox splits the row's LEFTOVER width between its
+	# expanding children, so the label's final width — and therefore the x its control starts at —
+	# was a function of the minimum widths of everything ELSE on that line. Those differ per row type:
+	# a SLIDER row appends a 72px readout this wrap never sees, and an OptionButton's minimum width is
+	# its widest option's text while an HSlider's is a groove. So no two row types resolved the same
+	# label width, and the "one aligned table" this shell exists to produce was aligned only within a
+	# type. Without EXPAND the label is LABEL_COLUMN_WIDTH on every row, unconditionally.
+	# (The DIRECTION of the old drift is a measurement, not an argument — the round-2 NIT recorded
+	# slider controls sitting left of enum ones; the widths above say why any difference at all was
+	# possible.)
+	label.size_flags_horizontal = Control.SIZE_FILL
 	MKTheme.set_variation(label, MKTheme.ROW_LABEL)
 	row.add_child(label)
 
@@ -760,7 +774,7 @@ func _build_keybind(def: MKSettingDef) -> Control:
 	# that loses half its rows to an unassigned backend slot looks like a missing resource; a page of
 	# visibly disabled rows looks like what it is.
 	row.setup(def, _backend, _find_modal_layer(), Callable(self, "_managed_rebind_actions"),
-		_reserved_input_events())
+		_reserved_input_events(), _ensure_input_glyphs())
 	# One capture at a time, enforced HERE because rows cannot see each other. Without this, two rows
 	# both listening would both consume the same press in _input — in tree order, so the first row
 	# records it and the second keeps listening for a key the user believes was just taken — and both
@@ -778,6 +792,30 @@ func _build_keybind(def: MKSettingDef) -> Control:
 	)
 	_rebind_rows.append(row)
 	return row
+
+
+## The panel's single [MKInputGlyphs], created the first time a KEYBIND row asks for one and reused
+## for the panel's whole life.
+##
+## [b]One per PANEL, not one per row.[/b] The tracker exists to answer "keyboard or pad" from
+## [method Node._input], and that answer is identical for every row on the page — seven trackers
+## would be seven dispatches per event producing seven copies of one boolean. Created lazily so a
+## panel with no keybind rows (the addon's own four shipped pages have none) mounts no input handler
+## at all.
+##
+## [b]It survives [method _clear].[/b] Rebuilds free and rebuild every row, and a tracker rebuilt with
+## them would reset to its keyboard default — silently relabelling a pad player's prompts every time
+## the panel refreshed. The rows are handed the surviving instance instead.
+##
+## Never marks input handled ([MKInputGlyphs] documents that as a contract), so mounting it cannot
+## take a press away from a listening [MKRebindRow] below it.
+func _ensure_input_glyphs() -> MKInputGlyphs:
+	if _input_glyphs != null and is_instance_valid(_input_glyphs):
+		return _input_glyphs
+	_input_glyphs = MKInputGlyphs.new()
+	_input_glyphs.name = "InputGlyphs"
+	add_child(_input_glyphs)
+	return _input_glyphs
 
 
 ## Redraws every rebind row from the store. A row mid-capture keeps its prompt — refresh_display()

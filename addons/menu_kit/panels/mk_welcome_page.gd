@@ -12,11 +12,18 @@ extends Control
 ## (settings, character select); a host replaces this the moment it authors its own
 ## [MKMenuPageDef] array, and nothing else references it.
 
+## The copy names only what a cold drop can actually reach, and names it the way the shipped shell
+## presents it. It used to promise Play and Quit buttons: this page has no controls at all, the nav
+## strip has no such tabs, and under a pause shell the strip is hidden outright — so every sentence
+## was false in one shape and misleading in the other. Keys are described by role rather than by
+## keycap for the same reason the rebind page exists: a bound key is not a fact this label can know.
 const _BODY := "MenuKit is installed and running.
 
-This page is the addon's shipped default so a fresh install has something to show. Point MKConfig.pages at your own scenes to replace it — no addon edit required.
+Use the tabs above to move between pages: Characters creates and selects a save, Settings covers video, audio, gameplay and controls.
 
-Backends are unassigned by default, so Play and Quit do nothing yet."
+Every page is navigable with a keyboard or a gamepad alone — move with the directional controls, activate with accept, and step back with cancel.
+
+This page is the addon's shipped default so a fresh install has something to show. Point MKConfig.pages at your own scenes to replace it — no addon edit required."
 
 
 func _ready() -> void:
