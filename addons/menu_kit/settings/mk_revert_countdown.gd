@@ -8,12 +8,11 @@ extends Control
 ## leaves a player with no way to click anything. The countdown is the recovery path: apply the
 ## change, and if nothing is confirmed within the timeout, put it back.
 ##
-## [b]The countdown is accumulated in [method _process], not run on a [Timer].[/b] That is the entire
-## reason the [MKRoot] subtree is [constant Node.PROCESS_MODE_ALWAYS] (plan §4.2a). A [SceneTreeTimer]
+## [b]The countdown is accumulated in [method _process], not run on a [Timer].[/b] A [SceneTreeTimer]
 ## or a [Timer] under a tree pause policy would never tick when this dialog is opened from the pause
 ## menu — the exact place a player changes display settings — and the dialog would hang forever with
-## no failing write to reveal it. Phase 6 tests it from the pause menu, and gate 4b runs it under
-## both pause policies.
+## no failing write to reveal it. This is also why the [MKRoot] subtree is
+## [constant Node.PROCESS_MODE_ALWAYS].
 ##
 ## [b]Ownership.[/b] It is built and pushed by the settings panel, which is also the thing that knows
 ## how to revert. It never pops or frees itself: it emits exactly one of [signal kept] /
@@ -22,7 +21,7 @@ extends Control
 ## is limited to dialogs its static [code]open[/code] constructed.
 ##
 ## Built entirely in code and styled with [MKTheme] type variations only — MenuKit ships zero
-## [code]add_theme_*_override[/code] calls (ship gate 1).
+## [code]add_theme_*_override[/code] calls.
 
 ## The user chose to keep the new settings, by button. Emitted at most once.
 signal kept()
@@ -48,16 +47,16 @@ var _running := false
 ## The whole-seconds value currently shown, so the label is rewritten once a second rather than every
 ## frame. -1 forces the first paint.
 var _shown_seconds := -1
-## Emit-exactly-once latch. Both buttons, the cancel gesture and the timeout all funnel through
-## [method _finish]; without this, a Revert click on the frame the timer expires would emit
-## [signal reverted] twice and the panel would revert a revert.
+## Emit-exactly-once latch. Both buttons, the cancel gesture and the timeout funnel through
+## [method _finish]; without this, a Revert click on the frame the timer expires emits
+## [signal reverted] twice and the panel reverts a revert.
 var _emitted := false
 
 
 func _init() -> void:
-	# Explicit rather than inherited. Inheriting from the MKRoot subtree gives the same value, but a
-	# host (or a test) that pushes this onto a layer somewhere else must still get a ticking
-	# countdown — a frozen confirm-or-revert dialog is unrecoverable by construction.
+	# Explicit rather than inherited: a host (or a test) that pushes this onto a layer outside the
+	# MKRoot subtree must still get a ticking countdown. A frozen confirm-or-revert dialog is
+	# unrecoverable by construction.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	set_process(false)
 
@@ -97,9 +96,8 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_build()
 	_refresh_label()
-	# Keep starts focused: it is the non-destructive choice, and doing nothing already reverts. A
-	# player who mashes the accept button therefore keeps what they just chose, which is the only
-	# reading of "mashed a button" that is not a surprise.
+	# Keep starts focused: it is the non-destructive choice, and doing nothing already reverts, so a
+	# player mashing the accept button keeps what they just chose.
 	if _keep_button != null:
 		_keep_button.grab_focus()
 
@@ -120,30 +118,25 @@ func _process(delta: float) -> void:
 ## whole point of the dialog is that the safe outcome is the one requiring no working input, and a
 ## player whose screen just went black is pressing Escape, not reading buttons.
 ##
-## [b]Returns whether THIS call resolved the dialog[/b], which is the only honest answer and both
-## halves matter:
+## [b]Returns whether THIS call resolved the dialog[/b], and both halves are load-bearing:
 ## [br]- [b]A live dialog returns true — consumed — and the layer must not pop anything.[/b] Emitting
 ##   [signal reverted] resolves this dialog synchronously: the settings panel's handler puts the value
-##   back and calls [method MKModalLayer.remove_modal] on it before this method has returned. Reporting
-##   "not consumed" then made [method MKModalLayer.handle_cancel] pop AGAIN — and the entry it popped
-##   was whatever modal had been underneath, destroyed by one Escape press on a dialog it had nothing
-##   to do with. The removal is the panel's, exactly as the ownership note above says.
-## [br]- [b]An already-resolved dialog returns false, and that is not a formality.[/b] Returning true
-##   unconditionally meant a resolved dialog still sitting on the stack — its owner gone, so nothing
-##   left to remove it — consumed EVERY Escape from then on: an unclosable scrim over nothing, the
-##   modal layer's own documented worst case. False routes the gesture to
+##   back and calls [method MKModalLayer.remove_modal] on it before this method returns. Reporting
+##   "not consumed" makes [method MKModalLayer.handle_cancel] pop AGAIN, destroying whatever modal was
+##   underneath.
+## [br]- [b]An already-resolved dialog returns false.[/b] Returning true unconditionally leaves a
+##   resolved dialog on the stack — owner gone, nothing left to remove it — consuming EVERY Escape
+##   from then on: an unclosable scrim over nothing. False routes the gesture to
 ##   [method MKModalLayer.handle_cancel]'s pop, which clears the stale entry and self-heals the stack.
-##   Three Escapes in a row on such a corpse must reach whatever is beneath it, not vanish.
 func handle_cancel() -> bool:
 	return _finish(false)
 
 
 ## Called by [method MKModalLayer.clear_for_teardown]. Teardown emits no
-## [signal MKModalLayer.modal_popped], and the panel that owns this dialog is being destroyed in the
-## same teardown, so nobody is left to free it — an unparented countdown would leak one Control per
-## quit-while-open, which is exactly the class of leak the gate fails on. This dialog is never
-## host-supplied (the settings panel is its only constructor), so disposing here cannot destroy
-## something a host intended to reuse.
+## [signal MKModalLayer.modal_popped], and the panel that owns this dialog is destroyed in the same
+## teardown, so nobody is left to free it — an unparented countdown leaks one Control per
+## quit-while-open. This dialog is never host-supplied (the settings panel is its only constructor),
+## so disposing here cannot destroy something a host intended to reuse.
 func _mk_layer_teardown() -> void:
 	_running = false
 	set_process(false)
@@ -157,12 +150,11 @@ func _mk_layer_teardown() -> void:
 ## bookkeeping when the panel dies with this dialog still stacked. Emitting there would reach handlers
 ## whose panel is gone.
 ##
-## [b]This is what makes the corpse frame safe, and that frame is real, not hypothetical.[/b] That
-## path cannot dispose of a stacked dialog synchronously — a pop mid-teardown is the hazard
-## [method MKModalLayer.clear_for_teardown] exists to prevent — so it marks the dialog and schedules
-## [method MKModalLayer.reap_modal] deferred. Between the mark and that flush this dialog is on a live
-## stack with no owner, and every one of the three things it could do in that window is switched off
-## here:
+## [b]This is what makes the ownerless frame safe.[/b] That path cannot dispose of a stacked dialog
+## synchronously — a pop mid-teardown is the hazard [method MKModalLayer.clear_for_teardown] exists to
+## prevent — so it marks the dialog and schedules [method MKModalLayer.reap_modal] deferred. Between
+## the mark and that flush this dialog is on a live stack with no owner, and all three things it could
+## do in that window are switched off here:
 ## [br]- [b]It stops ticking.[/b] This node is [constant Node.PROCESS_MODE_ALWAYS], so neither a
 ##   paused tree nor a dead owner stops [method Node._process]: without the [code]_running[/code] flag
 ##   it keeps counting down and repaints its label every frame.
@@ -171,8 +163,8 @@ func _mk_layer_teardown() -> void:
 ##   a revert the panel has already performed.
 ## [br]- [b]It declines a cancel gesture instead of eating it.[/b] A later [method handle_cancel]
 ##   returns false, which routes the Escape to [method MKModalLayer.handle_cancel]'s own pop: the stale
-##   entry is cleared and the stack self-heals. Returning true would make this corpse swallow every
-##   cancel until the reap arrived.
+##   entry is cleared and the stack self-heals. Returning true would swallow every cancel until the
+##   reap arrived.
 func mark_resolved() -> void:
 	_emitted = true
 	_running = false
@@ -183,7 +175,7 @@ func mark_resolved() -> void:
 ##
 ## Returns whether THIS call performed the resolution — false when the latch had already been thrown.
 ## [method handle_cancel] reports that value straight to the modal layer, which is how a stale stacked
-## corpse stops swallowing cancel gestures.
+## dialog stops swallowing cancel gestures.
 func _finish(keep: bool) -> bool:
 	if _emitted:
 		return false
@@ -208,9 +200,7 @@ func _on_revert() -> void:
 func _refresh_label() -> void:
 	if _body_label == null:
 		return
-	# ceili, not floori: with 9.6 seconds left a player reading "9" while the dialog still has most
-	# of a tenth second is fine, but showing "0" for a whole second before anything happens reads as
-	# a hung dialog.
+	# ceilf, not floorf: showing "0" for a whole second before anything happens reads as a hung dialog.
 	var seconds := int(ceilf(_remaining))
 	if seconds == _shown_seconds:
 		return
@@ -274,8 +264,8 @@ func _build() -> void:
 
 	_revert_button = Button.new()
 	_revert_button.name = "Revert"
-	# DANGER, not PANEL_BUTTON: reverting throws the player's change away. Styling it as the neutral
-	# option is how someone clicks it by reflex and loses the setting they just made work.
+	# DANGER, not PANEL_BUTTON: reverting throws the player's change away, so it must not read as the
+	# neutral option.
 	_revert_button.text = "Revert"
 	MKTheme.set_variation(_revert_button, MKTheme.DANGER_BUTTON)
 	_revert_button.pressed.connect(_on_revert)

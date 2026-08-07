@@ -3,20 +3,17 @@ class_name MKWelcomePage
 extends Control
 ## The one page the addon ships, so a cold drop has something to show.
 ##
-## Ship gate 2 copies [code]addons/menu_kit/[/code] alone into an empty project, instances the shell
-## and demands zero warnings. Without a shipped page the shell booted to an empty nav bar and warned
-## that it had nothing to display — a first impression of "this is broken" for the exact test that is
-## meant to prove it is not.
+## Copying [code]addons/menu_kit/[/code] alone into an empty project and instancing the shell must
+## produce zero warnings. Without a shipped page the shell boots to an empty nav bar and warns that it
+## has nothing to display.
 ##
-## It is intentionally minimal and carries no gameplay vocabulary. Phases 3 and 5 add the real pages
-## (settings, character select); a host replaces this the moment it authors its own
-## [MKMenuPageDef] array, and nothing else references it.
+## Intentionally minimal, and it carries no gameplay vocabulary. A host replaces it the moment it
+## authors its own [MKMenuPageDef] array; nothing else references it.
 
-## The copy names only what a cold drop can actually reach, and names it the way the shipped shell
-## presents it. It used to promise Play and Quit buttons: this page has no controls at all, the nav
-## strip has no such tabs, and under a pause shell the strip is hidden outright — so every sentence
-## was false in one shape and misleading in the other. Keys are described by role rather than by
-## keycap for the same reason the rebind page exists: a bound key is not a fact this label can know.
+## The copy names only what a cold drop can actually reach, the way the shipped shell presents it — no
+## controls this page does not have, and no nav tabs the strip does not carry (under a pause shell the
+## strip is hidden outright). Keys are described by ROLE rather than by keycap, because a bound key is
+## not a fact this label can know.
 const _BODY := "MenuKit is installed and running.
 
 Use the tabs above to move between pages: Characters creates and selects a save, Settings covers video, audio, gameplay and controls.

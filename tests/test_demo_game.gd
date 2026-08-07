@@ -1,12 +1,11 @@
 extends MKTest
-## The Phase 6 exit criteria that are only observable on the SHIPPED demo game scene
-## (plan §5 row 6): the ESC flow, the MKNoPausePolicy multiplayer seam, the host's camera/movement
-## gate, and the quit-while-paused teardown that decides whether the NEXT game boots frozen.
+## The contracts that are only observable on the SHIPPED demo game scene: the ESC flow, the
+## MKNoPausePolicy multiplayer seam, the host's camera/movement gate, and the quit-while-paused
+## teardown that decides whether the NEXT game boots frozen.
 ##
-## [b]Why the shipped scene rather than a fixture.[/b] Round 3 of Phase 5 was a suite green on
-## MeshInstance fixtures while every shipped CSG preview silently failed. The same divergence is
-## available here in three places — the [MKRoot] child's exported process mode, its hidden-on-boot
-## visibility, and the demo config's [code]pause[/code] page id — and all three are properties of the
+## [b]Why the shipped scene rather than a fixture.[/b] Three of these contracts — the [MKRoot]
+## child's exported process mode, its hidden-on-boot visibility, and the demo config's
+## [code]pause[/code] page id — are properties of the
 ## [code].tscn[/code]/[code].tres[/code], not of any script. So every test below instances
 ## [code]demo_game.tscn[/code] itself, and the only thing ever substituted is the pause-policy slot
 ## (on a DUPLICATE of the config, because [method Resource.load] hands out one shared instance and
@@ -99,8 +98,8 @@ func _test_escape_pauses_the_world_and_escape_resumes_it() -> void:
 	await _drop(game)
 
 
-## The ~20-minute multiplayer-seam test the exit criteria ask for: ONE slot swapped, no fork, and the
-## world keeps running with the menu open. The countdown assertion is the other half — a host that
+## The multiplayer seam: ONE slot swapped, no fork, and the world keeps running with the menu open.
+## The countdown assertion is the other half — a host that
 ## reached "the world does not pause" by making MenuKit's own subtree pausable would freeze the
 ## confirm-or-revert dialog, and the swap has to leave that alone.
 func _test_no_pause_policy_leaves_the_world_running() -> void:
@@ -144,9 +143,9 @@ func _test_no_pause_policy_leaves_the_world_running() -> void:
 	await _drop(game)
 
 
-## §4.2a's stated host footgun, on the host that documents it: under a no-pause policy the world keeps
-## running while MenuKit frees the cursor, so relative motion and polled WASD both keep arriving. The
-## gate is the HOST's job and this is where it is written.
+## The host footgun, on the host that documents it: under a no-pause policy the world keeps running
+## while MenuKit frees the cursor, so relative motion and polled WASD both keep arriving. The gate is
+## the HOST's job and this is where it is written.
 ##
 ## Run under the no-pause policy deliberately: under a tree pause the demo's own handlers never run,
 ## so the gate would be untestable there — green for a reason that has nothing to do with the gate.
@@ -214,10 +213,9 @@ func _test_the_host_refuses_a_second_open() -> void:
 	await _drop(game)
 
 
-## A config with no "pause" page: MKRoot's pre-check refuses BEFORE anything is suspended (the
-## round-1 fix moved refusal ahead of the suspension), so the only thing left to undo is the one
-## thing MKRoot cannot know about — the visibility the host set a line earlier. Without that, a
-## missing page leaves a fully opaque shell over the world with no way back.
+## A config with no "pause" page: MKRoot's pre-check refuses BEFORE anything is suspended, so the
+## only thing left to undo is the one thing MKRoot cannot know about — the visibility the host set a
+## line earlier. Without that, a missing page leaves an opaque shell over the world with no way back.
 func _test_a_config_without_a_pause_page_unwinds_the_shell_visibility() -> void:
 	var game := await _mount_game(null, true)
 	var menu := game.get_node("MKRoot") as MKRoot
@@ -234,8 +232,8 @@ func _test_a_config_without_a_pause_page_unwinds_the_shell_visibility() -> void:
 	await _drop(game)
 
 
-## Row 6's teardown clause, and the failure it names: quit-to-menu while paused, then start a new
-## game, and the new game is frozen — minutes from the cause, with nothing on screen wrong.
+## The teardown clause, and the failure it names: quit-to-menu while paused, then start a new game,
+## and the new game is frozen — minutes from the cause, with nothing on screen wrong.
 ## [code]test_pause_policy[/code] covers the counter unwind on a synthetic root; this runs it through
 ## the SHIPPED scene and then proves the claim the way a player would find it out, by booting a second
 ## game and watching the spinner.

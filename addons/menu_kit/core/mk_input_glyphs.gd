@@ -1,14 +1,13 @@
 @tool
 class_name MKInputGlyphs
 extends Node
-## The device-aware prompt vocabulary (plan §3, §4.7): one spelling of "what does this event look
-## like on screen", plus a tracker for which device class the player is currently using.
+## The device-aware prompt vocabulary: one spelling of "what does this event look like on screen",
+## plus a tracker for which device class the player is currently using.
 ##
-## [b]Text, not textures.[/b] Nothing here loads or draws an image. MenuKit ships no third-party art
-## (plan §2.1, ship gate 1) and a home-drawn keycap set would be one more thing an [MKPalette] swap
-## could not re-skin, so a prompt is a STRING — "Escape", "Mouse Left", "A" — rendered by whatever
-## [Label] or [Button] the caller already has. That also makes every function here headlessly
-## assertable, which a texture swap would not be.
+## [b]Text, not textures.[/b] Nothing here loads or draws an image. MenuKit ships no third-party art,
+## and a home-drawn keycap set would be one more thing an [MKPalette] swap could not re-skin, so a
+## prompt is a STRING — "Escape", "Mouse Left", "A" — rendered by whatever [Label] or [Button] the
+## caller already has.
 ##
 ## [b]Two surfaces, deliberately split.[/b]
 ## [br]- The [b]static[/b] half ([method event_label], [method action_label]) is pure: it reads an
@@ -25,12 +24,12 @@ extends Node
 ## [code]MKRebindRow[/code]'s capture, which is the one consumer this class was written for.
 ##
 ## [b]The dispatch-order contract — the tracker sees EVERY event, including ones a row consumes.[/b]
-## Measured on 4.7, not assumed: [method Node._input] is dispatched in REVERSE child order (the last
-## child first), and [method Viewport.set_input_as_handled] stops every [method Node._input] consumer
-## that has not run yet for that same event. So a tracker placed before a consuming sibling is blind
-## exactly when it matters most — a device flip DURING a capture (the player putting the keyboard
-## down mid-prompt, or pressing the pad's reserved B) is consumed by the listening
-## [code]MKRebindRow[/code], and the prompt would keep naming the device that is no longer in hand.
+## [method Node._input] is dispatched in REVERSE child order (the last child first), and
+## [method Viewport.set_input_as_handled] stops every [method Node._input] consumer that has not run
+## yet for that same event. So a tracker placed before a consuming sibling is blind exactly when it
+## matters most — a device flip DURING a capture (the player putting the keyboard down mid-prompt, or
+## pressing the pad's reserved B) is consumed by the listening [code]MKRebindRow[/code], and the
+## prompt would keep naming the device that is no longer in hand.
 ##
 ## [b]The OWNER of a tracker guarantees the order by placing it LAST among its siblings.[/b] That is
 ## the whole mechanism; there is no flag, no priority number and nothing this class can do for
@@ -86,18 +85,16 @@ var _pad_active := false
 # --- Device tracking ----------------------------------------------------------
 
 func _init() -> void:
-	# ALWAYS, because this tracker is mounted inside menus that run under SceneTree.paused (plan
-	# §4.2a). A tracker frozen by the pause it exists to render prompts for would answer with whatever
-	# device was in use before the game paused.
+	# ALWAYS: this tracker is mounted inside menus that run under SceneTree.paused, and a frozen
+	# tracker would answer with whatever device was in use before the game paused.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
 
 func _ready() -> void:
-	# Restated here, not only in _init: the engine re-enables input processing at
-	# NOTIFICATION_READY for any script overriding _input (measured in Phase 4 — see the build
-	# handoff's §4 traps), so a set_process_input written before tree entry is silently undone. This
-	# one wants it ON, so the restatement is agreement rather than repair — it is here so a future
-	# "disable when nobody is listening" optimisation cannot be written above it and quietly lose.
+	# Restated here, not only in _init: the engine re-enables input processing at NOTIFICATION_READY
+	# for any script overriding _input, so a set_process_input written before tree entry is silently
+	# undone. This one wants it ON, so a future "disable when nobody is listening" optimisation
+	# written above cannot quietly lose.
 	set_process_input(true)
 
 
@@ -116,7 +113,7 @@ func is_pad_active() -> bool:
 ## and is tracked; moving the pointer is not.
 ##
 ## What reaches here at all is the dispatch-order contract in the class doc, and it is the OWNER's
-## job, not this method's: nothing below decides whether it runs.
+## job: nothing below decides whether this method runs.
 func _input(event: InputEvent) -> void:
 	if event is InputEventJoypadButton:
 		_set_pad_active(true)
@@ -167,21 +164,19 @@ static func event_label(event: InputEvent) -> String:
 	return ""
 
 
-## Bindings are stored by PHYSICAL keycode (the backend's format decision, plan §4.4) so they stay
-## under the same finger on an AZERTY layout — but a physical code is a POSITION, and printing it raw
-## would label the AZERTY player's key by its QWERTY name.
-## [method DisplayServer.keyboard_get_keycode_from_physical] maps the position back through the
-## ACTIVE layout, which is what the player sees on the keycap.
+## Bindings are stored by PHYSICAL keycode so they stay under the same finger on an AZERTY layout —
+## but a physical code is a POSITION, and printing it raw would label the AZERTY player's key by its
+## QWERTY name. [method DisplayServer.keyboard_get_keycode_from_physical] maps the position back
+## through the ACTIVE layout, which is what the player sees on the keycap.
 ##
 ## Two fallbacks to the plain keycode, both reachable: a synthetic event carries physical_keycode 0
 ## (nothing to map), and the mapping itself answers 0 on drivers with no layout information.
 ##
 ## The headless driver is skipped BEFORE the call, not diagnosed after it: there,
 ## [method DisplayServer.keyboard_get_keycode_from_physical] both answers 0 and prints an engine
-## ERROR line per call, and the suite's noise gate treats engine ERRORs as failures. With no layout
-## to consult the physical code IS the best available name — [method OS.get_keycode_string] reads it
-## as the QWERTY position, which for a headless run (tests, a server) is a log label rather than a
-## keycap.
+## ERROR line per call. With no layout to consult the physical code IS the best available name —
+## [method OS.get_keycode_string] reads it as the QWERTY position, which for a headless run is a log
+## label rather than a keycap.
 static func key_label(key: InputEventKey) -> String:
 	if key == null:
 		return ""
@@ -209,11 +204,10 @@ static func mouse_button_label(index: int) -> String:
 	return "Mouse %d" % index
 
 
-## [method Input.get_joy_button_string] is asked first because it can name the button by the CONNECTED
-## pad's own legend ("Cross" rather than "A"). It is reached through [method Object.has_method]
-## because it is an engine API this addon does not control the availability of across 4.x builds, and
-## a missing one must degrade rather than take the page down — that is a capability probe, not a guard
-## against our own classes.
+## [method Input.get_joy_button_string] is asked first because it can name the button by the
+## CONNECTED pad's own legend ("Cross" rather than "A"). It is reached through
+## [method Object.has_method] as a capability probe: its availability across 4.x builds is not
+## something this addon controls, and a missing one must degrade rather than take the page down.
 ##
 ## The fallback is [constant JOY_BUTTON_NAMES] (SDL positions, see that constant), and only past its
 ## end does a button become a number.

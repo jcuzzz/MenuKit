@@ -1,6 +1,5 @@
 extends MKTest
-## The creation flow engine: key ownership, merge order, navigation and the refusal path
-## (plan §4.5, findings F8/D17).
+## The creation flow engine: key ownership, merge order, navigation and the refusal path.
 ##
 ## [b]Every case builds its own steps.[/b] The rules under test are statements about an ARBITRARY
 ## ordered set — two steps claiming one key, a skip that must not commit, an archetype default whose
@@ -9,12 +8,11 @@ extends MKTest
 ## memory, which is the same relationship [code]tests/probes/[/code] already has with the settings
 ## panel's custom rows.
 ##
-## [b]Navigation is driven through the host's REAL buttons[/b] (focus + a pushed ui_accept, the
-## test_rebind [code]_activate[/code] idiom), never by calling [code]_advance[/code]: the gating IS
-## the behaviour — a disabled Next that nothing can press is the whole of the null-backend and
-## invalid-step contracts, and calling the private mover would pass against a host that never
-## disabled anything. The mouse route to the same signal is dead under the dummy display driver
-## (verified in test_rebind), so keyboard activation is the honest gesture here.
+## [b]Navigation is driven through the host's REAL buttons[/b] (focus + a pushed ui_accept), never by
+## calling [code]_advance[/code]: the gating IS the behaviour — a disabled Next that nothing can press
+## is the whole of the null-backend and invalid-step contracts, and calling the private mover would
+## pass against a host that never disabled anything. The mouse route to the same signal is dead under
+## the dummy display driver, so keyboard activation is the honest gesture here.
 ##
 ## [b]Headless boundary.[/b] Everything asserted is payload content, step counts, button state and
 ## logged messages. Nothing here depends on layout or on a pixel.
@@ -85,7 +83,7 @@ func _test_duplicate_owned_key_drops_the_later_step() -> void:
 	await _drop(host, backend)
 
 
-## Finding F8: an archetype default whose key a step owns is refused and named ONCE, at configure.
+## An archetype default whose key a step owns is refused and named ONCE, at configure.
 ## Re-selecting that archetype must not re-raise it — the player's mouse would otherwise drive a log
 ## flood off one authoring mistake — and the default must never be seeded.
 func _test_f8_archetype_collision_is_reported_once_and_never_seeded() -> void:
@@ -128,13 +126,13 @@ func _test_f8_archetype_collision_is_reported_once_and_never_seeded() -> void:
 	await _drop(host, backend)
 
 
-## [b]F8's exclusion must not depend on the order the steps were authored in — and it used to.[/b]
+## [b]The exclusion must not depend on the order the steps were authored in.[/b]
 ##
-## Binding is not inert: [MKStepArchetype] auto-selects its first card at bind (§3.1, so the grid is
-## never an empty dead end) and reports it through [method MKCreationHost.notify_archetype_chosen] from
-## there. With claiming and binding interleaved, an archetype step declared BEFORE the step that owns
-## [code]name[/code] seeded that key into the payload while [code]_owned_by[/code] was still empty — so
-## the same configure printed "it is NOT seeded" and seeded it.
+## Binding is not inert: [MKStepArchetype] auto-selects its first card at bind (so the grid is never an
+## empty dead end) and reports it through [method MKCreationHost.notify_archetype_chosen] from there.
+## With claiming and binding interleaved, an archetype step declared BEFORE the step that owns
+## [code]name[/code] seeds that key into the payload while [code]_owned_by[/code] is still empty — so
+## the same configure prints "it is NOT seeded" and seeds it. Every claim must land before any bind.
 ##
 ## Driven through the REAL shipped archetype step rather than a probe: the seeding-at-bind behaviour
 ## that makes this reachable is that scene's, and a probe reproducing it would be asserting the test's
@@ -172,7 +170,7 @@ func _test_ownership_is_claimed_before_any_step_binds() -> void:
 
 ## The documented merge order, asserted as what it actually IS: enforcement by EXCLUSION.
 ##
-## "Steps overwrite defaults" can never literally occur, because F8 refuses an archetype default whose
+## "Steps overwrite defaults" can never literally occur, because the host refuses an archetype default whose
 ## key a step owns — so the owned key is never seeded and there is no second write to be ordered
 ## against. The archetype below therefore authors a default for BOTH an owned key and an unowned one,
 ## and the payload is read at three moments (after the choice, before any commit; and after the
@@ -188,7 +186,7 @@ func _test_ownership_is_claimed_before_any_step_binds() -> void:
 ## with the two authors disjoint, "when the seed ran" has no observable content.
 func _test_merge_order_defaults_first_steps_win() -> void:
 	var backend := _spy_backend()
-	# "name" is OWNED by the step below, so this default is the F8 case: refused, never seeded.
+	# "name" is OWNED by the step below, so this default is the collision case: refused, never seeded.
 	var arch := _archetype(&"scout", {"kit": "bow", "gold": 25, "name": "Sir Default"})
 	MKProbeCreationStep.reset()
 	var host := await _make_host([_step(&"name", ["name"], {"name": "Typed"})], [arch], backend, null)
@@ -392,8 +390,8 @@ func _test_a_skipped_optional_step_cannot_brick_the_refusal_gate() -> void:
 
 ## The commit-only lift rule left ONE flow shape unliftable: nothing but invalid OPTIONAL steps before
 ## a valid required last step has no forward commit ANYWHERE — Next never enables on the invalid step,
-## so the only forward gesture the whole flow offers is Skip, and a rule that only commits could lift
-## made Cancel the sole exit after a single refusal (measured in round 4's fix-leg report). The rule is
+## so the only forward gesture the whole flow offers is Skip, and a rule that only a commit could lift
+## would make Cancel the sole exit after a single refusal. The rule is
 ## therefore forward MOVEMENT: a non-last Skip is a deliberate fresh walk toward Confirm and lifts the
 ## gate; a LAST-step Skip still lifts nothing, which is what keeps the doubled-create door shut (the
 ## test below this one).
@@ -624,7 +622,7 @@ func _test_back_keeps_committed_keys_and_a_recommit_overwrites() -> void:
 
 # --- Configuration ------------------------------------------------------------
 
-## D17: point-buy is disabled by default, so a point-buy-shaped step with no schema is normal
+## Point-buy is disabled by default, so a point-buy-shaped step with no schema is normal
 ## operation. It is dropped at DEBUG level — warning every host about an optional feature they
 ## declined is how a log gets ignored.
 func _test_a_pointbuy_shaped_step_with_no_schema_is_dropped_quietly() -> void:
@@ -647,11 +645,10 @@ func _test_a_pointbuy_shaped_step_with_no_schema_is_dropped_quietly() -> void:
 	await _drop(host, backend)
 
 
-## The other half of the D17 drop, and the one that had no implementation at all:
-## [method MKStatSchema.is_valid] described a mechanism ("the host drops the step and names the
-## resource") that no caller performed, so a schema with a zero pool reached the step and rendered a
-## budget every [code]+[/code] was dead against from the first frame. WARN rather than the null
-## schema's debug: declining point-buy is a choice, authoring an unusable schema is a mistake.
+## The other half of the drop: [method MKStatSchema.is_valid] is only a mechanism if a caller acts on
+## it — unenforced, a schema with a zero pool reaches the step and renders a budget every
+## [code]+[/code] is dead against from the first frame. WARN rather than the null schema's debug:
+## declining point-buy is a choice, authoring an unusable schema is a mistake.
 func _test_a_pointbuy_step_with_an_unusable_schema_is_dropped_and_named() -> void:
 	var backend := _spy_backend()
 	var stat := MKStatDef.new()

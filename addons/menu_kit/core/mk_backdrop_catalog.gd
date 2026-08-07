@@ -3,13 +3,11 @@ class_name MKBackdropCatalog
 extends Resource
 ## An explicit, authored list of [MKBackdropDef]s — the single resolution point for backdrops.
 ##
-## The source catalog resolved backdrops by scanning a hardcoded game data directory with
-## [DirAccess] (including a [code].remap[/code] workaround that is fragile in exported builds) and
-## read the active id from a game autoload. All three are replaced here (plan §1.1, §3):
+## Nothing is discovered from the filesystem and nothing is read from an autoload:
 ## [br]- the list is an [b]exported array[/b], so it is inspector-authored, export-safe, and carries
 ##   no resource path pointing outside the addon;
-## [br]- resolution is pure data with no autoload lookup, so the addon cold-drops into an empty
-##   project and this resource loads headlessly in tests;
+## [br]- resolution is pure data, so the addon cold-drops into an empty project and this resource
+##   loads headlessly;
 ## [br]- a miss warns through [MKLog] naming this resource and the field, never silently blanks.
 
 ## The backdrops this catalog offers, in author order. A host swaps or extends this array; nothing
@@ -61,7 +59,7 @@ func has_backdrop(id: StringName) -> bool:
 	return false
 
 
-## All valid ids in author order. Feeds a backdrop-picker row and the Phase 1 tests.
+## All valid ids in author order. Feeds a backdrop-picker row.
 func get_ids() -> Array[StringName]:
 	var ids: Array[StringName] = []
 	for def in backdrops:

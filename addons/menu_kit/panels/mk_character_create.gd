@@ -1,24 +1,22 @@
 @tool
 class_name MKCharacterCreate
 extends Control
-## The page that hosts the character creation flow (plan §3.1, §4.4).
+## The page that hosts the character creation flow.
 ##
 ## [b]It is deliberately thin.[/b] All flow behaviour — step order, validation, Back/Next, the
 ## assembled payload — lives in [MKCreationHost]. This page exists only to be something
 ## [member MKConfig.pages] can name: it resolves the config and the profile backend off the shell,
-## configures ONE host, and translates the host's two outcome signals into navigation. Putting flow
-## logic here would fork it from the host that hosts embed directly, which is the parallel-code
-## failure the package cannot afford.
+## configures ONE host, and translates the host's two outcome signals into navigation. Flow logic here
+## would fork it from the host that hosts embed directly.
 ##
 ## [b]Steps default to a built-in order.[/b] A host that authors nothing still gets Name → Archetype →
 ## Appearance, because a creation page that renders no steps when [member MKConfig.creation_steps] is
-## empty is indistinguishable from a broken one. Point-buy is NOT in that default: it is
-## disabled-by-default per D17, since a game with no stat concept must not be handed a stat screen.
-## The demo authors all four explicitly, which is also what proves the explicit-ordering path.
+## empty is indistinguishable from a broken one. Point-buy is NOT in that default (D17): a game with
+## no stat concept must not be handed a stat screen.
 ##
 ## [b]It is a sub-panel.[/b] [MKCharacterSelect] arrives here with [method MKRoot.push_page], so both
-## outcomes leave with [method MKRoot.pop_page] and the user lands back on the roster — the §4.4 back
-## ladder, with Escape doing the same thing through [MKRoot]'s own cancel handling.
+## outcomes leave with [method MKRoot.pop_page] and the user lands back on the roster — with Escape
+## doing the same thing through [MKRoot]'s own cancel handling.
 
 ## Built-in step scenes, in the default order. Ids and titles are set here rather than in the scenes
 ## so the default flow is described in ONE readable place, and so a host copying this order into its
@@ -56,8 +54,7 @@ func _ready() -> void:
 	var config := _find_config()
 	var steps := _resolve_steps(config)
 	# Declared as a typed local and then filled, not built by an inline conditional: an untyped []
-	# literal is refused at runtime by configure's Array[MKArchetype] parameter (the same typed-array
-	# rule MKConfirmDialog._build records for link_chain).
+	# literal is refused at runtime by configure's Array[MKArchetype] parameter.
 	var archetypes: Array[MKArchetype] = []
 	if config != null:
 		archetypes = config.archetypes
@@ -78,11 +75,10 @@ func get_creation_host() -> MKCreationHost:
 ## empty array as an instruction would make the default configuration a dead page.
 func _resolve_steps(config: MKConfig) -> Array[MKCreationStepDef]:
 	if config != null and not config.creation_steps.is_empty():
-		# [b]Borrowed, not copied:[/b] this is the config resource's own live array, and the only caller
-		# hands it straight to MKCreationHost.configure, which reads it and appends the survivors to its
-		# own arrays without writing back. Verified rather than assumed, because a copy here would be a
-		# silent cost on every build and a mutation there would silently edit the author's .tres. Anything
-		# that starts mutating the resolved array must duplicate() it here first.
+		# BORROWED, not copied: this is the config resource's own live array, and the only caller hands it
+		# straight to MKCreationHost.configure, which reads it and appends the survivors to its own arrays
+		# without writing back. Anything that starts mutating the resolved array must duplicate() it here
+		# first, or it silently edits the author's .tres.
 		return config.creation_steps
 	var out: Array[MKCreationStepDef] = []
 	for entry in DEFAULT_STEPS:
@@ -122,9 +118,9 @@ func _leave() -> void:
 
 # --- Ancestor lookups ---------------------------------------------------------
 
-## The duck-typed parent walk, verbatim from [code]MKSettingsPanel._find_modal_layer[/code]. Duck-typed
-## rather than cast to [MKRoot] because a host may wrap the shell or forward these calls from its own
-## controller, and a typed cast would refuse exactly that.
+## The duck-typed parent walk MenuKit resolves shell services with. Duck-typed rather than cast to
+## [MKRoot] because a host may wrap the shell or forward these calls from its own controller, and a
+## typed cast would refuse exactly that.
 func _find_ancestor_with(method: String) -> Node:
 	var node := get_parent()
 	while node != null:

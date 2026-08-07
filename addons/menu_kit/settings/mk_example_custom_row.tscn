@@ -1,12 +1,5 @@
 [gd_scene load_steps=2 format=3]
 
-; The shipped CUSTOM row example (plan §3.1). Self-contained: no external art, no host provisioning,
-; no resource reference outside addons/menu_kit/ — so it satisfies both gate 1 (isolation) and gate 2
-; (warning-free cold drop) as a live row on the shipped Gameplay page.
-;
-; The tree is just the root on purpose. Its children are built inside _mk_bind, because a custom row
-; cannot know its own bounds until it has seen the MKSettingDef it is bound to — which is precisely
-; the situation the bind contract exists to serve.
 
 [ext_resource type="Script" path="res://addons/menu_kit/settings/mk_example_custom_row.gd" id="1_example"]
 

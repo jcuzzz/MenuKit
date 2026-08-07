@@ -2,22 +2,20 @@
 class_name MKPalette
 extends Resource
 ## The single re-skin surface: every colour, radius, spacing step and font size the generated
-## [Theme] is built from (plan §1.2, D4).
+## [Theme] is built from.
 ##
 ## MenuKit ships zero [code]add_theme_*_override[/code] calls, so this resource is the ONLY place a
-## host changes how the package looks. Swapping one [MKPalette] for another and regenerating must
-## restyle the whole menu — that is ship gate 3. Consequently nothing here may be a visual constant
-## hidden in the generator, and nothing here may be a per-control tweak: a field earns its place
-## only if more than one control reads it, or if a re-skinner would obviously reach for it.
+## host changes how the package looks — swapping one [MKPalette] for another and regenerating
+## restyles the whole menu. Consequently nothing here may be a visual constant hidden in the
+## generator, and nothing here may be a per-control tweak: a field earns its place only if more than
+## one control reads it, or if a re-skinner would obviously reach for it.
 ##
-## Field names are a published contract (plan §4.8): panels, host palettes and
-## [MKThemeGenerator] are all written against them, so a rename is a CHANGELOG [b]Breaking[/b]
-## entry.
+## Field names are a published contract: panels, host palettes and [MKThemeGenerator] are all
+## written against them, so a rename is a breaking change.
 ##
 ## Every setter calls [method Resource.emit_changed]. The [code]@tool[/code] bake path and
 ## [code]MKRoot[/code] listen on [signal Resource.changed] to regenerate, so a silent setter would
-## make editor palette edits appear to do nothing — the failure mode is indistinguishable from a
-## broken generator, which is why the boilerplate is written out per field rather than skipped.
+## make editor palette edits appear to do nothing.
 
 # --- Surfaces --------------------------------------------------------------
 
@@ -57,8 +55,8 @@ extends Resource
 		border = value
 		emit_changed()
 
-## Border of the focused control. Distinct from [member accent] because keyboard/gamepad focus
-## (D12) must stay legible even when a host tints the accent close to the border colour.
+## Border of the focused control. Distinct from [member accent] so keyboard/gamepad focus stays
+## legible even when a host tints the accent close to the border colour.
 @export var border_focus: Color = Color(0.96, 0.82, 0.48, 0.95):
 	set(value):
 		border_focus = value
@@ -174,8 +172,7 @@ extends Resource
 		emit_changed()
 
 ## Border width of the focus StyleBox. Thicker than [member border_width] by default: focus is the
-## only affordance a gamepad player has (D12), so it must survive a palette whose colours are low
-## contrast.
+## only affordance a gamepad player has, so it must survive a low-contrast palette.
 @export_range(0, 8, 1) var focus_width: int = 2:
 	set(value):
 		focus_width = value
@@ -213,7 +210,7 @@ extends Resource
 @export_group("Typography")
 
 ## Optional face for every text control. Left null so the cold drop uses the engine default font —
-## MenuKit bundles no font for licensing reasons (plan §2.1) and this is the documented swap point.
+## MenuKit bundles no font for licensing reasons, and this is the documented swap point.
 @export var font: Font = null:
 	set(value):
 		font = value
@@ -241,7 +238,7 @@ extends Resource
 
 
 ## Reports every field whose value would produce a broken or invisible Theme, all at once rather
-## than at the first fault (plan §4.8). Returns the problem strings so callers can surface them in
+## than at the first fault. Returns the problem strings so callers can surface them in
 ## [code]MKConfig[/code] validation; [method validate] is the logging front door.
 func get_validation_problems() -> PackedStringArray:
 	var problems := PackedStringArray()
@@ -264,8 +261,7 @@ func get_validation_problems() -> PackedStringArray:
 
 
 ## Validates and warns. Every problem is recoverable — a bad palette still generates a Theme — so
-## this warns rather than errors, per the plan's "warn, do not crash, on recoverable
-## misconfiguration" rule. Returns true when the palette is clean.
+## this warns rather than errors. Returns true when the palette is clean.
 func validate() -> bool:
 	var problems := get_validation_problems()
 	for problem in problems:

@@ -1,18 +1,17 @@
 @tool
 class_name MKBackendSlot
 extends Resource
-## One configured backend: which script to instantiate, and the plain data it needs (plan §4.1).
+## One configured backend: which script to instantiate, and the plain data it needs.
 ##
 ## Backends are Script references rather than Resource instances because they need scene-tree
 ## access (scene changes, DisplayServer calls, timers, a multiplayer peer's lifetime) and must not
-## serialize runtime state. That creates a gap: a runtime-instantiated Script only ever gets its
-## export [i]defaults[/i], so a host had nowhere to say "start [b]this[/b] scene" without
-## subclassing a backend for a single value. [member params] is that place.
+## serialize runtime state. A runtime-instantiated Script only ever gets its export
+## [i]defaults[/i], so [member params] is where a host says "start [b]this[/b] scene" without
+## subclassing a backend for a single value.
 ##
-## This is also what keeps the shipped defaults demo-free. [code]MKSceneMenuBackend[/code] names no
-## path of its own — [code]default_config.tres[/code] leaves its params empty and the demo supplies
-## real scenes from its own [code].tres[/code], so no addon file ever references a demo path and
-## ship gate 1 holds by construction.
+## This is also what keeps the shipped defaults host-agnostic: no addon backend names a scene path
+## of its own, so the shipped config stays empty and the host supplies real paths from its own
+## [code].tres[/code].
 
 ## The backend implementation. Must extend the abstract base its slot expects; [code]MKRoot[/code]
 ## checks that at boot and reports a contract violation rather than failing at first call.
@@ -31,8 +30,8 @@ extends Resource
 ##
 ## Only the backend knows its keys and only [code]MKRoot[/code] knows this slot's identity, which is
 ## why [code]_mk_configure[/code] returns the keys it consumed: MKRoot diffs that against
-## [method Dictionary.keys] and warns by name on leftovers. A silently ignored typo in a config
-## dictionary is otherwise a bad afternoon.
+## [method Dictionary.keys] and warns by name on leftovers, so a typo'd key is never silently
+## ignored.
 @export var params: Dictionary = {}:
 	set(value):
 		params = value
@@ -40,15 +39,15 @@ extends Resource
 
 
 ## True when this slot has something to instantiate. An empty slot is [b]valid config[/b], not an
-## error — the shipped [code]default_config.tres[/code] leaves the network slot empty precisely so
-## the cold drop has no server browser, and gate 2 stays warning-free.
+## error — the shipped [code]default_config.tres[/code] leaves the network slot empty so a cold
+## drop has no server browser and emits no warnings.
 func is_assigned() -> bool:
 	return backend_script != null
 
 
 ## Verifies the assigned script extends [param expected_base]. Returns an empty string when valid,
-## or a ready-to-log reason naming both scripts. MKRoot crashes loudly on failure (plan §4.8: a
-## backend that does not extend its base is a contract violation, not a recoverable misconfig).
+## or a ready-to-log reason naming both scripts. MKRoot fails loudly on a non-empty result — a
+## backend that does not extend its base is a contract violation, not a recoverable misconfig.
 func validate_against(expected_base: Script) -> String:
 	if not is_assigned():
 		return ""

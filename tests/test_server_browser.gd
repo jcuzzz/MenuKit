@@ -1,6 +1,6 @@
 extends MKTest
-## The Phase 7 server browser: absence under the shipped config, presence under the demo's, and the
-## whole connect lifecycle rendered from the SHIPPED [MKStubNetworkBackend] (plan §5 row 7).
+## The server browser: absence under the shipped config, presence under the demo's, and the whole
+## connect lifecycle rendered from the SHIPPED [MKStubNetworkBackend].
 ##
 ## [b]Shipped assets, not lookalikes.[/b] Every shell here boots a duplicate of a shipped [MKConfig]
 ## — [code]addons/menu_kit/default_config.tres[/code] for the absence half, [code]demo/demo_config.tres[/code]
@@ -12,7 +12,7 @@ extends MKTest
 ## [b]Gestures where the driver can reach.[/b] Rows are selected by FOCUSING them (the panel selects
 ## on [signal Control.focus_entered], so that is a real gesture) and the footer buttons are activated
 ## by focus plus a pushed [code]ui_accept[/code] — the [code]test_pause_menu[/code] idiom. A pushed
-## mouse click never reaches GUI dispatch headless (§4), so no test here pretends to click. The two
+## mouse click never reaches GUI dispatch headless, so no test here pretends to click. The two
 ## paths a gesture cannot reach at all — an entry with an unknown id, which no row carries — are
 ## driven at the BACKEND and asserted at the PANEL, which is the seam under test in those cases
 ## anyway.
@@ -242,10 +242,9 @@ func _test_the_connecting_state_owns_the_footer() -> void:
 ##
 ## [b]The focus half is the point.[/b] Cancel is FOCUSED when it is pressed (that is what the gesture
 ## is), and the CANCELLED state it produces disables it. Godot lets a disabled Control keep focus and
-## [method MKServerBrowser._chain_focus] rewires neighbours without moving the ring, so this gesture
-## used to end with the player's next Enter landing on a button that does nothing —
-## [method MKServerBrowser._recover_focus] is what moves it, and Connect (live again, and the retry
-## the player wants) is where it goes.
+## [method MKServerBrowser._chain_focus] rewires neighbours without moving the ring, so without
+## [method MKServerBrowser._recover_focus] this gesture ends with the player's next Enter landing on a
+## button that does nothing. Recovery goes to Connect — live again, and the retry the player wants.
 func _test_cancel_from_connecting_and_the_focus_it_leaves_behind() -> void:
 	var root := _make_shell(_demo_config(HELD_DELAY))
 	var panel := await _open_browser(root)
@@ -314,7 +313,8 @@ func _test_the_unreachable_server_fails_with_its_timeout_message() -> void:
 ## state emitted before any timer exists must still reach the status line.
 ##
 ## The stub warns on the way through; that warning is the noise this test declares by OBSERVING it
-## rather than by expect_engine_error, which the gate would leave unmatched (§4).
+## rather than by expect_engine_error, which the gate would leave unmatched (it counts ERRORs, not
+## WARNINGs).
 func _test_an_unknown_id_fails_synchronously_and_the_panel_says_which() -> void:
 	var root := _make_shell(_demo_config(HELD_DELAY))
 	var panel := await _open_browser(root)
@@ -526,7 +526,7 @@ class BackendProvider extends Control:
 ## stopped at the first responder passes all of them. The shape it breaks is the documented one — a
 ## shell booted with an unassigned network slot (the SHIPPED default) wrapped by a host that provides
 ## the backend — where stopping early renders the no-backend empty state over a perfectly good server
-## list two levels up. This is round 4 of Phase 6's finding, on this panel's copy of the walk.
+## list two levels up. Every duck-typed ancestor walk in the package owes this property.
 func _test_the_backend_walk_passes_a_null_answering_shell() -> void:
 	var provider := BackendProvider.new()
 	provider.name = "HostNetworkProvider"
@@ -889,7 +889,7 @@ func _find_entry(entries: Array[Dictionary], id: String) -> Dictionary:
 
 ## Selects a row the way a player on a gamepad does: by focusing it. The panel selects on
 ## [signal Control.focus_entered], so this exercises the selection path a pushed mouse click could
-## never reach headless (§4).
+## never reach headless.
 func _select_row(panel: MKServerBrowser, id: String) -> void:
 	var row := _row(panel, id)
 	if row == null:
@@ -933,7 +933,7 @@ func _await_state(panel: MKServerBrowser, state: int, max_frames := 2000) -> boo
 
 
 ## Waits for a one-element counter Array to move. An Array rather than a local int because a GDScript
-## lambda captures locals BY VALUE (§4) — a counter incremented inside a connected closure is a copy
+## lambda captures locals BY VALUE — a counter incremented inside a connected closure is a copy
 ## the caller's later read never sees, which reads as a permanently-zero assertion.
 func _await_signalled(counter: Array[int], max_frames := 2000) -> bool:
 	for i in max_frames:

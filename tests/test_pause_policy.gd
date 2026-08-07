@@ -1,13 +1,12 @@
 extends MKTest
-## The shipped pause policies against a real [MKRoot] (plan §4.2a).
+## The shipped pause policies against a real [MKRoot].
 ##
 ## The teardown case is the one that matters. Quit-to-menu frees the game scene and its MKRoot while
 ## the world is still paused, and [constant Node.NOTIFICATION_EXIT_TREE] propagates children first —
 ## so by the time MKRoot tears down, the policy is already detached and its [method Node.get_tree] is
-## null. A revision of this package crashed there, on the exact sequence ship gate 4b runs, because
-## MKRoot tried to be helpful and call [code]exit_menu[/code] on the way out. The contract is that
-## the policy undoes its own work in its own [method Node._exit_tree]; this asserts the world really
-## does end unpaused.
+## null. MKRoot must therefore NOT call [code]exit_menu[/code] on the way out: the contract is that
+## the policy undoes its own work in its own [method Node._exit_tree], and this asserts the world
+## really does end unpaused.
 
 func run_tests() -> void:
 	await _test_tree_policy()
@@ -18,10 +17,9 @@ func run_tests() -> void:
 
 
 ## `can_pause() == false` must SUPPRESS enter_menu, not merely coexist with a policy that happens to
-## do nothing in it. MKNoPausePolicy's enter_menu is empty, so testing only against it cannot tell
-## the two apart — deleting the can_pause() check from MKRoot left the suite green. §4.2a advertises
-## that a declining policy may still duck audio or notify a server from its own methods, so a host
-## whose enter_menu has real side effects would have had them fired anyway.
+## do nothing in it. MKNoPausePolicy's enter_menu is empty, so this drives a policy with RECORDED
+## side effects instead — a declining policy may still duck audio or notify a server from its own
+## methods, and testing against the empty one cannot tell suppression from inertness.
 func _test_can_pause_false_suppresses_enter_menu() -> void:
 	DecliningSpy.reset()
 	var root := _make_root(DecliningSpy)
@@ -104,7 +102,7 @@ func _test_tree_policy() -> void:
 	await step_frame()
 
 
-## The sequence that crashed a previous revision: paused, then torn down.
+## The teardown sequence: paused, then torn down.
 func _test_tree_policy_teardown_while_paused() -> void:
 	var root := _make_root(MKTreePausePolicy)
 	await step_frame()
@@ -122,7 +120,7 @@ func _test_tree_policy_teardown_while_paused() -> void:
 
 
 ## can_pause() false is never a veto on opening the menu — it means the menu opens and the world
-## keeps running, which is the whole multiplayer story.
+## keeps running, which is the multiplayer case.
 func _test_no_pause_policy() -> void:
 	var root := _make_root(MKNoPausePolicy)
 	await step_frame()

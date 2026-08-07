@@ -1,23 +1,19 @@
 @tool
 class_name MKStepName
 extends Control
-## The name step: one [LineEdit], one inline reason, and the payload key [code]name[/code]
-## (plan §4.5).
+## The name step: one [LineEdit], one inline reason, and the payload key [code]name[/code].
 ##
-## [b]Every invalid state says WHY, in place.[/b] A greyed-out Next with no explanation is the single
-## most common way a creation screen dead-ends a player: the button is off, the field looks fine, and
-## nothing on screen connects the two. So the label under the field always carries the current reason —
-## too short, a character that is not allowed, or a name already taken. There is no "too long" reason
-## because there is no too-long state to explain: the field itself refuses the twenty-fifth character
-## (see [constant MAX_LENGTH]), which is a better gesture than accepting the keystroke and then
-## complaining about it.
+## [b]Every invalid state says WHY, in place.[/b] A greyed-out Next with no explanation is the most
+## common way a creation screen dead-ends a player, so the label under the field always carries the
+## current reason — too short, a character that is not allowed, or a name already taken. There is no
+## "too long" reason because there is no too-long state: the field itself refuses the twenty-fifth
+## character (see [constant MAX_LENGTH]).
 ##
 ## [b]The availability check is a PRE-CHECK, not the authority.[/b] [MKProfileBackend]'s refusals are
-## silent by contract (an empty dictionary from [method MKProfileBackend.create_profile]), which is
-## exactly why this step asks [method MKProfileBackend.is_name_available] before letting the player walk
-## forward — the alternative is discovering the collision after four more steps of work. It cannot be
-## authoritative: another route can take the name between here and Confirm, and the host handles THAT
-## as a refusal on the last step. Two checks, two jobs, neither redundant.
+## silent by contract, so this step asks [method MKProfileBackend.is_name_available] before letting the
+## player walk forward rather than letting them discover the collision after four more steps. It cannot
+## be authoritative — another route can take the name between here and Confirm, and the host handles
+## THAT as a refusal on the last step.
 ##
 ## A null backend is legal (the host builds disabled and warned once): availability is then unknowable,
 ## so the step validates on FORMAT alone rather than blocking on a question nobody can answer.
@@ -28,20 +24,18 @@ signal step_state_changed()
 ## ownership assertion, the commit and the doc must not be able to drift apart.
 const PAYLOAD_KEY := "name"
 
-## Length bounds. Two so a name is at least pronounceable and a stray keypress is not a character;
-## twenty-four because it has to fit a roster row, a save-file label and a nameplate without the host
-## having to truncate it everywhere.
+## Length bounds: two so a stray keypress is not a character, twenty-four so a name fits a roster row,
+## a save-file label and a nameplate without the host truncating it everywhere.
 ##
-## They are enforced in different places, and deliberately: MIN_LENGTH is a validation rule over the
+## They are enforced in different places, deliberately: MIN_LENGTH is a validation rule over the
 ## TRIMMED name ([method _validation_error]), while MAX_LENGTH is the [LineEdit]'s own
-## [member LineEdit.max_length] and therefore caps the raw field before trimming ever happens.
+## [member LineEdit.max_length] and caps the raw field before trimming happens.
 const MIN_LENGTH := 2
 const MAX_LENGTH := 24
 
-## Letters, digits, spaces, underscore and hyphen. Deliberately conservative: this string ends up in a
-## file name in the shipped JSON backend and in whatever the host does with it afterwards, and the
-## characters excluded here are the ones that make that a problem (path separators, quotes, control
-## characters) rather than a stylistic preference.
+## Letters, digits, spaces, underscore and hyphen. Conservative because this string reaches a file in
+## the shipped JSON backend and whatever the host does with it afterwards; the excluded characters are
+## the ones that make that a problem (path separators, quotes, control characters).
 const ALLOWED_PATTERN := "^[A-Za-z0-9 _-]+$"
 
 var _host: MKCreationHost
@@ -92,13 +86,12 @@ func _mk_step_bind(host: MKCreationHost, def: MKCreationStepDef, ctx: Dictionary
 
 ## Answers the gate AND repairs the label when the answer moved without the text moving.
 ##
-## Availability is the one input to [method _validation_error] the player does not drive: another
-## route can take the name while this step sits open, and [MKProfileBackend] has no
-## "availability changed" signal to subscribe to — the host's poll on every navigation and state
-## change is the only moment this step ever hears about it. Without the refresh below, a name that
-## BECOMES taken disables Next while the label underneath still reads "Looks good.", which is exactly
-## the unexplained dead end the class doc says this step exists to prevent. Cheap: the comparison is
-## against the last answer, so the label is rebuilt only when it actually flipped.
+## Availability is the one input to [method _validation_error] the player does not drive: another route
+## can take the name while this step sits open, and [MKProfileBackend] has no "availability changed"
+## signal — the host's poll on every navigation and state change is the only moment this step hears
+## about it. Without the refresh below, a name that BECOMES taken disables Next while the label still
+## reads "Looks good." The comparison is against the last answer, so the label is rebuilt only on a
+## flip.
 func _mk_step_is_valid() -> bool:
 	var valid := _validation_error().is_empty()
 	if _last_valid_answer != int(valid):
@@ -108,9 +101,9 @@ func _mk_step_is_valid() -> bool:
 
 
 func _mk_step_commit(payload: Dictionary) -> void:
-	# The TRIMMED name is what is stored — the value the validation actually approved. Committing the
-	# raw field would persist trailing spaces that every later comparison (uniqueness, display, file
-	# naming) would have to strip again, in more places than one.
+	# The TRIMMED name is what is stored — the value the validation approved. Committing the raw field
+	# would persist trailing spaces every later comparison (uniqueness, display, file naming) would have
+	# to strip again.
 	payload[PAYLOAD_KEY] = _current_name()
 
 
@@ -130,13 +123,11 @@ func _build() -> void:
 
 	_edit = LineEdit.new()
 	_edit.name = "NameEdit"
-	# The engine's own cap, set from the same constant as the validation: letting the player type past
-	# the limit and only then telling them it is too long is a worse gesture than stopping the keystroke.
-	# [b]This is the ONLY enforcement of the maximum, and it covers every write path[/b] — LineEdit
-	# truncates a programmatic `text =` assignment to max_length just as it truncates typing (measured on
-	# 4.7), so _validation_error carries no "too long" branch: there is no route by which _current_name()
-	# can exceed MAX_LENGTH, and a branch that cannot run is a rule nobody can trust. The MINIMUM is a
-	# different matter and IS checked below — max_length says nothing about it.
+	# The engine's own cap, set from the same constant as the validation. [b]This is the ONLY enforcement
+	# of the maximum, and it covers every write path[/b] — LineEdit truncates a programmatic `text =`
+	# assignment to max_length just as it truncates typing — so _validation_error carries no "too long"
+	# branch: no route lets _current_name() exceed MAX_LENGTH. The MINIMUM is a different matter and IS
+	# checked below.
 	_edit.max_length = MAX_LENGTH
 	# Editable even with no backend, unlike a settings row. The host has already disabled the navigation
 	# that would persist anything, and a field the player cannot type into says "broken" where a field
@@ -178,9 +169,9 @@ func _validation_error() -> String:
 		if value.is_empty():
 			return "Enter a name."
 		return "Names must be at least %d characters." % MIN_LENGTH
-	# No "too long" branch: MAX_LENGTH is enforced by the LineEdit's own max_length for every write
-	# path, typed and programmatic alike (see _build), so the branch that used to sit here was
-	# unreachable — and an unreachable branch reads as a second, independent guard that is not there.
+	# No "too long" branch: MAX_LENGTH is enforced by the LineEdit's own max_length for every write path,
+	# typed and programmatic alike (see _build), so such a branch would be unreachable — and read as a
+	# second, independent guard that is not there.
 	if _regex == null or _regex.search(value) == null:
 		return "Use letters, numbers, spaces, underscores or hyphens only."
 	# Availability last, because it is the only check that costs a backend call and the only one that can
@@ -194,6 +185,6 @@ func _refresh_reason() -> void:
 	if _reason == null or not is_instance_valid(_reason):
 		return
 	var error := _validation_error()
-	# The label is never emptied to a blank line that reflows the step on every keystroke: a valid name
-	# gets an affirmative instead, so the column height is stable while typing.
+	# Never emptied to a blank line that reflows the step on every keystroke: a valid name gets an
+	# affirmative instead, so the column height is stable while typing.
 	_reason.text = error if not error.is_empty() else "Looks good."

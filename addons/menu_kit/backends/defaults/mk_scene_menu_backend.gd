@@ -1,17 +1,14 @@
 class_name MKSceneMenuBackend
 extends MKMenuBackend
-## The zero-code menu backend: "start the game" means "change to that scene" (plan §4.1, §3.1).
+## The zero-code menu backend: "start the game" means "change to that scene".
 ##
 ## [b]It names no scene of its own.[/b] Both targets arrive as [member MKBackendSlot.params] through
-## [method _mk_configure], because an addon file containing a path into the demo would make the
-## package non-self-contained and fail ship gate 1 by construction — the cold drop copies
-## [code]addons/menu_kit/[/code] alone. The shipped [code]default_config.tres[/code] therefore leaves
-## the params empty and the demo supplies real scenes from its own config.
+## [method _mk_configure]; an addon file containing a path into a host project would make the package
+## non-self-contained. The shipped [code]default_config.tres[/code] leaves the params empty and the
+## host supplies real scenes from its own config.
 ##
 ## [b]Unassigned params are valid config.[/b] A missing target warns when something invokes it —
-## clicking Play — and never at boot, so the cold-drop gate stays warning-free. A backend that
-## complained at startup about a host not yet having a game scene would make the very first run of
-## the package look broken.
+## clicking Play — and never at boot, so a fresh install is warning-free.
 ##
 ## Hosts needing more than a scene change (a loading screen, a save load, a lobby join) write their
 ## own [MKMenuBackend]; this one covers the case where the whole answer is one scene swap.
@@ -46,8 +43,7 @@ func start_game(_profile: Dictionary) -> void:
 	_change_scene(_game_scene, PARAM_GAME_SCENE)
 
 
-## Switches to the configured menu scene — the quit-to-menu half of the pair, exercised by the pause
-## menu and by ship gate 4b.
+## Switches to the configured menu scene — the quit-to-menu half of the pair.
 func to_main_menu() -> void:
 	_change_scene(_menu_scene, PARAM_MENU_SCENE)
 

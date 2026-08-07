@@ -2,23 +2,22 @@ class_name MKNavBar
 extends Control
 ## The menu's tab strip. Builds itself at runtime from an [code]Array[MKMenuPageDef][/code].
 ##
-## The source nav bar declared its tabs as a [code]const[/code] array, so a host adding a Credits or
-## Mods page had to fork the file — breaking the pin-a-tag upgrade path (plan §4.7a, finding F5).
 ## [b]No hardcoded tab list ships here.[/b] Tabs come from [method set_pages], sorted by
-## [member MKMenuPageDef.order], skipping [code]visible == false[/code] entries.
+## [member MKMenuPageDef.order], skipping [code]visible == false[/code] entries — a host adds a page
+## without forking this file.
 ##
 ## Styling is a [member Control.theme_type_variation] swap between [constant MKTheme.NAV_TAB] and
 ## [constant MKTheme.NAV_TAB_ACTIVE], never an [code]add_theme_*_override[/code]: an override beats
-## the Theme and would make the palette swap (ship gate 3) a lie.
+## the Theme and would break palette swapping.
 ##
 ## Presentation-only. Pressing a tab emits [signal page_selected]; the bar does not change its own
 ## active state — [code]MKRoot[/code] owns the page state machine and calls [method set_active]
 ## back. That one-way flow is what keeps the bar honest when navigation is driven from host code
 ## (a Continue button, a deep link) instead of from a click.
 ##
-## Keyboard/gamepad traversable from the first build: tabs are focusable and laid out in an
-## [HBoxContainer], so Godot's automatic focus neighbors give left/right traversal, and
-## [method focus_active] hands focus to the current tab when the bar is entered.
+## Keyboard/gamepad traversable: tabs are focusable and laid out in an [HBoxContainer], so Godot's
+## automatic focus neighbors give left/right traversal, and [method focus_active] hands focus to the
+## current tab when the bar is entered.
 
 ## Emitted when the user activates a tab. Carries [member MKMenuPageDef.id]; the bar's own active
 ## state is NOT updated by this — see the class docs.
@@ -113,8 +112,8 @@ func get_active() -> StringName:
 	return _active
 
 
-## Ids of the tabs actually built, in display order. The proof surface for tests and the list a host
-## can iterate to drive its own navigation UI off the same data the bar used.
+## Ids of the tabs actually built, in display order — the list a host iterates to drive its own
+## navigation UI off the same data the bar used.
 func get_page_ids() -> Array[StringName]:
 	var ids: Array[StringName] = []
 	for def in _pages:

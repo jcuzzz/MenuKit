@@ -1,5 +1,5 @@
 extends MKTest
-## [MKBrightnessController] and the ownership rule around it (plan §4.3).
+## [MKBrightnessController] and the ownership rule around it.
 ##
 ## Two things are being protected here and they fail in opposite directions.
 ##
@@ -12,8 +12,8 @@ extends MKTest
 ## because a host may boot straight into gameplay without ever instancing a MenuKit scene; MKRoot
 ## builds one only in the standalone no-service tier, and the adopt path must build none.
 ##
-## [b]Headless boundary[/b] (plan §4.8). The overlay's visible EFFECT — an actually darker frame — is
-## not observable under the headless driver and is a phase exit criterion on a real display. What is
+## [b]Headless boundary.[/b] The overlay's visible EFFECT — an actually darker frame — is not
+## observable under the headless driver and is a human check on a real display. What is
 ## observable, and asserted, is every decision that produces it: the clamped value, whether the quad
 ## exists and is visible, and which node owns it.
 
@@ -160,9 +160,9 @@ func _test_service_forwards_setting_changed() -> void:
 			"and every OTHER setting is ignored — this node must not become a second application path")
 
 		# Emitted rather than written through set_value: that method compares the new value against the
-		# stored one with `==`, and `int == String` is a script error in GDScript — a defect of its own,
-		# reported separately. The handler under test is connected to this signal, so this reaches it by
-		# the same route a load or a host write would.
+		# stored one with `==`, and comparing Variants of different types is a script error in GDScript.
+		# The handler under test is connected to this signal, so this reaches it by the same route a
+		# load or a host write would.
 		backend.setting_changed.emit(MKBrightnessController.SETTING_ID, "bright")
 		check_eq(controller.get_brightness(), 2.0,
 			"a hand-edited non-numeric value is refused rather than crashing inside a signal handler")
@@ -200,8 +200,7 @@ func _test_adopt_never_yields_two() -> void:
 ## need not be the shipped service: a host-supplied one can own a brightness controller while
 ## returning null from [code]get_settings_backend()[/code], which sends MKRoot down the
 ## build-your-own-backend path with a controller already live. Without the guard that scene adds a
-## second gamma pass and the image is corrected twice — which nobody reads as "there are two
-## controllers".
+## second gamma pass and the image is corrected twice.
 ##
 ## (The shipped service cannot reach this state: its _boot_brightness runs only after a backend
 ## booted. That is why the stand-in here is a host's node and not an inert MKSettingsService.)
@@ -236,9 +235,8 @@ func _test_a_backendless_service_still_blocks_a_second_controller() -> void:
 
 
 ## [constant MKBrightnessController.Mode.ENVIRONMENT] borrows the host's [Environment] and must give
-## it back INTACT. Both halves matter and only one was ever handled: the flag was restored, and the
-## brightness was not — so a host that already ran with adjustment_enabled kept its flag and lost its
-## own brightness permanently, left sitting at whatever the player last dragged the slider to.
+## it back INTACT — the flag AND the brightness. Restoring only the flag leaves a host that already
+## ran with adjustment_enabled sitting permanently at whatever the player last dragged the slider to.
 func _test_environment_mode_restores_what_it_found() -> void:
 	# A host that already uses adjustment for its own colour grade.
 	var owned := _make_env_probe(true, 1.3)

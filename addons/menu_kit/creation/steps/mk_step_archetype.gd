@@ -2,9 +2,9 @@
 class_name MKStepArchetype
 extends Control
 ## The archetype step: a grid of focusable cards, one selected, owning the payload key
-## [code]archetype[/code] (plan §4.5, §3.1).
+## [code]archetype[/code].
 ##
-## [b]The grid is never an empty dead end[/b] (§3.1). The FIRST valid archetype is selected at bind, so
+## [b]The grid is never an empty dead end[/b]. The FIRST valid archetype is selected at bind, so
 ## the step arrives valid and the player is choosing between options rather than being blocked by one
 ## they have not made yet. With zero archetypes the step reports invalid and warns once — a card grid
 ## with nothing in it is a host configuration mistake, and silently letting the flow past it would write
@@ -12,12 +12,12 @@ extends Control
 ##
 ## [b]Seeding defaults is the HOST's job.[/b] This step reports the chosen archetype through
 ## [method MKCreationHost.notify_archetype_chosen] and writes its own key on commit — nothing else. See
-## that method for why the merge order and the F8 collision check cannot live out here.
+## that method for why the merge order and the ownership check cannot live out here.
 ##
 ## [b]Selection is shown with a ring, not a colour[/b]: a [Panel] child carrying
 ## [constant MKTheme.FOCUS_RING], the same idiom [method MKSettingsPanel._add_focus_ring] uses on a
-## slider. Variation mechanics only — MenuKit ships zero [code]add_theme_*_override[/code] calls (ship
-## gate 1), so a host swapping [MKPalette] restyles these rings with everything else.
+## slider. Variation mechanics only — MenuKit ships zero [code]add_theme_*_override[/code] calls, so a
+## host swapping [MKPalette] restyles these rings with everything else.
 
 signal step_state_changed()
 
@@ -28,9 +28,8 @@ const PAYLOAD_KEY := "archetype"
 ## of empty cells.
 const MAX_COLUMNS := 3
 
-## Ring OUTSET — the ring is grown beyond the card it traces on all four sides, not inset within it —
-## matching [constant MKSettingsPanel.FOCUS_RING_GROW]'s role: a layout rhythm, with the colour coming
-## from the palette through the variation.
+## Ring OUTSET — the ring is grown beyond the card it traces on all four sides, not inset within it.
+## A layout rhythm, with the colour coming from the palette through the variation.
 const RING_GROW := 3.0
 
 var _host: MKCreationHost
@@ -77,8 +76,8 @@ func _mk_step_bind(host: MKCreationHost, def: MKCreationStepDef, ctx: Dictionary
 			% [MKLog.context(def, "scene"), def.id if def != null else &"<unknown>"])
 		return
 
-	# Restore a previous choice when the player came back through Back; otherwise §3.1's rule applies and
-	# the first card is chosen for them.
+	# Restore a previous choice when the player came back through Back; otherwise the first card is
+	# chosen for them, so the step is never an empty dead end.
 	var restore := -1
 	var payload_variant: Variant = ctx.get("payload", null)
 	if payload_variant is Dictionary:
@@ -95,9 +94,8 @@ func _mk_step_is_valid() -> bool:
 func _mk_step_commit(payload: Dictionary) -> void:
 	if not _mk_step_is_valid():
 		return
-	# String, not StringName: the payload crosses to JSON and back in the shipped backend, and a
-	# StringName that survives one round trip as a String is a field whose type depends on whether it has
-	# been saved yet.
+	# String, not StringName: the payload crosses to JSON and back in the shipped backend, so a
+	# StringName would be a field whose type depends on whether it has been saved yet.
 	payload[PAYLOAD_KEY] = String(_archetypes[_selected].id)
 
 
@@ -124,10 +122,9 @@ func _build() -> void:
 
 ## One card: a focusable [Button] carrying the icon, the name and the description.
 ##
-## A Button rather than a Panel with a click handler, because the card must be reachable by keyboard and
-## gamepad (D12) — [MKFocus] collects focusable Controls, and a Panel is not one. Its children are
-## [constant Control.MOUSE_FILTER_IGNORE] so the whole card stays one hit target instead of the label
-## eating the press.
+## A Button rather than a Panel with a click handler, because the card must be reachable by keyboard
+## and gamepad — [MKFocus] collects focusable Controls, and a Panel is not one. Its children are
+## [constant Control.MOUSE_FILTER_IGNORE] so the whole card stays one hit target.
 func _build_card(index: int) -> Control:
 	var archetype := _archetypes[index]
 
@@ -143,11 +140,10 @@ func _build_card(index: int) -> Control:
 	MKTheme.set_variation(card, MKTheme.PANEL_BUTTON)
 	card.pressed.connect(func() -> void: _select(index))
 
-	# The card's content is inset by a MarginContainer rather than laid flush against the button's
-	# border: the description autowraps, so without it the text ran edge to edge and the card read as a
-	# block of type with a line around it. Theme-driven padding (MarginContainer's margin constants come
-	# from the palette, MKThemeGenerator._style_panels), so it re-skins with everything else and no
-	# number is spelled here.
+	# The card's content is inset by a MarginContainer rather than laid flush against the button's border:
+	# the description autowraps, so without it the text runs edge to edge. Theme-driven padding (the
+	# margin constants come from the palette via MKThemeGenerator._style_panels), so it re-skins with
+	# everything else and no number is spelled here.
 	var padding := MarginContainer.new()
 	padding.name = "Padding"
 	padding.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

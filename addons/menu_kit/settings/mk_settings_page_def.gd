@@ -1,7 +1,7 @@
 @tool
 class_name MKSettingsPageDef
 extends Resource
-## One tab of the settings panel: ordered rows plus the metadata the tab strip needs (plan §4.3, D5).
+## One tab of the settings panel: ordered rows plus the metadata the tab strip needs (D5).
 ##
 ## [MKSettingsPanel] takes an [code]Array[MKSettingsPageDef][/code] and builds every tab and every
 ## row at runtime, so a host adds, removes or reorders whole pages by editing its own array — no
@@ -18,12 +18,11 @@ extends Resource
 @export var title: String = ""
 
 ## Optional tab icon. Null is normal and renders a text-only tab — the shipped pages carry no icon so
-## the addon cold-drops into an empty project with no external texture (plan §3.1).
+## the addon cold-drops into an empty project with no external texture.
 @export var icon: Texture2D = null
 
-## The rows, top to bottom. Order is array order: there is no sort key here on purpose, because a
-## settings page reads as a document and an author reordering rows expects to see exactly what they
-## typed.
+## The rows, top to bottom. Order is array order — there is no sort key, because a settings page
+## reads as a document and an author reordering rows expects to see exactly what they typed.
 @export var rows: Array[MKSettingDef] = []
 
 

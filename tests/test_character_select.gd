@@ -1,6 +1,6 @@
 extends MKTest
-## The character roster page, end to end through a REAL shell (plan §3.1, §4.4), plus the Character
-## Creation group's half of [method MKConfig.validate].
+## The character roster page, end to end through a REAL shell, plus the Character Creation group's
+## half of [method MKConfig.validate].
 ##
 ## [b]Everything below runs inside an MKRoot built from the demo config.[/b] The panel's whole job is
 ## to be wired to things it does not own — a profile backend two ancestors up, a menu backend beside
@@ -13,8 +13,8 @@ extends MKTest
 ##
 ## [b]Activations are real[/b]: focus plus a pushed [code]ui_accept[/code], and a pushed
 ## [code]ui_cancel[/code] for the back ladder — the mouse route to a button's [signal
-## BaseButton.pressed] is dead under the dummy display driver (verified in test_rebind), so a click
-## would prove nothing about a button a keyboard player can reach.
+## BaseButton.pressed] is dead under the dummy display driver, so a click would prove nothing about a
+## button a keyboard player can reach.
 ##
 ## [b]Headless boundary.[/b] Card text, roster contents, focus ownership, page ids and modal depth are
 ## all real headless. Card LAYOUT — whether a long name wraps or the column is wide enough — is a
@@ -149,11 +149,11 @@ func _test_delete_is_confirmed_before_it_happens() -> void:
 
 ## [b]A destructive dialog must not open with the destructive button under the ring.[/b] The delete
 ## confirmation and the root's quit-confirm are both one already-travelling accept away from doing
-## the thing they exist to ask about, and Phase 6 recorded that as a real defect rather than a taste.
+## the thing they exist to ask about.
 ##
 ## The assertion is on the VIEWPORT's focus owner, not on the dialog's own intent: [method
 ## MKFocus.trap] re-grabs during the push, after the dialog's [method Node._ready] has run, so a
-## dialog that only set its own preference would test green and ship the old behaviour. The
+## dialog that only set its own preference tests green and behaves the other way. The
 ## non-destructive half is asserted from the SAME fixture, because "Cancel is focused" passes just as
 ## well against a dialog that always focuses Cancel — which would break the conflict modal's Replace
 ## and the demo's OK dialog.
@@ -271,8 +271,8 @@ func _test_an_untrapped_dialogs_own_button_ring_wraps() -> void:
 	await step_frame()
 
 
-## An empty roster is never a dead end (§4.4): the one action that can change it is offered AND takes
-## focus, or a gamepad-only user is stranded on a page of nothing.
+## An empty roster is never a dead end: the one action that can change it is offered AND takes focus,
+## or a gamepad-only user is stranded on a page of nothing.
 func _test_deleting_the_last_entry_leaves_a_reachable_empty_state() -> void:
 	_seed([{"name": "Solo"}])
 	var root := await _make_root()
@@ -305,16 +305,15 @@ func _test_deleting_the_last_entry_leaves_a_reachable_empty_state() -> void:
 	await _drop(root)
 
 
-## [b]The same empty state, reached by NAVIGATION instead of by deletion — which is a different code
-## path and used to land somewhere else entirely.[/b] The panel grabs New Character for itself, but
-## MKRoot ALSO focuses the new page's first focusable control on every page change (deferred, so it
-## runs last and wins), and MKFocus's collector did not filter disabled buttons: Play sits first in
-## the footer's tree order and is disabled with nothing selected, so arriving at an empty roster left
-## the ring on a button that swallows every press. A gamepad-only player's first action on a fresh
-## install was into silence, with the one live action two controls away.
+## [b]The same empty state, reached by NAVIGATION instead of by deletion — a different code path.[/b]
+## The panel grabs New Character for itself, but MKRoot ALSO focuses the new page's first focusable
+## control on every page change (deferred, so it runs last and wins), and a collector that does not
+## filter DISABLED buttons hands it Play — first in the footer's tree order, disabled with nothing
+## selected. A gamepad-only player's first action on a fresh install then goes into silence, with the
+## one live action two controls away.
 ##
 ## Asserted through a REAL go_to_page rather than by calling the panel's refresh, because the deferred
-## shell-side focus is exactly the half that overrode the panel — and asserted on the button's
+## shell-side focus is exactly the half that overrides the panel — and asserted on the button's
 ## `disabled` flag too, so the case cannot be satisfied by a future footer whose first control merely
 ## happens to be enabled.
 func _test_navigating_to_an_empty_roster_never_focuses_a_disabled_button() -> void:
@@ -426,7 +425,7 @@ func _test_a_rebuild_puts_the_ring_back_on_a_card() -> void:
 	await _drop(root)
 
 
-## The §4.4 back ladder, in both directions: the creation flow is a SUB-panel, so it is entered with
+## The back ladder, in both directions: the creation flow is a SUB-panel, so it is entered with
 ## push_page and every exit from it — Escape, the flow's own Cancel, and a completed creation — returns
 ## to the roster rather than to the boot page.
 func _test_new_character_pushes_and_every_exit_pops_back() -> void:
@@ -476,7 +475,7 @@ func _test_new_character_pushes_and_every_exit_pops_back() -> void:
 	await _drop(root)
 
 
-## D12: the whole page is drivable without a mouse, which means the card column and the footer are
+## The whole page is drivable without a mouse, which means the card column and the footer are
 ## LINKED — a chain that only walks within each group leaves a keyboard player able to reach the cards
 ## or the buttons but never both.
 func _test_the_page_is_drivable_by_keyboard_alone() -> void:
@@ -737,15 +736,14 @@ func _test_config_validation_reports_every_creation_fault() -> void:
 	check_eq(_lines_containing(empty_config.validate(), "no stats"), 1,
 		"an assigned schema with no stats is named, with 'leave it null to disable' as the alternative")
 
-	# D17's default: point-buy OFF is the supported configuration, so absence reports nothing at all.
+	# Point-buy OFF is the supported default, so absence reports nothing at all.
 	var clean := MKConfig.new()
 	check_eq(clean.validate(), PackedStringArray(),
 		"a config with no archetypes, no steps and NO schema reports nothing — declining an optional feature is not a fault")
 
 
-## [b]Phase 5 exit criterion: "reorder the steps via config and the flow follows".[/b] It was verified
-## by hand and had no suite coverage at all, which for a criterion about CONFIG driving the flow is the
-## easiest thing to break silently — [method MKCharacterCreate._resolve_steps] could start ignoring
+## [b]Reorder the steps via config and the flow follows.[/b] A rule about CONFIG driving the flow is
+## the easiest thing to break silently — [method MKCharacterCreate._resolve_steps] could ignore
 ## [member MKConfig.creation_steps] entirely and every other test in this repo would stay green.
 ##
 ## Driven through the REAL creation page rather than by calling [method MKCreationHost.configure]: the

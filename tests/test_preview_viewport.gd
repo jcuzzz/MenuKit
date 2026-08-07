@@ -1,6 +1,5 @@
 extends MKTest
-## The 3D preview slot: content swapping, framing, world isolation, zoom clamps and render gating
-## (plan §4.6, D13/F10).
+## The 3D preview slot: content swapping, framing, world isolation, zoom clamps and render gating.
 ##
 ## [b]What this suite can and cannot see.[/b] Under `--headless` the dummy rasterizer draws nothing,
 ## so nothing here asserts an image. What IS real headless — and is what the class's contracts are
@@ -23,10 +22,10 @@ var _log: Array[String] = []
 
 
 func run_tests() -> void:
-	# No expect_engine_error here, deliberately: the runtime own_world_3d flip used to print the
-	# renderer's 'Parameter "scenario" is null' ERROR (live instances torn between worlds), and this
-	# suite shipped a declaration for it. The setter now detaches the viewport around the flip, so a
-	# clean run IS the assertion — reintroducing the error must FAIL this suite, not be waved through.
+	# No expect_engine_error here, deliberately: flipping own_world_3d on a LIVE viewport prints the
+	# renderer's 'Parameter "scenario" is null' ERROR, and the setter avoids it by detaching the
+	# viewport around the flip. A clean run IS that assertion — reintroducing the error must FAIL this
+	# suite, not be waved through a declaration.
 	await _test_a_swap_frees_the_old_content()
 	await _test_the_subviewport_owns_its_own_world_by_default()
 	await _test_clearing_the_slot_is_legal()
@@ -72,7 +71,7 @@ func _test_a_swap_frees_the_old_content() -> void:
 	await _drop(preview)
 
 
-## F10: shared worlds leak in BOTH directions — this rig's key/fill/rim lights would light the running
+## Shared worlds leak in BOTH directions — this rig's key/fill/rim lights would light the running
 ## game, and the game's sun and environment would light the preview, so the same character looks
 ## different in a menu over a night map. Opt-OUT precisely because the leak is invisible until somebody
 ## notices the game got brighter.
@@ -163,18 +162,17 @@ func _test_framing_falls_back_when_the_content_has_no_bounds() -> void:
 
 
 ## [b]The case the three shipped demo previews are.[/b] CSG builds its mesh on a DEFERRED call, so
-## [method VisualInstance3D.get_aabb] reads zero on the frame the node is added — measured here and in
-## isolation: a bare CSGBox3D reports a zero AABB immediately and its real one on the next frame. A
-## widget that framed only immediately therefore took the no-bounds fallback for every CSG preview
-## (pivot at the origin, fallback distance, engine-default near/far) while ALSO logging that the
-## content had no bounds, which it plainly did.
+## [method VisualInstance3D.get_aabb] reads zero on the frame the node is added. A widget that framed
+## only immediately therefore takes the no-bounds fallback for every CSG preview (pivot at the origin,
+## fallback distance, engine-default near/far) while ALSO logging that the content had no bounds,
+## which it plainly does.
 ##
 ## So both halves are asserted: the second pass really measures, and the immediate zero — the expected
 ## reading for deferred-built content — says nothing in the log.
 func _test_deferred_built_content_frames_on_the_second_pass() -> void:
 	var preview := await _make_preview()
-	# The REAL shipped demo scene, not a stand-in: the finding is that the addon fails on the content it
-	# ships with, and a hand-built CSG node in this file could drift away from what demo_creation holds.
+	# The REAL shipped demo scene, not a stand-in: a hand-built CSG node in this file can drift away
+	# from what demo_creation holds, and the rule is about the content the addon ships with.
 	var vanguard := load("res://demo/demo_creation/preview_vanguard.tscn") as PackedScene
 	check(vanguard != null, "the shipped demo preview scene loads")
 	if vanguard == null:
@@ -222,10 +220,10 @@ func _test_deferred_built_content_frames_on_the_second_pass() -> void:
 ## restored selection).[/b]
 ##
 ## The framing pass is deferred, and Godot's deferred queue is FIFO. A boolean "one pass queued at a
-## time" de-dup therefore mis-ordered exactly this case: swap 1 queued the pass, swap 2's CSG build
-## enqueued AFTER it, so the pass ran over content whose mesh did not exist yet, read zero bounds,
-## consumed the flag — and nothing re-queued. Measured: pivot at the origin and the fallback distance,
-## permanently, for the content the player is actually looking at.
+## time" de-dup therefore mis-orders exactly this case: swap 1 queues the pass, swap 2's CSG build
+## enqueues AFTER it, so the pass runs over content whose mesh does not exist yet, reads zero bounds,
+## consumes the flag — and nothing re-queues. The result is the pivot at the origin and the fallback
+## distance, permanently, for the content the player is actually looking at.
 ##
 ## The generation counter is what fixes the ORDER rather than the count: every swap queues its own
 ## pass, so the live content's pass sits after its own build, and the earlier passes recognise
@@ -271,9 +269,10 @@ func _test_two_swaps_in_one_frame_frame_the_SECOND_content() -> void:
 
 ## [method MKPreviewViewport.frame_content] called in the SAME frame as a swap is an ordinary host
 ## pairing ("show this, and refit for it"). Its immediate pass therefore measures content whose mesh
-## may not be built yet — zero, the expected reading — and reporting that printed "no VisualInstance3D
-## bounds" for content that plainly had them one frame later. The immediate half is silent for the same
-## reason the swap's is; the queued pass is the definitive answer and the one that speaks.
+## may not be built yet — zero, the expected reading — and reporting that would print "no
+## VisualInstance3D bounds" for content that plainly has them one frame later. The immediate half is
+## silent for the same reason the swap's is; the queued pass is the definitive answer and the one that
+## speaks.
 func _test_frame_content_in_the_swap_frame_is_silent_and_frames_next_frame() -> void:
 	var preview := await _make_preview()
 
@@ -349,11 +348,11 @@ func _test_content_assigned_off_tree_frames_when_it_enters_the_tree() -> void:
 
 ## [b]The class doc invites pooling and reparenting ("a host adds a preview by adding one node"), and
 ## [code]_ready[/code] runs ONCE per node lifetime.[/b] So a preview that has already been shown, is
-## detached, is given new content while detached, and is added back had NO framing hook at all: the
-## off-tree swap skips the framing (measured: pivot at the origin, the new content still carrying its
-## authored offset, the distance left from the previous subject) and nothing re-ran it on the way back
-## in. It rendered wrong, silently. NOTIFICATION_ENTER_TREE is the hook; _ready still owns the first
-## entry, which is why the deferred pass is not doubled there.
+## detached, is given new content while detached, and is added back has NO framing hook at all unless
+## re-entry is one: the off-tree swap skips the framing (pivot at the origin, the new content still
+## carrying its authored offset, the distance left from the previous subject) and it renders wrong,
+## silently. NOTIFICATION_ENTER_TREE is that hook; _ready still owns the FIRST entry, which is why the
+## deferred pass is not doubled there.
 func _test_a_swap_while_detached_frames_when_the_node_re_enters() -> void:
 	var preview := await _make_preview()
 	preview.set_preview_scene(_mesh_scene())
@@ -392,10 +391,9 @@ func _test_a_swap_while_detached_frames_when_the_node_re_enters() -> void:
 
 
 ## [b]The other detached shape: the swap happens IN the tree, and the node is reparented before the
-## deferred pass runs.[/b] The queued pass finds itself off-tree and returns without measuring — which
-## is correct, and used to be the end of it. The re-entry hook is what picks the framing back up; a host
-## moving a preview between containers on the same frame it changed the selection is an ordinary
-## gesture, not a misuse.
+## deferred pass runs.[/b] The queued pass finds itself off-tree and returns without measuring, so the
+## re-entry hook is the only thing left to pick the framing back up. A host moving a preview between
+## containers on the same frame it changed the selection is an ordinary gesture, not a misuse.
 func _test_a_reparent_before_the_deferred_pass_still_frames() -> void:
 	var preview := await _make_preview()
 	preview.set_preview_scene(_mesh_scene())
@@ -432,9 +430,9 @@ func _test_a_reparent_before_the_deferred_pass_still_frames() -> void:
 ## [method MKPreviewViewport.frame_content] is the advertised call for content that changed size after
 ## it was instanced, so it is called more than once BY DESIGN — and must therefore be idempotent. The
 ## pivot write is relative (`+= centre`) precisely because it is paired with a relative content shift:
-## an absolute write measured a second centre of zero and wrote zero, throwing the first call's
-## centring away while the content kept its -centre offset. The subject then hung a metre below the
-## point it spins around.
+## an absolute write measures a second centre of zero and writes zero, throwing the first call's
+## centring away while the content keeps its -centre offset — the subject then hangs below the point
+## it spins around.
 func _test_framing_is_idempotent_and_tracks_content_that_grows() -> void:
 	var preview := await _make_preview()
 	preview.set_preview_scene(_mesh_scene())
@@ -475,10 +473,9 @@ func _test_framing_is_idempotent_and_tracks_content_that_grows() -> void:
 
 
 ## The comparison story the class doc tells: a user cycling a character list keeps the angle AND the
-## zoom they chose. Yaw and pitch were already preserved across a swap; the distance was not — every
-## swap refitted it, so a player who zoomed in to look at a helmet was pushed back out by the next
-## card. The FIRST content still fits, because there is no user choice to preserve yet, and an explicit
-## frame_content() still refits — that is what the previous test asserts.
+## zoom they chose. A swap that refits the distance pushes a player who zoomed in to look at a helmet
+## back out on the next card. The FIRST content still fits, because there is no user choice to preserve
+## yet, and an explicit frame_content() still refits — that is what the previous test asserts.
 func _test_a_swap_keeps_the_zoom_the_user_chose() -> void:
 	var preview := await _make_preview()
 	preview.set_preview_scene(_mesh_scene())
@@ -507,9 +504,8 @@ func _test_a_swap_keeps_the_zoom_the_user_chose() -> void:
 ## The documented exception to "a swap keeps the zoom the user chose": [code]_fitted_once[/code] is
 ## "reset when the slot is cleared, so refilling it fits again" — an empty slot has no subject the user
 ## can have chosen a zoom FOR. So a clear-then-set is the one swap that does refit, and a host cycling
-## a list through a null (a deselect between two cards) is where a player notices. Pinned because the
-## sentence was documented and nothing held it: making the clear preserve the distance would read as a
-## kindness and would silently contradict the doc.
+## a list through a null (a deselect between two cards) is where a player notices. Pinned because
+## making the clear preserve the distance would read as a kindness and silently contradict the doc.
 func _test_clearing_the_slot_gives_the_next_content_a_fresh_fit() -> void:
 	var preview := await _make_preview()
 	preview.set_preview_scene(_mesh_scene())
@@ -535,11 +531,10 @@ func _test_clearing_the_slot_gives_the_next_content_a_fresh_fit() -> void:
 		"and the next content REFITS rather than restoring the zoom chosen for a subject that is gone (got %s, chosen was %s)"
 			% [preview._distance, chosen])
 
-	# The DETACHED clear is the same contract and used to miss it: the cleared-slot state lived in
-	# _frame's null branch, behind the tree guard, so a pooled preview cleared off-tree kept the old
-	# subject's fitted flag and distance forever and showed the NEXT character at the previous one's
-	# zoom (measured, round 6: dist 6.0 surviving into a 1-unit cube). The reset now lives in
-	# set_preview_scene's clear path, outside any tree check, and this is the pin.
+	# The DETACHED clear is the same contract. The reset must live in set_preview_scene's clear path,
+	# OUTSIDE any tree check: behind the tree guard (in _frame's null branch) a pooled preview cleared
+	# off-tree keeps the old subject's fitted flag and distance forever, and shows the NEXT character
+	# at the previous one's zoom.
 	preview._gui_input(_wheel(MOUSE_BUTTON_WHEEL_DOWN))
 	var parent := preview.get_parent()
 	parent.remove_child(preview)
@@ -616,15 +611,13 @@ func _test_zoom_clamps_at_both_bounds_and_survives_an_inverted_pair() -> void:
 	await _drop(preview)
 
 
-## [b]The clamp above is a RANGE read at every distance write, not only at the wheel.[/b] Three sites
-## in [code]_frame[/code] used the plain [code]clampf(x, zoom_min, zoom_max)[/code] form while the
-## wheel and the swap re-clamp ordered the pair — so on an inverted pair the SAME gesture parked the
-## camera in two different places depending on which branch ran: a detached clear took the ordered
-## form and landed on the fallback 3, an in-tree clear then ran _frame's null branch and the plain
-## form pushed it out to 6 (clampf raises to its minimum FIRST, then lowers to its maximum — measured
-## on 4.7: clampf(3, 6, 1) is 6 — so an inverted pair collapses inputs onto one of the two ends).
-## Both are the same gesture on the same slot, so both must answer the same. Pinned against a single
-## [code]_clamp_zoom[/code] helper rather than against one of the two answers.
+## [b]The clamp is a RANGE read at every distance write, not only at the wheel.[/b] A plain
+## [code]clampf(x, zoom_min, zoom_max)[/code] at some sites and an ordered pair at others makes the
+## SAME gesture park the camera in two different places on an inverted range: clampf raises to its
+## minimum FIRST and then lowers to its maximum (clampf(3, 6, 1) is 6), so an inverted pair collapses
+## inputs onto one of the two ends. A detached clear and an in-tree clear are the same gesture on the
+## same slot and must answer the same, which is why every site goes through one
+## [code]_clamp_zoom[/code] helper.
 func _test_an_inverted_pair_parks_a_clear_at_one_distance_whichever_branch_runs() -> void:
 	var preview := await _make_preview()
 	# Inverted on purpose, and with the fallback distance INSIDE the range either way round, so the two

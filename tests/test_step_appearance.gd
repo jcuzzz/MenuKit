@@ -1,9 +1,9 @@
 extends MKTest
-## The appearance step's preview mount (plan §4.5/§4.6).
+## The appearance step's preview mount.
 ##
-## [b]The step still owns no payload key and is still always valid.[/b] Those two properties are what
-## make it a safe placeholder for a host to replace, and mounting a preview inside it must not have
-## bought them away — so they are asserted here alongside the mount rather than left to the host suite.
+## [b]The step owns no payload key and is always valid.[/b] Those two properties are what make it a
+## safe placeholder for a host to replace, and mounting a preview inside it must not buy them away —
+## so they are asserted here alongside the mount rather than left to the host suite.
 ##
 ## [b]What is asserted about the preview is CONTENT, not pixels.[/b] Under `--headless` the dummy
 ## rasterizer draws nothing, so this suite checks that the chosen archetype's

@@ -1,18 +1,16 @@
 class_name MKStubNetworkBackend
 extends MKNetworkBackend
-## A fake server list with a real connection lifecycle, and no sockets at all (plan §3.1, §8).
+## A fake server list with a real connection lifecycle, and no sockets at all.
 ##
 ## MenuKit ships no networking. This exists so the server-browser panel has genuine states to render
-## — a connect that takes time and succeeds, one that fails, and one a user cancels mid-flight — and
-## so those paths are exercised before a host's transport is ever attached. Ships in the addon but is
-## [b]not[/b] assigned by [code]default_config.tres[/code]: an empty network slot hides the browser,
-## which is the right cold-drop impression for a single-player game.
+## — a connect that takes time and succeeds, one that fails, and one a user cancels mid-flight.
+## Ships in the addon but is [b]not[/b] assigned by [code]default_config.tres[/code]: an empty network
+## slot hides the browser.
 ##
 ## [b]Timing is real, not instant.[/b] A stub that returned [constant MKNetworkBackend.ConnectState]
 ## [code]CONNECTED[/code] synchronously would never let the panel show its connecting state or its
-## Cancel button, so the exact states most likely to be broken would be the ones never seen. Delays
-## run on [SceneTreeTimer]s, which keep ticking while [member SceneTree.paused] is true — the whole
-## [MKRoot] subtree runs [constant Node.PROCESS_MODE_ALWAYS] for the same reason.
+## Cancel button. Delays run on [SceneTreeTimer]s, which keep ticking while [member SceneTree.paused]
+## is true — the whole [MKRoot] subtree runs [constant Node.PROCESS_MODE_ALWAYS] for the same reason.
 
 ## Params key overriding the simulated connect duration, in seconds.
 const PARAM_CONNECT_DELAY := "connect_delay"
@@ -98,8 +96,8 @@ func refresh() -> void:
 		_refreshing = false
 		for i in _servers.size():
 			var entry := _servers[i]
-			# Deterministic drift rather than a random one: a stub that reports different numbers on
-			# every run makes a panel screenshot impossible to compare against the last.
+			# Deterministic drift, not random: a stub reporting different numbers every run makes a panel
+			# screenshot impossible to compare against the last.
 			entry["ping"] = 8 + ((int(entry["ping"]) + 7) % 200)
 			_servers[i] = entry
 		servers_changed.emit()
@@ -119,9 +117,9 @@ func refresh() -> void:
 func connect_to(entry: Dictionary) -> void:
 	var id: StringName = StringName(entry.get("id", &""))
 	if String(id).is_empty():
-		# The panel is supposed to pass a row from list_servers back verbatim; one without an id means
-		# the caller invented an entry. Recoverable — report it as a failed connection so the UI has a
-		# state to render rather than hanging in CONNECTING.
+		# The panel passes a list_servers row back verbatim; one without an id means the caller invented
+		# an entry. Report it as a failed connection so the UI has a state rather than hanging in
+		# CONNECTING.
 		MKLog.warn("MKStubNetworkBackend.connect_to received an entry with no 'id'")
 		_set_state(ConnectState.FAILED, "Invalid server entry.")
 		return
@@ -170,11 +168,11 @@ func _set_state(state: ConnectState, message: String) -> void:
 ## Runs [param action] after [param seconds]. Connected as a one-shot rather than awaited: a
 ## [SceneTreeTimer] drops its connection when this node is freed, whereas an awaited coroutine would
 ## resume inside a freed instance if the menu is torn down mid-connect.
-## Returns whether the delay was actually scheduled, so a caller that has already announced
-## CONNECTING can report a terminal state instead of stranding the panel on a spinner.
 ##
-## Warn rather than error: being out of the tree is recoverable, and [code]MKLog.error[/code] is
-## reserved for contract violations (it also fails the verification gate's output scan).
+## Returns whether the delay was actually scheduled, so a caller that has already announced
+## CONNECTING can report a terminal state instead of stranding the panel on a spinner. Being out of
+## the tree warns rather than errors — it is recoverable, and [code]MKLog.error[/code] is reserved
+## for contract violations.
 func _after(seconds: float, action: Callable) -> bool:
 	var tree := get_tree()
 	if tree == null:

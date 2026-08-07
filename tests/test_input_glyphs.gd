@@ -1,7 +1,6 @@
 extends MKTest
 ## The device-aware prompt vocabulary: [MKInputGlyphs]'s static spellings, its device tracker, and
-## the one consumer wired to it — [MKRebindRow]'s abort hint through [MKSettingsPanel] (plan §3, §4.7,
-## Phase 8).
+## the one consumer wired to it — [MKRebindRow]'s abort hint through [MKSettingsPanel].
 ##
 ## [b]The statics are asserted against LITERAL strings, not against a re-derivation.[/b] A test that
 ## computed "what should this key be called" the way the implementation does would agree with any
@@ -46,7 +45,7 @@ var _ui_cancel_stock: Array[InputEvent] = []
 ## Counter for [signal MKInputGlyphs.device_class_changed]. A MEMBER rather than a local captured by
 ## the connected lambda: GDScript closures capture locals BY VALUE, so a local counter incremented
 ## inside the handler is a copy this test would never see, and the assertion would read zero forever
-## no matter what the tracker did (§4 trap, Phase 6).
+## no matter what the tracker did.
 var _flips: Array = []
 
 
@@ -471,8 +470,8 @@ func _test_the_capture_hint_names_the_device_in_use() -> void:
 	await _drop(panel, backend)
 
 
-## [b]The degrade contract.[/b] A row with no tracker is Phase 4 verbatim — a host embedding
-## [MKRebindRow] outside [MKSettingsPanel] passes nothing and gets the keyboard prose, and the same
+## [b]The degrade contract.[/b] A row with no tracker falls back to the keyboard prose — a host
+## embedding [MKRebindRow] outside [MKSettingsPanel] passes nothing, and the same
 ## path answers a pad-active session whose reserved list carries no pad button, which is exactly the
 ## configuration where the pad abort would not work either.
 func _test_a_row_with_no_tracker_keeps_the_keyboard_prose() -> void:

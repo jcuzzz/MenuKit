@@ -1,15 +1,14 @@
 @tool
 class_name MKFocus
 extends RefCounted
-## Focus wiring helpers for the cases Godot's automatic container neighbours do not cover
-## (plan §4.7).
+## Focus wiring helpers for the cases Godot's automatic container neighbours do not cover.
 ##
 ## Godot derives focus neighbours from geometry inside a container, which is enough for a
 ## hand-authored [VBoxContainer] and not enough for MenuKit: panels are built at runtime from
-## [code].tres[/code] schemas (D5/D6), so there is no author to hand-wire neighbours; wrap-around
-## does not exist at all; jumping from a rows column to a footer button crosses containers; and
-## modal focus trapping (plan §1.3) has no engine equivalent. Every helper therefore takes a
-## container and does the wiring, so a panel that rebuilt its rows calls one function afterwards.
+## [code].tres[/code] schemas, so there is no author to hand-wire neighbours; wrap-around does not
+## exist at all; jumping from a rows column to a footer button crosses containers; and modal focus
+## trapping has no engine equivalent. Every helper takes a container and does the wiring, so a panel
+## that rebuilt its rows calls one function afterwards.
 ##
 ## All helpers are static and tolerate freed/removed nodes — a runtime panel rebuild frees the
 ## controls a previous chain referenced, and a helper that crashed on that would make schema-driven
@@ -31,10 +30,9 @@ static func collect_focusables(root: Node) -> Array[Control]:
 
 ## The collector every caller shares — [method collect_focusables] with the filter on,
 ## [method release] and [method trap]'s last-resort fallback with it off. [param skip_disabled] false
-## keeps disabled buttons in the list, which is what those two latter callers need: they are
-## answering "which controls did trap TOUCH" and "what is inside this subtree at all", not "where
-## should focus go" — and a control can be disabled AFTER it was wired, so the enabled-only view no
-## longer describes the set whose neighbours exist.
+## keeps disabled buttons in the list: those callers ask "which controls did trap TOUCH" and "what is
+## inside this subtree at all", not "where should focus go", and a control can be disabled AFTER it
+## was wired.
 static func _collect(root: Node, skip_disabled: bool) -> Array[Control]:
 	var out: Array[Control] = []
 	if root == null or not is_instance_valid(root):
@@ -49,13 +47,8 @@ static func _collect_recursive(node: Node, out: Array[Control], skip_disabled: b
 			var c := child as Control
 			if not c.is_visible_in_tree():
 				continue
-			# A DISABLED button is skipped. Godot lets a disabled control HOLD focus perfectly happily —
-			# so nothing errors, the ring just sits on a control that swallows every activation — and
-			# MKFocus exists to answer "where should focus go", for which "a button that does nothing" is
-			# never the answer. The empty Characters page is the case that named it: its Play button is
-			# disabled with no selection and sits first in tree order, so the shell's deferred
-			# focus_first landed there and a gamepad-only player pressed A into silence while the one
-			# live action (New Character) sat two controls away.
+			# Skip disabled buttons: Godot lets a disabled control hold focus without erroring, so the ring
+			# would sit on a control that swallows every activation.
 			var button := c as BaseButton
 			if skip_disabled and button != null and button.disabled:
 				continue
@@ -65,8 +58,8 @@ static func _collect_recursive(node: Node, out: Array[Control], skip_disabled: b
 
 
 ## Grabs focus on the first focusable descendant and returns it (null when there is none).
-## Used on every panel/modal open: a menu that opens with nothing focused is dead to a gamepad,
-## which is the D12 promise, so "open" and "focus something" must be one call and never two.
+## Used on every panel/modal open: a menu that opens with nothing focused is dead to a gamepad, so
+## "open" and "focus something" must be one call and never two.
 static func focus_first(root: Node) -> Control:
 	var controls := collect_focusables(root)
 	if controls.is_empty():
@@ -135,20 +128,18 @@ static func link_containers(from_container: Node, to_container: Node, vertical :
 
 
 ## Traps focus inside [param root]: chains its focusables with wrap-around on BOTH axes and focuses
-## the first one. Godot has no focus trap, and a modal whose Cancel button lets a right-press land
-## on the page underneath is not modal (plan §1.3). Wrapping both axes matters because a modal's
-## buttons are usually a horizontal row inside a vertical body — a single-axis ring leaves the
-## other axis pointing at the page.
+## the first one. Godot has no focus trap, and a modal whose Cancel button lets a right-press land on
+## the page underneath is not modal. Both axes matter because a modal's buttons are usually a
+## horizontal row inside a vertical body — a single-axis ring leaves the other axis pointing at the
+## page.
 ## Returns the control that received focus, or null when the subtree has none.
 static func trap(root: Node) -> Control:
 	if root == null or not is_instance_valid(root):
 		return null
 	if root.has_meta(TRAP_META):
-		# Already trapped: return the focus that is inside it and change nothing. A second trap is not a
-		# harmless repeat — it re-collects (over a set that may have changed shape since) and re-grabs,
-		# so a modal that re-traps on a resize or a rebuild would yank the ring back to its first control
-		# under the player's hands. The no-op is what makes trap safe to call defensively, which is how a
-		# modal layer with more than one path to "this is now on top" ends up calling it.
+		# Already trapped: return the focus inside it and change nothing. Re-trapping would re-collect
+		# and re-grab, yanking the ring back to the first control under the player's hands — the no-op
+		# is what makes trap safe to call defensively.
 		var owner := _focus_owner(root)
 		if owner != null and is_within(owner, root):
 			return owner
@@ -156,14 +147,10 @@ static func trap(root: Node) -> Control:
 		# through re-wires and re-grabs, which is the repair this state actually needs.
 	var controls := collect_focusables(root)
 	if controls.is_empty():
-		# Last resort: a modal whose every button is disabled (a confirm dialog awaiting an async
-		# result, a page-embedded modal built before its data arrived) has no ENABLED control to land
-		# on, and returning null here leaves focus wherever it was — on the page UNDERNEATH, which is
-		# the one thing §1.3 says a modal must never permit. So the ring is wired over the disabled set
-		# instead. The trade is deliberate and worth naming: focus then sits on a control that cannot be
-		# activated, but every key and every stick direction stays INSIDE the modal, which is the
-		# property that actually makes it modal. An enabled control is still preferred whenever one
-		# exists — this branch only runs when none does.
+		# Last resort: when every focusable is disabled, wire the ring over the DISABLED set rather than
+		# returning null — returning null would leave focus on the page underneath, which a modal must
+		# never permit. Focus then sits on a control that cannot be activated, but every key and stick
+		# direction stays inside the modal. An enabled control is always preferred when one exists.
 		controls = _collect(root, false)
 		if controls.is_empty():
 			MKLog.debug("MKFocus.trap: nothing focusable under %s" % root.name)
@@ -185,9 +172,8 @@ static func trap(root: Node) -> Control:
 ## NodePaths into a subtree that has since changed shape are a silent traversal bug.
 ##
 ## Collected WITHOUT the disabled filter, unlike [method collect_focusables]: release must undo
-## exactly what trap wired, and a control trap wired while it was enabled and that has since been
-## disabled (a modal's Confirm greying out while it is open) would otherwise keep its whole neighbour
-## ring — the stale NodePaths this method exists to clear.
+## exactly what trap wired, and a control that was wired while enabled and has since been disabled
+## would otherwise keep its whole neighbour ring.
 static func release(root: Node) -> void:
 	if root == null or not is_instance_valid(root):
 		return

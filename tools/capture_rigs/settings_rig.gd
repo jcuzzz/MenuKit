@@ -1,10 +1,12 @@
 extends RefCounted
 ## Capture rig: navigates the shell to the settings page so the schema-built panel can be eyeballed.
 ##
-## The settings panel is runtime-built from page defs (D5), so its failure modes are visual by
+## The settings panel is runtime-built from page defs, so its failure modes are visual by
 ## construction — an unstyled row, a collapsed tab bar, or a slider with no readout all pass every
-## headless assertion. This rig exists for exactly the reason the modal rig does.
+## headless assertion.
 
+## Frames, not seconds: the page builds and MKRoot defers its focus pass, and this count only means
+## a duration at an assumed refresh rate — size any change for the fastest common display.
 func wait_frames() -> int:
 	return 40
 
@@ -37,8 +39,8 @@ func setup(node: Node, tree: SceneTree) -> void:
 	# "Row_<id with / as _>"), whose control is focused before the shot. A slider's focus ring only
 	# draws while the slider HAS focus and nothing in a static capture focuses a row on its own, so
 	# without this the one thing that needed an eyeball is never on screen. The row is a parameter
-	# rather than "the first slider" because brightness is a poor subject: focusing it also raises its
-	# calibration swatch, which is what fills that row in a screenshot.
+	# rather than "the first slider" because focusing brightness also raises its calibration swatch,
+	# which then fills that row in the shot.
 	var focus_row := OS.get_environment("MK_CAPTURE_FOCUS_ROW")
 	if focus_row.is_empty():
 		return
@@ -50,9 +52,8 @@ func setup(node: Node, tree: SceneTree) -> void:
 		var control := child as Control
 		if control != null and control.focus_mode != Control.FOCUS_NONE:
 			# Deferred by a beat, not grabbed here: a page entering the tree focuses its own first
-			# control (D12 — a menu that opens with nothing focused is dead to a gamepad), and that
-			# happens AFTER this rig runs. Grabbing immediately hands focus straight back to the page
-			# and the ring is gone before the shot.
+			# control, and that happens AFTER this rig runs. Grabbing immediately hands focus straight
+			# back to the page and the ring is gone before the shot.
 			tree.create_timer(0.15).timeout.connect(control.grab_focus)
 			return
 	push_error("settings_rig: row '%s' has no focusable control" % focus_row)

@@ -1,6 +1,6 @@
 class_name MKTreePausePolicy
 extends MKPausePolicy
-## The single-player answer: menus stop the world by setting [member SceneTree.paused] (plan §4.2a).
+## The single-player answer: menus stop the world by setting [member SceneTree.paused].
 ##
 ## Shipped as the zero-wiring default so a cold drop gets a working pause menu without the host
 ## writing a line of code. A multiplayer host swaps in [MKNoPausePolicy] or its own script instead.
@@ -15,7 +15,7 @@ extends MKPausePolicy
 ## scene while the world is paused; [constant Node.NOTIFICATION_EXIT_TREE] propagates children first,
 ## so MKRoot deliberately does not call [method exit_menu] from its own teardown. Without the
 ## [method Node._exit_tree] below, [member SceneTree.paused] would stay true and the next game would
-## boot frozen with nothing on screen to explain it.
+## boot frozen.
 ##
 ## The [SceneTree] is cached in [method Node._enter_tree] because [method Node.get_tree] returns null
 ## once this node has left the tree, which is precisely when the teardown above has to run.
@@ -33,15 +33,15 @@ func _enter_tree() -> void:
 	_tree = get_tree()
 
 
-## Undo on the way out of the tree — the defined teardown path for every policy (plan §4.2a).
+## Undo on the way out of the tree — the defined teardown path for every policy.
 func _exit_tree() -> void:
 	_unpause_if_owned()
 	_tree = null
 
 
 ## Pauses the tree on MKRoot's 0→1 edge. [param reason] is unused: every MenuKit surface that
-## suspends wants the same thing from a tree pause, and branching on the gesture here would be state
-## this policy has no way to unwind correctly in teardown.
+## suspends wants the same thing from a tree pause, and branching on the gesture would be state this
+## policy could not unwind correctly in teardown.
 func enter_menu(_reason: StringName) -> void:
 	if _tree == null:
 		MKLog.error("MKTreePausePolicy.enter_menu called with no cached SceneTree — the policy is not in the tree")

@@ -1,7 +1,7 @@
 @tool
 class_name MKLog
 extends RefCounted
-## Leveled logging for MenuKit (plan §4.8).
+## Leveled logging for MenuKit.
 ##
 ## Rules this class exists to enforce:
 ## [br]- Every misconfiguration message names the offending resource path AND field — never a bare
@@ -31,10 +31,9 @@ static var verbose := false
 ## half, and gating it behind a command-line switch would leave it untested on every normal run.
 ##
 ## It exists because several of this package's contracts are stated as [i]counts of warnings[/i] —
-## "the shipped default pages build with zero warnings" (ship gate 2), "a panel with no backend warns
-## ONCE for the page rather than once per row", "a missing audio bus is named" — and none of them is
-## assertable from a test without an observation point. The alternative was to leave the most
-## regression-prone half of §4.3 covered only by a human reading a log.
+## "the shipped default pages build with zero warnings", "a panel with no backend warns ONCE for the
+## page rather than once per row", "a missing audio bus is named" — and none of them is assertable
+## without an observation point.
 ##
 ## Default is an empty [Callable], so nothing shipped pays for it and no host is expected to set it.
 static var observer := Callable()
@@ -81,8 +80,8 @@ static func warn(message: String) -> void:
 	_observe(Level.WARN, message)
 
 
-## Feeds [member observer] without letting a bad one break logging: a test that leaves a freed object
-## in the seam must not turn every later warning into a crash inside somebody else's error path.
+## Feeds [member observer] without letting a stale one break logging: a freed object left in the
+## seam must not turn every later warning into a crash inside somebody else's error path.
 static func _observe(level: Level, message: String) -> void:
 	if observer.is_valid():
 		observer.call(level, message)

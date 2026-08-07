@@ -1,9 +1,10 @@
 extends MKTest
-## Page state machine, back stack, and the cancel precedence ladder (plan §4.4, §4.7a).
+## Page state machine, back stack, and the cancel precedence ladder.
 ##
-## The ladder is the part worth testing hard: stating the rule only for the rebind/page pair once
-## left the modal case broken, so that Escape popped the page underneath a still-open modal and
-## desynced the depth-counted mouse-mode restore. Each rung is asserted separately here.
+## The ladder is the part worth testing hard — cancel is consumed by the innermost open thing
+## (rebind capture → modal stack → page back stack → root quit-confirm), and a rule stated for one
+## pair leaves the others popping the page underneath a still-open modal. Each rung is asserted
+## separately here.
 ##
 ## Headless-safe by construction: everything asserted is page ids, stack depth, and counter state.
 ## No assertion here depends on an engine-visible effect, because those silently no-op under
@@ -19,8 +20,7 @@ func run_tests() -> void:
 		return
 
 	check_eq(config.validate(), PackedStringArray(), "demo config validates clean")
-	# 4 since Phase 5 added the Characters page, 5 since Phase 7 added the Servers page; the hidden
-	# pages (`sub`, `character_create`, `pause`) are what this assertion actually guards — they must
+	# The hidden pages (`sub`, `character_create`, `pause`) are what this count guards — they must
 	# never surface as tabs.
 	check_eq(config.get_visible_pages().size(), 5, "hidden sub-pages are not nav tabs")
 	check_eq(config.get_visible_pages()[0].id, &"play", "visible pages sort by order")
@@ -93,8 +93,8 @@ func run_tests() -> void:
 		"a dialog opened by MKConfirmDialog.open frees itself when popped")
 
 	# --- suspension counter: a modal extends a suspension but never creates one ---
-	# Asserted while the modal is OPEN. Measuring after the pop passed for the wrong reason and was
-	# the only guard on this rule, which turned out not to be implemented at all.
+	# Asserted while the modal is OPEN: measuring after the pop passes whether or not the rule is
+	# implemented.
 	MKConfirmDialog.open(layer, "T", "B")
 	await step_frame()
 	check_eq(layer.depth(), 1, "modal open for the main-menu suspension check")
@@ -106,8 +106,8 @@ func run_tests() -> void:
 
 	# --- a modal over captured gameplay DOES suspend (the FPS case) ---
 	# Depth is 0 here, same as the main menu, but the cursor is captured — so a dialog raised over
-	# live gameplay that never went through open_pause_menu must still free it, or it is literally
-	# unclickable in a Doom-like. Keying this rule on depth alone got that backwards.
+	# live gameplay that never went through open_pause_menu must still free it, or it is unclickable
+	# in a Doom-like. The rule cannot be keyed on depth alone.
 	# The dummy DisplayServer never leaves MOUSE_MODE_VISIBLE, so the captured branch is unreachable
 	# from a real cursor here — _modal_should_suspend takes the mode as a parameter precisely so this
 	# case is testable rather than merely asserted in a comment.
@@ -128,10 +128,10 @@ func run_tests() -> void:
 		"with the world already suspended, a modal extends it regardless of cursor state")
 	root.close_pause_menu()
 
-	# --- a page change never strands a modal (plan §4.7a) ---
-	# Run this with the pause menu OPEN so the modal actually carries a suspension. Asserting it on
-	# the main menu made the depth check 0→0 whatever pop_all did — the §4.7a rule only has teeth
-	# when there is a suspension to strand.
+	# --- a page change never strands a modal ---
+	# Run with the pause menu OPEN so the modal actually carries a suspension: on the main menu the
+	# depth check is 0→0 whatever pop_all did, and the rule only has teeth when there is a
+	# suspension to strand.
 	root.open_pause_menu(&"play")
 	check_eq(root.get_suspend_depth(), 1, "suspended before the page change")
 	MKConfirmDialog.open(layer, "T", "B")
@@ -155,8 +155,8 @@ func run_tests() -> void:
 	check_eq(root.get_page_id(), &"credits", "and leaves the current page untouched")
 
 	# --- exit_menu is paired with the enter that happened, not a re-query of can_pause ---
-	# A policy whose answer changes while a menu is open is the stated multiplayer story; re-asking
-	# on the way out skipped exit_menu and left the world paused with no menu on screen.
+	# A policy whose answer changes while a menu is open is the multiplayer case; re-asking on the way
+	# out skips exit_menu and leaves the world paused with no menu on screen.
 	var enters_before := SpyPolicy.enters
 	var exits_at_open := SpyPolicy.exits
 	root.open_pause_menu(&"play")
@@ -179,15 +179,10 @@ func run_tests() -> void:
 	root.close_pause_menu()
 	check_eq(root.get_suspend_depth(), 0, "closing the pause menu unwinds fully")
 
-	# --- teardown zeroes the counter (plan §4.2a) ---
-	# Asserted on the SAME root, before it is freed, and on a policy spy that records its own
-	# teardown. The previous version freed the root and then checked a brand-new instance's counter —
-	# which is zero from its member initialiser regardless, so deleting the whole body of _exit_tree
-	# left it green. It was the only guard on the unwind rule.
-	# Removed rather than freed, so the SAME root can be interrogated after _exit_tree has run.
-	# Freeing it and asserting on a fresh instance was vacuous twice over: a new root's counter is
-	# zero from its member initialiser, so deleting the entire body of _exit_tree left the suite
-	# green — which is exactly how a teardown crash and a stuck cursor shipped past this assertion.
+	# --- teardown zeroes the counter ---
+	# Removed rather than freed, so the SAME root can be interrogated after _exit_tree has run, and
+	# asserted on a policy spy that records its own teardown. Asserting on a FRESH instance instead is
+	# vacuous: its counter is zero from its member initialiser whether or not _exit_tree has a body.
 	root.open_pause_menu(&"play")
 	MKConfirmDialog.open(root.get_modal_layer(), "T", "B")
 	await step_frame()
@@ -255,9 +250,8 @@ class SpyPolicy extends MKPausePolicy:
 ## handler directly — the precedence ladder is only meaningful if it is exercised through the same
 ## dispatch order the engine uses.
 ##
-## Returns whether the viewport actually marked the event handled. Returning a bare [code]true[/code]
-## made every [code]check(_cancel(root), …)[/code] a tautology that could not fail, which is worse
-## than no assertion because the suite counts it as coverage.
+## Returns whether the viewport actually marked the event handled — a bare [code]true[/code] would
+## make every [code]check(_cancel(root), …)[/code] a tautology the suite counts as coverage.
 func _cancel(root: MKRoot) -> bool:
 	var viewport := root.get_viewport()
 	var ev := InputEventAction.new()

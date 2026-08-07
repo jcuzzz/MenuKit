@@ -1,11 +1,10 @@
 extends MKTest
-## Ship gate 1, inside the suite (plan §6).
+## The addon-isolation guarantee: nothing under addons/menu_kit/ may reference a path outside it.
 ##
-## The same two scans [code]tools/isolation_check.ps1[/code] runs, duplicated here on purpose: the
+## The same two scans [code]tools/isolation_check.ps1[/code] runs, duplicated here on purpose — the
 ## PowerShell script is the ship-gate entry point, but a rule enforced only by a script someone has
-## to remember to run is a rule that decays. Living in [code]check.ps1 -Smokes[/code] means the
-## isolation guarantee is checked on every phase gate from Phase 1 onward, which is exactly when a
-## stray [code]res://demo/[/code] reference gets introduced.
+## to remember to run is a rule that decays. Living in [code]check.ps1 -Smokes[/code] means it is
+## checked on every gate, which is when a stray [code]res://demo/[/code] reference gets introduced.
 
 const ADDON_ROOT := "res://addons/menu_kit"
 const SCANNED_EXTS := ["gd", "tscn", "tres", "gdshader", "cfg"]

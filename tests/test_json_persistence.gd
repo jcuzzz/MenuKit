@@ -1,13 +1,9 @@
 extends MKTest
-## Round-trip and corrupt-file recovery for both JSON backends (plan §4.3 "Persistence hygiene").
+## Round-trip and corrupt-file recovery for both JSON backends.
 ##
 ## The rule is narrow and absolute: a corrupt or unparseable store is renamed aside and defaults
 ## boot, with a warning. Never a crash, never silent data loss. Both halves matter — quarantining
 ## without renaming destroys the user's data, and booting without warning hides that it happened.
-##
-## Each backend's own leg proved this in a throwaway script. That is not the same as covering it:
-## a throwaway proves the code worked once on the author's machine, while ship gate 8 counts what
-## the suite runs. These are the in-suite versions.
 
 const SETTINGS_PATH := "user://test_settings_persistence.json"
 const PROFILES_PATH := "user://test_profiles_persistence.json"
@@ -57,10 +53,10 @@ func _test_settings_round_trip() -> void:
 	reloaded.free()
 
 
-## Regression: writing a value of a DIFFERENT type over a stored one must not error. The dedup
-## compared int == String directly, which is a script error ("Invalid operands in operator '=='") —
-## reachable from a hand-edited store or any host that changes a value's type. Found by the Phase 3
-## test leg; the fix gates the dedup on typeof equality first.
+## Writing a value of a DIFFERENT type over a stored one must not error: comparing Variants of
+## different types is a script error in GDScript ("Invalid operands in operator '=='"), and the
+## set_value dedup is reachable with mismatched types from a hand-edited store or any host that
+## changes a value's type. The dedup must gate on typeof equality first.
 func _test_settings_type_changing_write() -> void:
 	var backend := _make_settings()
 	backend.set_value(&"probe/shifty", 3)
@@ -90,18 +86,16 @@ func _test_settings_corrupt_recovery() -> void:
 	backend.load()
 	check_eq(backend.get_value(&"video/max_fps", 60), 60,
 		"settings: a corrupt store boots defaults rather than crashing")
-	# Assert the rename ONLY. The previous form also accepted "the file no longer exists", which is
-	# satisfied by deleting it — the precise failure the assertion names. Replacing the quarantine
-	# with DirAccess.remove_absolute kept the suite green.
+	# Assert the RENAME, never "the file no longer exists" — the weaker form is satisfied by deleting
+	# the store, which is the precise failure this assertion names.
 	check(_corrupt_sibling_exists(SETTINGS_PATH),
 		"settings: the bad file was renamed aside, not deleted — the user's data is recoverable")
 	backend.free()
 
 
 ## [b]A file that PARSES but is not an object is a different fault, and has to say so.[/b] Folded into
-## one branch with the parse failure, it borrowed the parse error's line and message — which are empty
-## after a successful parse — and reported "(line 0: )" against a file with nothing wrong on any line.
-## The profile backend already split the two; this is the settings backend catching up to it.
+## one branch with the parse failure it borrows the parse error's line and message — which are empty
+## after a successful parse — and reports "(line 0: )" against a file with nothing wrong on any line.
 func _test_a_settings_root_that_is_not_an_object_is_reported_as_itself() -> void:
 	var f := FileAccess.open(SETTINGS_PATH, FileAccess.WRITE)
 	check(f != null, "settings: could open the store to write a valid non-object")
@@ -173,9 +167,8 @@ func _test_profiles_corrupt_recovery() -> void:
 		"profiles: the backend still works after a quarantine")
 	backend.free()
 
-	# A file written by a NEWER MenuKit is left alone, not quarantined. The two backends took
-	# opposite positions on this, and the profile side did exactly what the settings side's comment
-	# named as the harm: renaming aside destroys the roster the newer install still reads.
+	# A file written by a NEWER MenuKit is left alone, not quarantined — renaming it aside destroys
+	# the roster the newer install still reads.
 	_clean(PROFILES_PATH)
 	var newer := FileAccess.open(PROFILES_PATH, FileAccess.WRITE)
 	check(newer != null, "profiles: could write a future-version store")
@@ -191,7 +184,7 @@ func _test_profiles_corrupt_recovery() -> void:
 	downgraded.free()
 
 
-## [b]The type envelope, from the host's side of the boundary[/b] (Phase 5). A profile payload is
+## [b]The type envelope, from the host's side of the boundary.[/b] A profile payload is
 ## OPAQUE host data, so the backend has no read site at which it could coerce a number back — its only
 ## options are int fidelity or silently degrading somebody else's field. Fidelity was chosen, and this
 ## is what pins it: an int that reloads as 7.0 passes `== 7` and then fails the first `is int`, an
@@ -386,11 +379,11 @@ func _test_a_profile_entry_that_is_itself_an_envelope_quarantines() -> void:
 ## host payload carrying [constant MKJsonCodec.TYPE_TAG] is stored verbatim, encoded verbatim, and
 ## then DECODED on the next load — where its dictionary collapses to an int or to null, fails the
 ## "every entry is a JSON object with an id and a name" check, and takes the ENTIRE roster file aside.
-## One host field named [code]__mk_type[/code] would cost every other profile on the disk.
+## One host field named [code]__mk_type[/code] costs every other profile on the disk.
 ##
 ## So the create is refused with one warning naming the path, at both nesting depths, and the assertion
 ## is made on the BYTES as well as on the return value: a refusal that had already written the file
-## would have done the damage it exists to prevent. The roster is then reloaded from a fresh instance
+## has done the damage it exists to prevent. The roster is then reloaded from a fresh instance
 ## to prove the surviving profile is still readable — the failure mode is a file that looks fine until
 ## something reads it.
 func _test_a_payload_carrying_the_discriminator_is_refused_at_the_door() -> void:
@@ -439,11 +432,11 @@ func _test_a_payload_carrying_the_discriminator_is_refused_at_the_door() -> void
 
 ## [b]Leaving a newer file alone has to cover the WRITE side, or the leave lasts one gesture.[/b] The
 ## backend boots empty and leaves a future-version store in place (asserted above) — but the roster it
-## boots is EMPTY, so the first create from this build used to rewrite the whole file at schema 1 and
-## the newer install's characters were gone, with no quarantine sidecar to recover them. That is the
-## exact harm the leave-it-alone rule exists to prevent, delivered one create later. So the newer
-## version latches the backend read-only: create returns {}, delete returns false, each with one
-## warning naming the version, and the assertion is made on the BYTES.
+## boots is EMPTY, so an unlatched create rewrites the whole file at this schema and the newer
+## install's characters are gone, with no quarantine sidecar to recover them: the exact harm the
+## leave-it-alone rule exists to prevent, delivered one create later. So the newer version latches the
+## backend read-only: create returns {}, delete returns false, each with one warning naming the
+## version, and the assertion is made on the BYTES.
 func _test_a_newer_store_makes_the_backend_read_only() -> void:
 	_clean(PROFILES_PATH)
 	var file := FileAccess.open(PROFILES_PATH, FileAccess.WRITE)
@@ -484,9 +477,9 @@ func _test_a_newer_store_makes_the_backend_read_only() -> void:
 
 
 ## [b]The unique-name rule is checked against the TRIMMED name, so the trimmed name is what is
-## stored.[/b] Storing the raw payload made the rule bypassable by two spaces: "  Alice  " strips to a
-## name the check refuses to duplicate, but the padded string went to disk — so a later plain "Alice"
-## found no collision and the roster held two rows that render identically in every list and tooltip.
+## stored.[/b] Storing the raw payload makes the rule bypassable by two spaces: "  Alice  " strips to
+## a name the check refuses to duplicate, but the padded string goes to disk — so a later plain
+## "Alice" finds no collision and the roster holds two rows that render identically everywhere.
 func _test_a_stored_name_is_the_trimmed_one() -> void:
 	_clean(PROFILES_PATH)
 	var backend := _make_profiles()

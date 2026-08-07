@@ -1,56 +1,43 @@
 class_name MKJsonProfileBackend
 extends MKProfileBackend
-## The shipped default roster: one JSON file under [code]user://[/code] (plan §4.1).
+## The shipped default roster: one JSON file under [code]user://[/code].
 ##
-## Profiles are stored [b]verbatim[/b]. Whatever dictionary the creation flow assembles is what
-## lands on disk; this backend adds exactly one key of its own ([code]id[/code]) and enforces
-## exactly one rule of its own (unique [code]name[/code]) — and it NORMALISES that same one field,
-## storing the [method String.strip_edges]-trimmed name it actually checked rather than the raw one
-## it was handed, because a rule enforced over a trimmed value while the untrimmed value is stored is
-## a rule two spaces defeat (see [method create_profile]). One key added, one rule enforced, one field
-## normalised, and all three are the same field or the backend's own. It never reads, validates,
-## defaults, or migrates a gameplay field — that boundary is why the same file format serves an ARPG character
-## and an FPS loadout, and why a host can add a field without touching MenuKit.
+## Profiles are stored [b]verbatim[/b]. Whatever dictionary the creation flow assembles is what lands
+## on disk; this backend adds one key of its own ([code]id[/code]), enforces one rule of its own
+## (unique [code]name[/code]), and normalises that same field — storing the
+## [method String.strip_edges]-trimmed name it actually checked, because a rule enforced over a
+## trimmed value while the untrimmed value is stored is a rule two spaces defeat. It never reads,
+## validates, defaults, or migrates a gameplay field.
 ##
 ## [b]Payload [int]s keep their type across a save/load cycle[/b], which JSON on its own cannot do —
-## it has one number type, so a stored [code]3[/code] would come back as [code]3.0[/code]. Because a
-## payload is opaque host data, this backend has no read site at which it could sensibly coerce the
-## value back (unlike [MKJsonSettingsBackend], whose value ids it knows and [code]int(...)[/code]s
-## itself), and silently degrading somebody else's field would break the verbatim promise above. So
-## ints are written through [MKJsonCodec]'s [code]{"__mk_type": "int", "v": 3}[/code] envelope and
-## decoded back on load: [method @GlobalScope.typeof] reports [constant TYPE_INT] after a reload, and
-## a host may compare a loaded stat against an int literal directly.
+## it has one number type, so a stored [code]3[/code] would come back as [code]3.0[/code]. Ints are
+## written through [MKJsonCodec]'s [code]{"__mk_type": "int", "v": 3}[/code] envelope and decoded
+## back on load, so [method @GlobalScope.typeof] reports [constant TYPE_INT] after a reload.
 ## [br][b][Vector2i] round-trips too[/b], through the same codec and unconditionally (JSON has no form
-## for it at all, so without the envelope the value would be absent rather than merely imprecise). A
-## payload may carry one at any nesting depth and gets a [Vector2i] back.
+## for it at all). A payload may carry one at any nesting depth and gets a [Vector2i] back.
 ## [br][b]A payload may not carry the discriminator key itself.[/b] [constant MKJsonCodec.TYPE_TAG] is
 ## the codec's namespace, and a host dictionary containing it — at any depth — is refused by
-## [method create_profile]; see that method for why refusal is the only survivable answer.
+## [method create_profile].
 ## [br][b]Floats stay floats and bools stay bools[/b] — only ints are enveloped, and a bool is not an
-## int for this purpose (a bool that came back as 0/1 would still pass every truthiness test in a
-## host project, which is precisely why the codec's guard is explicit about it).
+## int for this purpose.
 ## [br][b]Legacy files get no migration.[/b] A roster written before the envelope existed stores its
-## ints as plain JSON numbers; those still read back as floats, exactly as they always did. Rewriting
-## them would mean guessing which of a host's numbers were "meant" to be ints, which is the
-## interpretation this backend refuses to do. Any profile re-saved after this build (a create or a
-## delete rewrites the whole file) picks up the envelope for whatever is an int in memory at that
-## moment.
+## ints as plain JSON numbers and they still read back as floats; rewriting them would mean guessing
+## which of a host's numbers were "meant" to be ints. Any profile re-saved after this build (a create
+## or a delete rewrites the whole file) picks up the envelope for whatever is an int in memory.
 ##
 ## [b]Id scheme.[/b] Ids come from a monotonic counter persisted in the file itself
-## ([code]next_id[/code]), formatted [code]p_000001[/code]. The obvious alternative — a
-## [Time] stamp — collides whenever two profiles are created inside the same millisecond, which is
-## trivially reachable from a loop or a test, so it is not used here. The counter is only ever
-## incremented, never reset by a delete, so a deleted profile's id is never reissued and stale
-## references fail as "absent" rather than resolving to a stranger. On load the counter is raised
-## past the highest id actually present, so a hand-edited file cannot make the backend mint a
-## duplicate; [method create_profile] additionally skips any id already in the roster.
+## ([code]next_id[/code]), formatted [code]p_000001[/code] — not a [Time] stamp, which collides when
+## two profiles are created inside the same millisecond. The counter is only ever incremented, never
+## reset by a delete, so a deleted profile's id is never reissued and stale references fail as
+## "absent" rather than resolving to a stranger. On load the counter is raised past the highest id
+## actually present, so a hand-edited file cannot make the backend mint a duplicate;
+## [method create_profile] additionally skips any id already in the roster.
 ##
-## [b]Persistence hygiene[/b] (plan §4.3). The file carries a [code]version[/code] integer. A file
-## that will not parse, or whose structure does not match this schema, is [i]renamed aside[/i] to
+## [b]Persistence hygiene.[/b] The file carries a [code]version[/code] integer. A file that will not
+## parse, or whose structure does not match this schema, is [i]renamed aside[/i] to
 ## [code]<name>.corrupt-<n>.json[/code] (first free [code]n[/code]) and an empty roster boots, with
-## one warning naming the file and the reason. Corruption is recoverable misconfiguration, not a
-## contract violation, so it warns rather than erroring — and nothing is ever deleted, so a user
-## who lost a roster to a bad write still has the bytes.
+## one warning naming the file and the reason. It warns rather than erroring, and nothing is ever
+## deleted — a user who lost a roster to a bad write still has the bytes.
 ##
 ## On-disk schema (version 1):
 ## [codeblock]
@@ -75,25 +62,18 @@ extends MKProfileBackend
 ## harm quarantine exists to prevent. Only a file that is genuinely unreadable — bad JSON, wrong
 ## shape, or a version below 1 — is quarantined. [MKJsonSettingsBackend] takes the same position.
 ##
-## [b]Leaving the file also means not WRITING over it[/b], and that takes a latch rather than a
-## comment. [MKJsonSettingsBackend]'s [method MKJsonSettingsBackend.load] states the consequence of
-## the bare leave-it-alone rule openly (":232-235" — "a subsequent save from this build overwrites
-## it"), and for a settings store that is a survivable annoyance. For a ROSTER it is not: the first
-## create from this build would rewrite the whole file, and the newer install's characters are gone
-## with no sidecar to recover them — the exact harm the leave-it-alone rule was written to prevent,
-## delivered one gesture later. So detecting a newer file also latches this backend READ-ONLY
-## ([member _read_only_newer]): [method create_profile] returns an empty dictionary and
-## [method delete_profile] returns false, each with one warning naming the version, and the bytes on
-## disk are never touched. Both refusals are shapes their callers already handle ([MKCreationHost]
-## shows its inline refusal message; [MKCharacterSelect] refreshes from the backend). The latch is
-## cleared by the next successful load — replace or remove the file and the backend writes again.
+## [b]Leaving the file also means not WRITING over it[/b], and that takes a latch. Unlike a settings
+## store, a roster cannot survive being overwritten: the first create from this build would rewrite
+## the whole file and the newer install's characters would be gone with no sidecar. So detecting a
+## newer file also latches this backend READ-ONLY ([member _read_only_newer]): [method create_profile]
+## returns an empty dictionary and [method delete_profile] returns false, each with one warning naming
+## the version, and the bytes on disk are never touched. Both refusals are shapes their callers
+## already handle. The latch is cleared by the next successful load — replace or remove the file and
+## the backend writes again.
 ##
-## [b]The int envelope did NOT bump this[/b], on the same precedent as Phase 4's [code]device[/code]
-## field in the settings store: the change is purely additive (an enveloped int is a JSON object
-## where a bare number used to sit, and a legacy bare number still reads), and this format has never
-## shipped a release, so no released reader exists that could trip on it. It is part of the INITIAL
-## format and MUST be described as such in Phase 9's CHANGELOG statement of the shipped schema —
-## bumping to 2 instead would announce a migration between two versions users never had.
+## [b]The int envelope did NOT bump this[/b]: the change is purely additive (an enveloped int is a
+## JSON object where a bare number used to sit, and a legacy bare number still reads), and it is part
+## of the INITIAL shipped format rather than a migration between two versions users ever had.
 const SCHEMA_VERSION := 1
 
 const DEFAULT_FILE_PATH := "user://menukit_profiles.json"
@@ -115,10 +95,9 @@ var _read_only_newer := false
 var _newer_version := 0
 
 
-## Reads [code]file_path[/code] (String) and [code]max_profiles[/code] (int, 0 = unlimited) so a
-## host can point two roster slots at different files, or cap a roster, without subclassing —
-## the whole reason [MKBackendSlot] carries params (plan §4.1). Returns the keys consumed so
-## MKRoot can warn about the ones it did not recognise.
+## Reads [code]file_path[/code] (String) and [code]max_profiles[/code] (int, 0 = unlimited) so a host
+## can point two roster slots at different files, or cap a roster, without subclassing. Returns the
+## keys consumed so MKRoot can warn about the ones it did not recognise.
 func _mk_configure(params: Dictionary) -> Array[String]:
 	var consumed: Array[String] = []
 	if params.has("file_path"):
@@ -159,20 +138,18 @@ func list_profiles() -> Array[Dictionary]:
 ## returns the stored entry. Every other field is verbatim; [code]name[/code] is normalised because
 ## the uniqueness rule is checked against the trimmed form, so storing the raw one would let
 ## [code]"  Alice  "[/code] and [code]"Alice"[/code] coexist as two rows a player cannot tell apart.
-## Returns an empty dictionary — the base class's documented failure signal — when the name
-## is missing, blank, already taken, the roster is at its configured cap, or the store on disk was
+## Returns an empty dictionary — the base class's documented failure signal — when the name is
+## missing, blank, already taken, the roster is at its configured cap, or the store on disk was
 ## written by a newer MenuKit (see [constant SCHEMA_VERSION]; that one warns). The first four are
-## ordinary outcomes of a user typing into a form, so they are not warnings; the creation flow is expected
-## to have asked [method is_name_available] first and to surface the refusal itself.
+## ordinary outcomes of a user typing into a form, so they are not warnings; the creation flow is
+## expected to have asked [method is_name_available] first and to surface the refusal itself.
 ##
 ## [b]It also refuses a payload carrying [constant MKJsonCodec.TYPE_TAG] anywhere inside it[/b], and
-## THAT one warns, in the same shape as the reserved-id warning below. The tag is the codec's
-## namespace: a host dictionary spelling it is not a coincidence but a wiring mistake, and accepting
-## it writes a file the loader cannot survive. Decoding an entry that contains
-## [code]{"__mk_type": ...}[/code] collapses that dictionary to an int or to null, which fails the
-## "every entry is a JSON object with an id and a name" check — and the answer to THAT is a
-## quarantine of the WHOLE roster file, so one bad create costs every other profile in it. Refusal at
-## the door costs one create; acceptance costs the roster.
+## THAT one warns. The tag is the codec's namespace, so a host dictionary spelling it is a wiring
+## mistake, and accepting it writes a file the loader cannot survive: decoding an entry containing
+## [code]{"__mk_type": ...}[/code] collapses that dictionary to an int or to null, failing the "every
+## entry is a JSON object with an id and a name" check — whose answer is a quarantine of the WHOLE
+## roster file. Refusal at the door costs one create; acceptance costs the roster.
 func create_profile(payload: Dictionary) -> Dictionary:
 	_ensure_loaded()
 	if _refuse_write("create"):
@@ -195,12 +172,9 @@ func create_profile(payload: Dictionary) -> Dictionary:
 		return {}
 
 	var entry := payload.duplicate(true)
-	# The TRIMMED name is what is stored, because it is the value the uniqueness rule above was checked
-	# against. Storing the raw payload made the rule bypassable by whitespace: "  Alice  " strips to a
-	# name that is_name_available compares (and refuses), but the RAW string went to disk — so a second
-	# create of "Alice" saw a stored "  Alice  ", found no collision, and the roster held two entries
-	# that render identically in every list. Writing the checked value back is the only place the two can
-	# be kept from disagreeing; every downstream comparison then sees what was validated.
+	# Store the TRIMMED name — the value the uniqueness rule above was checked against. Storing the raw
+	# payload makes the rule bypassable by whitespace: "  Alice  " would go to disk untrimmed, so a
+	# later create of "Alice" finds no collision and the roster holds two rows that render identically.
 	entry["name"] = profile_name
 	for key in RESERVED_KEYS:
 		if entry.has(key):
@@ -233,9 +207,8 @@ func delete_profile(id: String) -> bool:
 	return false
 
 
-## Full record, or an empty dictionary when absent. This backend keeps everything in memory, so
-## there is no cheap-list/expensive-detail split to exploit; the method exists because the base
-## contract has it and because a backend with a real database will need the seam.
+## Full record, or an empty dictionary when absent. This backend keeps everything in memory, so there
+## is no cheap-list/expensive-detail split to exploit; the seam exists for backends with a database.
 func load_profile(id: String) -> Dictionary:
 	_ensure_loaded()
 	for entry in _profiles:
@@ -245,7 +218,7 @@ func load_profile(id: String) -> Dictionary:
 
 
 ## The file this instance is actually reading and writing, for [code]dump_diagnostics()[/code]
-## (plan §4.8) — the resolved path is one of the first things a bug report needs.
+## — the resolved path is one of the first things a bug report needs.
 func get_file_path() -> String:
 	return _file_path
 
@@ -262,10 +235,9 @@ func reload() -> void:
 ##
 ## The path is built as it descends ([code]payload/inventory/0[/code]) because "your payload contains
 ## a reserved key" is unactionable on a nested host structure — the author has to be told WHERE. The
-## walk mirrors [method MKJsonCodec.encode_value]'s own recursion exactly (dictionaries and arrays,
-## nothing else), so anything the encoder would descend into is something this scan has already seen.
-## First hit wins: one named example is enough to send the author to the field, and enumerating every
-## occurrence of one mistake is the log flood the F8 check already argues against.
+## walk must mirror [method MKJsonCodec.encode_value]'s recursion exactly (dictionaries and arrays,
+## nothing else), so anything the encoder would descend into is something this scan has seen. First
+## hit wins: one named example is enough to send the author to the field.
 func _find_type_tag(value: Variant, path: String) -> String:
 	if value is Dictionary:
 		var d := value as Dictionary
@@ -286,12 +258,11 @@ func _find_type_tag(value: Variant, path: String) -> String:
 
 
 ## True when the store on disk was written by a newer MenuKit, in which case [param gesture] is
-## refused rather than performed. Warns — unlike the ordinary create refusals, which are debug
-## because a taken name is a user typing into a form. This one is a host/installation condition the
-## user cannot fix from the menu, and it is the line that explains a New Character button that does
-## nothing. Per refusal rather than once per latch: a create and a delete are deliberate gestures,
-## not a per-frame path, so there is no flood to suppress and a silent second attempt would be the
-## same unexplained dead end.
+## refused rather than performed. Warns — unlike the ordinary create refusals, which are debug —
+## because this is an installation condition the user cannot fix from the menu, and it is the line
+## that explains a New Character button that does nothing. Warned per refusal rather than once per
+## latch: creates and deletes are deliberate gestures, not a per-frame path, so there is no flood to
+## suppress.
 func _refuse_write(gesture: String) -> bool:
 	if not _read_only_newer:
 		return false
@@ -301,10 +272,9 @@ func _refuse_write(gesture: String) -> bool:
 
 
 func _mint_id() -> String:
-	# Loop rather than trust the counter: a hand-edited file can contain an id that does not match
-	# the p_%06d shape at all, so "counter is past the highest parsed id" is not by itself a
-	# uniqueness proof.
-	# Bounded rather than `while true` so a pathological file can never hang the menu: the roster is
+	# Loop rather than trust the counter: a hand-edited file can contain an id that does not match the
+	# p_%06d shape at all, so "counter is past the highest parsed id" is not a uniqueness proof.
+	# Bounded rather than `while true` so a pathological file cannot hang the menu — the roster is
 	# finite, so size()+1 attempts must reach a free id.
 	for _i in _profiles.size() + 1:
 		var candidate := "p_%06d" % _next_id
@@ -336,10 +306,9 @@ func _ensure_loaded() -> void:
 
 	var file := FileAccess.open(_file_path, FileAccess.READ)
 	if file == null:
-		# Unreadable is not corrupt — the bytes may be perfectly good and the file merely locked or
-		# permission-denied. Renaming it aside would be the destructive response to a transient
-		# problem, so boot empty and leave it alone. Writes will overwrite it if the user creates a
-		# profile; that is the documented cost of not being able to read it.
+		# Unreadable is not corrupt — the bytes may be good and the file merely locked. Renaming it
+		# aside would be destructive for a transient problem, so boot empty and leave it alone. A later
+		# create overwrites it; that is the documented cost of not being able to read it.
 		MKLog.warn("%s: cannot open profile store (error %d); starting with an empty roster" % [
 			MKLog.context(_file_path), FileAccess.get_open_error(),
 		])
@@ -348,9 +317,9 @@ func _ensure_loaded() -> void:
 	file.close()
 
 	# JSON.new().parse() rather than the JSON.parse_string() static: the static pushes an engine-level
-	# "ERROR: Parse JSON failed" of its own, which would make the ordinary, fully handled corrupt-file
-	# path emit an ERROR line. Verified in this repo — the instance API reports through the return
-	# value only, so the recovery stays a warning as §4.8 requires.
+	# "ERROR: Parse JSON failed" of its own, which would make the handled corrupt-file path emit an
+	# ERROR line. The instance API reports through the return value only, so the recovery stays a
+	# warning.
 	var json := JSON.new()
 	var parse_err := json.parse(text)
 	if parse_err != OK:
@@ -367,15 +336,12 @@ func _ensure_loaded() -> void:
 	var version := int(data.get("version", 0))
 	if version > SCHEMA_VERSION:
 		# A NEWER file is a downgraded install, not corruption. Leave it exactly where it is and boot
-		# empty: renaming it would destroy the roster the newer install still reads, which is the very
-		# harm quarantine exists to prevent. This matches MKJsonSettingsBackend — the two backends
-		# previously took opposite positions on the same situation, and this one did what the other
-		# named as the harm.
+		# empty: renaming it would destroy the roster the newer install still reads.
 		#
 		# "Leave it" has to cover the WRITE side too, or the leave is one gesture long: the first create
-		# from this build rewrites the whole file at SCHEMA_VERSION and the newer install's roster is gone
-		# with no sidecar (the settings backend accepts that consequence for a settings store; a roster
-		# cannot). So the backend latches read-only until a load succeeds against a file it can read.
+		# from this build would rewrite the whole file at SCHEMA_VERSION and the newer install's roster
+		# would be gone with no sidecar. So the backend latches read-only until a load succeeds against a
+		# file it can read.
 		_read_only_newer = true
 		_newer_version = version
 		MKLog.warn("%s: %s was written by a newer MenuKit (schema %d, this build reads %d) — starting with an empty roster, leaving the file untouched and refusing every write until it is replaced"
@@ -393,14 +359,12 @@ func _ensure_loaded() -> void:
 	var seen := {}
 	var loaded: Array[Dictionary] = []
 	for raw in (data["profiles"] as Array):
-		# DECODE FIRST, VALIDATE SECOND, and the order is load-bearing in both directions.
-		# Validation must see what callers will see: an entry whose `id` or `name` was destroyed by a
-		# malformed envelope is unusable no matter how well-formed the raw JSON was, so validating the
-		# raw form would admit an entry that then fails the MKProfileBackend contract at every reader.
-		# And the shape check must run on the DECODED value, because decoding can legitimately turn a
-		# JSON object into a non-object — a top-level entry that is itself an envelope decodes to an
-		# int or to null, and assigning that into a typed Dictionary local would be a hard script
-		# error rather than the quarantine this class promises.
+		# DECODE FIRST, VALIDATE SECOND — load-bearing in both directions. Validation must see what
+		# callers will see, so validating the raw form would admit an entry whose `id` or `name` a
+		# malformed envelope destroyed. And the shape check must run on the DECODED value, because
+		# decoding can turn a JSON object into a non-object (a top-level entry that is itself an envelope
+		# decodes to an int or null), and assigning that into a typed Dictionary local would be a hard
+		# script error rather than the quarantine this class promises.
 		var decoded: Variant = MKJsonCodec.decode_value(raw, _file_path)
 		if typeof(decoded) != TYPE_DICTIONARY:
 			_quarantine("a profile entry is not a JSON object")
@@ -408,9 +372,9 @@ func _ensure_loaded() -> void:
 		var entry: Dictionary = decoded
 		var id := String(entry.get("id", ""))
 		var entry_name := String(entry.get("name", ""))
-		# id and name are the two fields the MKProfileBackend contract guarantees to callers, so an
-		# entry missing either is unusable rather than merely odd. Dropping just that entry would be
-		# the silent data loss §4.3 forbids, so the whole file goes aside intact instead.
+		# id and name are the two fields the MKProfileBackend contract guarantees to callers, so an entry
+		# missing either is unusable. Dropping just that entry would be silent data loss, so the whole
+		# file goes aside intact instead.
 		if id.is_empty() or entry_name.is_empty():
 			_quarantine("a profile entry is missing 'id' or 'name'")
 			return
@@ -449,9 +413,9 @@ func _quarantine(reason: String) -> void:
 
 func _next_corrupt_path() -> String:
 	var base := _file_path.get_basename()
-	# Bounded so a directory somehow full of corrupt-N files cannot spin forever. Past the bound the
-	# returned path already exists; whether the rename then overwrites or fails is platform
-	# behaviour I have not verified, and either way _quarantine reports the outcome.
+	# Bounded so a directory full of corrupt-N files cannot spin forever. Past the bound the returned
+	# path already exists; whether the rename overwrites or fails is platform behaviour, and either way
+	# _quarantine reports the outcome.
 	for n in range(1, 1000):
 		var candidate := "%s.corrupt-%d.json" % [base, n]
 		if not FileAccess.file_exists(candidate):
@@ -460,13 +424,11 @@ func _next_corrupt_path() -> String:
 
 
 func _save() -> void:
-	# Encode each profile as a WHOLE dictionary rather than trying to separate the backend's own two
-	# fields from the host's. There is nothing to separate: `id` and `name` live inside the profile
-	# dict beside arbitrary host fields, and both are Strings, which the codec passes through
-	# untouched — so "encode everything" and "encode only the host payload" produce identical bytes
-	# for them while the first has no field list to keep in sync. The roster's own bookkeeping
-	# (`version`, `next_id`) sits OUTSIDE the profiles array and is written plain, which is what keeps
-	# the top-level shape readable by eye and by _ensure_loaded's int() reads.
+	# Encode each profile as a WHOLE dictionary: `id` and `name` are Strings the codec passes through
+	# untouched, so encoding everything produces identical bytes to encoding only the host payload and
+	# keeps no field list in sync. The roster's own bookkeeping (`version`, `next_id`) sits OUTSIDE the
+	# profiles array and is written plain, which keeps the top-level shape readable by eye and by
+	# _ensure_loaded's int() reads.
 	var encoded: Array = []
 	for entry in _profiles:
 		encoded.append(MKJsonCodec.encode_value(entry, true))
@@ -485,8 +447,8 @@ func _save() -> void:
 			return
 	var file := FileAccess.open(_file_path, FileAccess.WRITE)
 	if file == null:
-		# Warn, not error: a full disk or a locked file is an environment problem the menu can keep
-		# running through. The in-memory roster stays valid for this session and is simply not durable.
+		# Warn, not error: a full disk or a locked file is an environment problem the menu keeps running
+		# through. The in-memory roster stays valid for this session and is simply not durable.
 		MKLog.warn("%s: cannot write profile store (error %d); the roster is in memory only" % [
 			MKLog.context(_file_path), FileAccess.get_open_error(),
 		])

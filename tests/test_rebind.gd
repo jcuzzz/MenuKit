@@ -1,5 +1,5 @@
 extends MKTest
-## Input rebinding: capture, refusal, conflict and reset (plan §4.4, Phase 4).
+## Input rebinding: capture, refusal, conflict and reset.
 ##
 ## The triangle this suite owns is [MKRebindRow] ↔ [MKSettingsPanel] ↔ [MKSettingsBackend] as driven
 ## by REAL [InputEvent]s. Nothing here calls the row's capture internals: every gesture is pushed at
@@ -139,7 +139,7 @@ func _test_capture_happy_path() -> void:
 	await _drop(panel, backend)
 
 
-## [b]Plan §4.4's named acceptance criterion: Space binds without complaint.[/b] Space rides
+## [b]Space binds without complaint.[/b] Space rides
 ## [code]ui_accept[/code], so the row WARNS and commits rather than refusing — a player who wants
 ## Space on an in-game action is entitled to it, and is entitled to be told the menu also reacts.
 ## Asserted both ways: the binding landed AND the caption is the overlap one, not the refusal one.
@@ -227,7 +227,7 @@ func _test_joypad_b_is_refused_and_ends_the_capture() -> void:
 	await _drop(panel, backend)
 
 
-## [b]The priority rule, asserted where it actually matters (plan §4.4).[/b] A live capture reads
+## [b]The priority rule, asserted where it actually matters.[/b] A live capture reads
 ## input in `_input` and consumes it, so Escape aborts the capture and NOTHING ELSE — it must not
 ## also travel on to `MKRoot._unhandled_input` and pop the page the Controls rows are sitting on.
 ##
@@ -502,9 +502,9 @@ func _test_global_reset_restores_every_row() -> void:
 	await _drop(panel, backend)
 
 
-## A rebind made in the UI survives a restart, and the SERIALISED SHAPE is pinned: plan §4.4 makes
-## physical-keycode storage a decision (a QWERTY rebind lands on the same physical key on AZERTY), so
-## changing it is a CHANGELOG Breaking entry rather than an implementation detail.
+## A rebind made in the UI survives a restart, and the SERIALISED SHAPE is pinned: physical-keycode
+## storage is a decision (a QWERTY rebind lands on the same physical key on AZERTY), so changing it is
+## a CHANGELOG Breaking entry rather than an implementation detail.
 func _test_persistence_round_trip() -> void:
 	var backend := _make_backend()
 	var panel := await _make_panel(backend, [_keybind(ID_A, ACTION_A, "Action A")])
@@ -1093,8 +1093,8 @@ func _make_conflict_fixture() -> Dictionary:
 		check(dialog != null, "and it is an MKConfirmDialog — no second near-identical dialog script")
 		check(not _backend_has_override(backend, ACTION_A),
 			"nothing is committed while the question is still open")
-		# The dialog BODY is the second place this row prints an event, and the one the Phase 8 hoist
-		# rerouted through MKInputGlyphs.event_label. Asserted here because a body that stopped naming
+		# The dialog BODY is the second place this row prints an event, and it goes through
+		# MKInputGlyphs.event_label like the button does. Asserted here because a body that stops naming
 		# the key — "%s is already bound to" with an empty %s — asks the user to arbitrate a conflict
 		# over something unnamed, and every other assertion in this suite reads the BUTTON text.
 		if dialog != null:
@@ -1183,8 +1183,8 @@ func _teardown_actions() -> void:
 			InputMap.erase_action(action)
 
 
-## Snapshots at construction, which is the order §4.2 fixes: the boot snapshot must predate any
-## override, or Reset silently restores the user's own binding as the "default".
+## Snapshots at construction: the boot snapshot must predate any override, or Reset silently restores
+## the user's own binding as the "default".
 func _make_backend() -> MKJsonSettingsBackend:
 	_clean()
 	_seed_actions()

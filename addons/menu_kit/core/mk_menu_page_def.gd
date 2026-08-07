@@ -3,12 +3,10 @@ class_name MKMenuPageDef
 extends Resource
 ## One navigable page in the menu — the unit a host appends to add its own page.
 ##
-## The source menu this package was extracted from hardcoded its tab list as a [code]const[/code]
-## in the nav bar, so "add a Credits page" meant forking the nav bar — which breaks the
-## pin-a-tag upgrade story the whole versioning plan is built on (plan §4.7a, finding F5).
-## Navigation is therefore DATA: [code]MKConfig.pages[/code] is an [code]Array[MKMenuPageDef][/code],
+## Navigation is DATA: [code]MKConfig.pages[/code] is an [code]Array[MKMenuPageDef][/code],
 ## [code]MKNavBar[/code] builds its tabs from it, and [code]MKRoot[/code] drives its page state
-## machine off the same ids. A host appends, reorders, or hides entries with zero addon edits.
+## machine off the same ids. A host appends, reorders, or hides entries with zero addon edits, so
+## adding a page never forks the nav bar and never blocks a version upgrade.
 ##
 ## This resource is inert data: it holds no node reference and performs no navigation itself, so it
 ## is safe to author in the inspector, duplicate, and load headlessly.
@@ -23,7 +21,7 @@ extends Resource
 @export var title: String = ""
 
 ## Optional tab icon. Null is normal and renders as a text-only tab — the shipped defaults carry no
-## icon so the addon cold-drops into an empty project with no external texture (plan §3.1).
+## icon so the addon cold-drops into an empty project with no external texture.
 @export var icon: Texture2D = null
 
 ## The page content. [code]MKRoot[/code] instantiates it on first visit. Left null the page is a

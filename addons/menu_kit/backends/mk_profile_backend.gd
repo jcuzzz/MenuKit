@@ -1,12 +1,11 @@
 @abstract
 class_name MKProfileBackend
 extends Node
-## The character/save roster (plan §4.1).
+## The character/save roster.
 ##
 ## Profiles are opaque [Dictionary]s end to end: the creation flow assembles one from its steps and
 ## hands it here verbatim, and the host project defines the meaning of every field. MenuKit never
-## interprets a payload — that boundary is what keeps this a menu package rather than a character
-## system, and it is why the same flow can produce an ARPG character or an FPS loadout.
+## interprets a payload.
 
 ## Emitted whenever the roster changes by any route, so the select panel never has to poll or be
 ## told to refresh by whoever mutated it.
@@ -28,8 +27,7 @@ signal roster_changed()
 @abstract func load_profile(id: String) -> Dictionary
 
 
-## True when a name is free. Non-abstract with a list-scanning default because the Name creation
-## step needs uniqueness and most backends have nothing smarter to offer; a backend with a real
+## True when a name is free. The default scans [method list_profiles]; a backend with a real name
 ## index overrides it.
 func is_name_available(profile_name: String) -> bool:
 	for entry in list_profiles():
@@ -38,6 +36,6 @@ func is_name_available(profile_name: String) -> bool:
 	return true
 
 
-## Optional parameterization hook (plan §4.1). Returns the keys consumed from [param params].
+## Optional parameterization hook. Returns the keys consumed from [param params].
 func _mk_configure(params: Dictionary) -> Array[String]:
 	return []

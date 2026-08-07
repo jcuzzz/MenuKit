@@ -1,16 +1,15 @@
 extends MKTest
-## `MKConfig` self-validation and the slot params route (plan §4.8, §4.1).
+## `MKConfig` self-validation and the slot params route.
 ##
-## Two contracts here, and both were previously asserted only against a *clean* config, which proves
-## nothing about the reporting they exist for:
+## Two contracts, both asserted against a DIRTY config — a clean one proves nothing about the
+## reporting they exist for:
 ##
 ## [br]1. [b]Report every problem at once, naming path and field.[/b] A first-time integrator should
 ##    get one list to work through, not a fix-run-fix loop, and "invalid setting" in a bug report
 ##    costs a round trip that a path and a field name do not.
 ## [br]2. [b]Slot params reach the backend, and an unknown key warns by name.[/b] Only the backend
 ##    knows its own keys and only MKRoot knows the slot's identity, so neither can produce that
-##    warning alone — which is why `_mk_configure` returns the keys it consumed. Deleting the entire
-##    unknown-key warning previously left the suite green.
+##    warning alone — which is why `_mk_configure` returns the keys it consumed.
 
 func run_tests() -> void:
 	_test_reports_every_problem_at_once()
@@ -52,9 +51,8 @@ func _test_reports_every_problem_at_once() -> void:
 	check_eq(good.validate(), PackedStringArray(), "a valid config reports nothing")
 
 
-## Through the real route — an MKBackendSlot on an MKConfig, instantiated by MKRoot — not by calling
-## `_mk_configure` directly, which is what the previous test did and which bypasses the mechanism
-## under test entirely.
+## Through the real route — an MKBackendSlot on an MKConfig, instantiated by MKRoot. Calling
+## `_mk_configure` directly bypasses the mechanism under test entirely.
 func _test_slot_params_reach_the_backend() -> void:
 	var config := MKConfig.new()
 	config.palette = load("res://addons/menu_kit/themes/default_palette.tres")
@@ -83,14 +81,14 @@ func _test_slot_params_reach_the_backend() -> void:
 		check_eq(backend.get_file_path(), "user://test_params_route.json",
 			"the slot's params reached the backend through _mk_configure")
 
-	# §4.8 requires the diagnostics dump to carry resolved user:// paths, and ship gate 9 checks for
-	# them: "settings don't persist" is really a question about WHICH file was written.
+	# The diagnostics dump must carry resolved user:// paths: "settings don't persist" is really a
+	# question about WHICH file was written.
 	check(root.dump_diagnostics().contains("store: user://test_params_route.json"),
 		"dump_diagnostics names each backend's resolved store, not just its script")
 
-	# The consumed-keys contract itself: _mk_configure must report exactly what it took, because that
-	# return value is the only thing that makes the unknown-key warning possible. A backend that
-	# quietly returned everything (or nothing) would silence a typo'd config key forever.
+	# The consumed-keys contract: _mk_configure must report exactly what it took, because that return
+	# value is the only thing that makes the unknown-key warning possible. A backend that returned
+	# everything (or nothing) would silence a typo'd config key forever.
 	var probe := MKJsonProfileBackend.new()
 	var consumed := probe._mk_configure({"file_path": "user://x.json", "typo_key": 1})
 	check(consumed.has("file_path"), "_mk_configure reports the key it consumed")

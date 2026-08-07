@@ -2,25 +2,21 @@
 class_name MKStepPointBuy
 extends Control
 ## The point-buy step: one row per [MKStatDef], a live remaining-points readout, and the payload key
-## [code]stats[/code] (plan §4.5, D17).
+## [code]stats[/code] (D17).
 ##
-## [b]MenuKit never interprets a stat.[/b] It counts points and renders authored text. There is no
-## derived-value formula anywhere in this file, and [member MKStatDef.effect_hint] is shown verbatim —
-## see [MKStatDef] for why a menu package that knew what Strength did would have to know every host's
-## combat maths.
+## [b]MenuKit never interprets a stat.[/b] It counts points and renders authored text: there is no
+## derived-value formula anywhere in this file, and [member MKStatDef.effect_hint] is shown verbatim.
 ##
 ## [b]Points are spent from the per-stat minimum[/b], so [member MKStatSchema.total_points] is the
-## budget ABOVE the free starting spread. The alternative — charging for the floor too — makes "everyone
-## starts at 8" an arithmetic problem for the schema author, and makes the readout's meaning depend on
-## the schema.
+## budget ABOVE the free starting spread. Charging for the floor too would make "everyone starts at 8"
+## an arithmetic problem for the schema author.
 ##
 ## [b]Disabled, not clamped.[/b] A [code]+[/code] that would exceed the pool or the stat's ceiling is
 ## disabled rather than pressable-and-ignored: a button that visibly does nothing reads as a broken
 ## step, where a disabled one states the rule.
 ##
 ## [b]Disabled by default[/b] (D17): with no [MKStatSchema] supplied this step is DROPPED by the host
-## entirely, which is what [method _mk_step_requires_stat_schema] tells it. Most flows are name plus
-## archetype and should pay nothing for a feature they declined.
+## entirely, which is what [method _mk_step_requires_stat_schema] tells it.
 
 signal step_state_changed()
 
@@ -29,11 +25,9 @@ const PAYLOAD_KEY := "stats"
 ## Label column width, shared with the settings panel's rhythm so a host mixing the two screens gets one
 ## alignment rather than two.
 ##
-## The label is given this as a MINIMUM and is deliberately NOT expand-filled: on a settings row the
-## label and its control both expand, so the two share the width and the control column lands in the
-## middle. Here the -/value/+ cluster does not expand, so an expanding label absorbed every spare pixel
-## and shoved the buttons against the far edge — a stat name at x=0 with its counter a thousand pixels
-## away is two rows, not one. Fixed column, cluster immediately beside it.
+## The label is given this as a MINIMUM and is deliberately NOT expand-filled: the -/value/+ cluster
+## does not expand, so an expanding label would absorb every spare pixel and shove the buttons against
+## the far edge. Fixed column, cluster immediately beside it.
 const LABEL_COLUMN_WIDTH := MKSettingsPanel.LABEL_COLUMN_WIDTH
 
 var _host: MKCreationHost
@@ -41,9 +35,9 @@ var _def: MKCreationStepDef
 var _schema: MKStatSchema
 ## Only the stats that passed [method MKStatDef.is_valid], in authored order.
 var _stats: Array[MKStatDef] = []
-## Current value per stat, same index as [member _stats]. Held as an array rather than keyed by id so a
-## schema that repeats an id still renders two independent rows instead of two rows fighting over one
-## entry — the payload write is the only place the duplicate collapses, and it says so.
+## Current value per stat, same index as [member _stats]. An array rather than keyed by id, so a schema
+## that repeats an id renders two independent rows; the payload write is the only place the duplicate
+## collapses, and it says so.
 var _values: Array[int] = []
 var _value_labels: Array[Label] = []
 var _minus_buttons: Array[Button] = []
@@ -103,8 +97,8 @@ func _mk_step_commit(payload: Dictionary) -> void:
 	for i in _stats.size():
 		# String keys, not StringName: the payload round-trips through JSON in the shipped backend, and a
 		# key whose type depends on whether the profile has been saved yet is a bug waiting on a load.
-		# A repeated id collapses here, LAST write winning — said out loud rather than silently, because
-		# the schema rendered two rows and the profile will carry one field.
+		# A repeated id collapses here, LAST write winning — reported, because the schema rendered two rows
+		# and the profile will carry one field.
 		var key := String(_stats[i].id)
 		if stats.has(key):
 			MKLog.warn("%s: stat id '%s' appears more than once in the schema — the rows are independent but the payload carries ONE field, and the last row wins"
@@ -186,9 +180,8 @@ func _build_row(index: int) -> Control:
 	MKTheme.set_variation(label, MKTheme.ROW_LABEL)
 	row.add_child(label)
 
-	# Focusable Buttons, not a SpinBox: D12 promises full gamepad navigation, and two discrete buttons
-	# are what a d-pad drives well. They also make the pool rule visible — a disabled + IS the statement
-	# that the points ran out.
+	# Focusable Buttons, not a SpinBox: two discrete buttons are what a d-pad drives well, and they make
+	# the pool rule visible — a disabled + IS the statement that the points ran out.
 	var minus := Button.new()
 	minus.name = "Decrement"
 	minus.text = "-"
@@ -235,8 +228,7 @@ func _build_row(index: int) -> Control:
 ## Cost of one increment of [param index], never below 1.
 ##
 ## A zero or negative cost is meaningless — free points make the pool decorative, and a refunding stat
-## is an infinite budget — so it is clamped and said at debug level rather than obeyed. Dividing by it
-## is not the hazard (nothing divides); handing an author an unspendable pool silently is.
+## is an infinite budget — so it is clamped and reported at debug level rather than obeyed.
 func _cost(index: int) -> int:
 	var cost := _stats[index].cost_per_point
 	if cost >= 1:
@@ -283,9 +275,8 @@ func _adjust(index: int, delta: int) -> void:
 ## each individually legal but together cost more than [member MKStatSchema.total_points] — a payload
 ## from a schema that has since shrunk its pool — is restored as-is, so the readout shows a NEGATIVE
 ## "points remaining" and [method _mk_step_is_valid]'s [code]_remaining() < 0[/code] check gates Next
-## until the player spends their way back into budget. That is the intended shape rather than an
-## oversight: silently clamping somebody's allocation to fit would discard choices without saying so,
-## and the negative number names the problem in the same place as the buttons that fix it.
+## until the player spends their way back into budget. Intended: silently clamping somebody's
+## allocation to fit would discard choices without saying so.
 func _restore(stored: Dictionary) -> void:
 	for i in _stats.size():
 		var raw: Variant = stored.get(String(_stats[i].id), null)
@@ -300,8 +291,8 @@ func _restore(stored: Dictionary) -> void:
 
 
 ## Redraws every value, the pool readout, and the enabled state of every button. One function for all
-## three: they are three views of one number, and letting them refresh separately is how a readout ends
-## up disagreeing with the buttons that produced it.
+## three: they are three views of one number, and separate refreshes are how a readout ends up
+## disagreeing with the buttons that produced it.
 func _refresh() -> void:
 	var remaining := _remaining()
 	if _remaining_label != null and is_instance_valid(_remaining_label):

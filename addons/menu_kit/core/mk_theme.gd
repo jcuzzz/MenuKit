@@ -3,14 +3,13 @@ class_name MKTheme
 extends RefCounted
 ## The type-variation vocabulary, and the only sanctioned way to restyle a control at runtime.
 ##
-## MenuKit ships ZERO [code]add_theme_*_override[/code] calls (plan §1.2): an override beats the
-## [Theme], so a package that used them could never be re-skinned by swapping an [MKPalette] —
-## which is the whole promise of D4 and ship gate 3. Dynamic state (a nav tab going active) is
-## expressed by swapping [member Control.theme_type_variation] between two variations that the
-## generated Theme defines, never by writing a StyleBox onto the control.
+## MenuKit ships ZERO [code]add_theme_*_override[/code] calls: an override beats the [Theme], so a
+## package that used them could never be re-skinned by swapping an [MKPalette]. Dynamic state (a
+## nav tab going active) is expressed by swapping [member Control.theme_type_variation] between two
+## variations that the generated Theme defines, never by writing a StyleBox onto the control.
 ##
 ## The names below are the contract every panel, the generator, and the host's alternate palettes
-## are written against. Renaming one is a CHANGELOG [b]Breaking[/b] entry (plan §4.8).
+## are written against. Renaming one is a breaking change.
 
 ## Base type each variation derives from. The generator needs this to register the variation, and
 ## host tooling needs it to author overrides sanely, so it lives beside the names rather than
@@ -60,13 +59,11 @@ static func set_variation_if(control: Control, condition: bool, when_true: Strin
 
 
 ## True when [param theme] both registers every variation in the vocabulary [b]and actually styles
-## it[/b]. Used by [code]MKRoot[/code] boot validation and by the theme tests.
+## it[/b]. Used by [code]MKRoot[/code] boot validation.
 ##
-## Checking registration alone was worthless: the generator registers every key of
-## [constant VARIATION_BASE] in one unconditional loop, so this asked whether that loop had run and
-## nothing more. Deleting the code that styles panels, or the code that styles labels, left the whole
-## package rendering unstyled while this returned true and the suite passed. Registration is not
-## styling, so a variation must carry at least one real theme entry to count.
+## Registration is not styling: the generator registers every key of [constant VARIATION_BASE] in
+## one unconditional loop, so a registration-only check would pass on a Theme that styles nothing.
+## A variation must therefore carry at least one real theme entry to count.
 static func theme_defines_all(theme: Theme) -> bool:
 	if theme == null:
 		return false

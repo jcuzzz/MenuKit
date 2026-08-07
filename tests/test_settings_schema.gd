@@ -1,5 +1,5 @@
 extends MKTest
-## The data-driven settings panel against a real backend (plan §4.3, D5).
+## The data-driven settings panel against a real backend.
 ##
 ## Every row type is built from an [MKSettingDef] at runtime, so the thing that breaks is never a
 ## scene — it is the build/read/write triangle between a def, a control and the store. This suite
@@ -8,7 +8,7 @@ extends MKTest
 ## because a test that only asserts "a CheckBox exists" passes against a panel that reads nothing and
 ## writes nothing.
 ##
-## [b]Headless boundary[/b] (plan §4.8). The resolution row's screen filtering and the enable/disable
+## [b]Headless boundary.[/b] The resolution row's screen filtering and the enable/disable
 ## it derives from a real window are engine-visible effects the headless driver cannot show honestly;
 ## what IS assertable here is the VALUE logic those effects are derived from — the stored window mode
 ## driving enablement, the curated list passing through, a non-Vector2i entry being dropped. Each such
@@ -224,11 +224,11 @@ func _test_defaults_seed_empty_store() -> void:
 	await step_frame()
 
 
-## KEYBIND landed in Phase 4: a row naming a real action BUILDS (as an [MKRebindRow], registered like
-## any other control), silently. The authoring error — a KEYBIND def with no action_name — is what
-## keeps the old warn-and-skip contract: there is no binding to show or capture into, so that row is
-## absent and the warning names the resource. Capture, conflict and reset behaviour belongs to the
-## dedicated rebind suite; this test owns only the panel's build contract.
+## A KEYBIND row naming a real action BUILDS (as an [MKRebindRow], registered like any other control),
+## silently. The authoring error — a KEYBIND def with no action_name — warns and skips: there is no
+## binding to show or capture into, so that row is absent and the warning names the resource. Capture,
+## conflict and reset behaviour belongs to the dedicated rebind suite; this test owns only the panel's
+## build contract.
 func _test_keybind_row_builds() -> void:
 	var backend := _make_backend()
 	var keybind := _def(&"input/jump", MKSettingDef.RowType.KEYBIND, "Jump")
@@ -469,8 +469,8 @@ func _test_shipped_gameplay_page_shows_its_dependent_row() -> void:
 	await step_frame()
 
 
-## Ship gate 2 in miniature: the four shipped pages are what a cold drop builds, and §3.1 keeps them
-## deliberately provision-free (Master-only audio, no KEYBIND rows) so that build is SILENT.
+## The four shipped pages are what a cold drop builds, and they are deliberately provision-free
+## (Master-only audio, no KEYBIND rows) so that build is SILENT.
 ##
 ## Asserted two ways, because either alone is weak: zero MKLog warnings during the build, and a
 ## control present for every row those pages declare — a page that warned nothing because it skipped
@@ -546,14 +546,14 @@ func _test_no_backend_renders_disabled() -> void:
 	await step_frame()
 
 
-## The resolution row (plan §4.3, finding F4).
+## The resolution row.
 ##
 ## [b]Headless boundary.[/b] Godot exposes no API that enumerates supported modes, so the list is a
 ## curated array filtered against [method DisplayServer.screen_get_size] — and under the headless
 ## driver that query is meaningless, which is why the panel passes the list through unfiltered there.
 ## Asserting "1920x1080 was filtered out on a 1280x720 screen" is therefore impossible in this suite
-## WITHOUT lying about which branch ran; that filtering and the native-size insertion are a phase
-## exit criterion on a real display. What is asserted here is the value logic underneath: the curated
+## WITHOUT lying about which branch ran; that filtering and the native-size insertion are a human
+## check on a real display. What is asserted here is the value logic underneath: the curated
 ## list reaches the dropdown, a non-Vector2i entry is dropped with a warning, and the stored window
 ## mode — the branch [code]_is_windowed[/code] takes under the headless driver, where there is no
 ## window for a DisplayServer query to be about — drives the row's enabled state.
@@ -668,9 +668,9 @@ func _test_resolution_uses_authored_labels() -> void:
 	await step_frame()
 
 
-## The two resolution-row authoring diagnostics (round 6, MAJOR 3: both shipped with nothing that
-## failed when they were deleted). Debug-level, so the observer — which sees debug regardless of the
-## verbose gate — is the assertable surface, exactly the class MKLog.observer exists for.
+## The two resolution-row authoring diagnostics. Debug-level, so the observer — which sees debug
+## regardless of the verbose gate — is the assertable surface, exactly the class MKLog.observer exists
+## for.
 func _test_resolution_diagnostics_name_their_defs() -> void:
 	var backend := _make_backend()
 	backend.set_value(MKSettingsPanel.ID_WINDOW_MODE, 0)
@@ -747,7 +747,7 @@ func _test_resolution_enabled_rechecks_on_reshow() -> void:
 ## A write that did not come from a row must still move that row's widget. The panel is not the only
 ## writer — a host writing the value itself, a load, the revert path — and a store the widget
 ## disagrees with is the bug reported as "the setting didn't take": brightening the image through the
-## backend used to leave the brightness slider sitting exactly where the player had left it.
+## backend while the brightness slider sits exactly where the player left it.
 func _test_external_write_syncs_the_control() -> void:
 	var backend := _make_backend()
 	backend.set_value(&"sync/slider", 0.25)
@@ -858,12 +858,12 @@ func _test_enum_matches_a_numeric_value_across_types() -> void:
 
 
 ## Sliders get a focus indicator, because [HSlider] has none: the engine's Slider theme styles the
-## groove, the grabber and its highlight, and nothing that changes when focus arrives. A keyboard or
-## gamepad player had no way to tell which slider the arrow keys were about to move — the D12 promise
-## failing on the one control type that cannot honour it by itself.
+## groove, the grabber and its highlight, and nothing that changes when focus arrives — so a keyboard
+## or gamepad player cannot tell which slider the arrow keys are about to move. It is the one control
+## type that cannot honour the drivable-without-a-mouse promise by itself.
 ##
-## The ring is the MKFocusRing type variation, which the generated Theme has always defined and which
-## nothing consumed until now, so this is theme mechanics rather than a theme override (gate 1).
+## The ring is the MKFocusRing type variation the generated Theme defines, so this is theme mechanics
+## rather than a theme override.
 ##
 ## [b]Headless boundary.[/b] That the ring is legible on screen is an eyeball question and was checked
 ## by capture. What is asserted here: the ring exists, it carries the variation, and it tracks focus.
@@ -906,8 +906,8 @@ func _test_slider_rows_carry_a_focus_ring() -> void:
 
 ## Regression: a TOGGLE or SLIDER def whose author omitted default_value (it defaults to null) must
 ## still build — bool(null)/float(null) are SCRIPT ERRORS, not coercions, and the shipped pages all
-## author defaults, so only a host's first hand-written row ever hit this. Found by the Phase 3 test
-## leg; the fix falls back to false / the slider minimum.
+## author defaults, so only a host's first hand-written row reaches this. The build falls back to
+## false / the slider minimum.
 func _test_null_default_rows_build() -> void:
 	var backend := _make_backend()
 	# The fixtures author defaults precisely to steer other tests AROUND this defect, so the null must
@@ -988,7 +988,7 @@ func _test_external_null_write_does_not_break_a_built_row() -> void:
 	check(toggle.button_pressed, "the toggle starts on the stored true")
 	check_eq(slider.value, 1.5, "and the slider on the stored 1.5")
 
-	# The write that used to take the panel down at the two coercion sites.
+	# The write that reaches the two coercion sites.
 	backend.set_value(&"nullw/toggle", null)
 	backend.set_value(&"nullw/slider", null)
 	backend.set_value(&"nullw/text", null)
@@ -1068,8 +1068,8 @@ func _test_slider_sync_snaps_the_widget_and_leaves_the_store() -> void:
 
 
 ## Two rows sharing an id is the ordinary result of duplicating a page and editing half of it. The
-## tracking dictionaries are keyed by id alone, so one row used to silently take the other's place:
-## the survivor received every external sync, revert and condition lookup while the other sat on
+## tracking dictionaries are keyed by id alone, so unnamed, one row silently takes the other's place:
+## the survivor receives every external sync, revert and condition lookup while the other sits on
 ## screen answering to nothing. Both rows still build — dropping one would hide the mistake — and the
 ## collision is named once, with BOTH pages, because "which two resources" is the whole question.
 func _test_duplicate_row_ids_are_named() -> void:
@@ -1185,8 +1185,9 @@ func _test_a_custom_row_is_never_synced_by_the_panel() -> void:
 	check_eq(edit.text, _LINE_EDIT_SENTINEL,
 		"an external write does NOT reach a CUSTOM row's widget — the row owns its backend relationship end to end, and the panel writing it would overwrite a display it does not understand")
 
-	# And the type that used to take the panel down: 'Invalid assignment of property text with value
-	# of type int'. No assertion can see engine output, so the gate is the second half of this one.
+	# And the type that would take the panel down without the exclusion: 'Invalid assignment of property
+	# text with value of type int'. No assertion can see engine output, so the gate is the second half
+	# of this one.
 	backend.set_value(&"custom/line_edit", 11)
 	await step_frame()
 	check_eq(edit.text, _LINE_EDIT_SENTINEL,

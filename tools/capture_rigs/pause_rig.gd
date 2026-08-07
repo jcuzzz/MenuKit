@@ -5,8 +5,7 @@ extends RefCounted
 ## Its failure modes are visual by construction and pass every headless assertion: a shell that
 ## covers the world completely (nothing proves a pause menu is a pause menu if the game is not behind
 ## it), a page whose panel is transparent against a bright floor, a nav bar colliding with the pause
-## buttons. Same argument as the settings and modal rigs, applied to the first scene in this repo
-## with anything behind the UI.
+## buttons.
 ##
 ## Shoot it with:
 ##   ./tools/capture_scene.ps1 -Scene res://demo/demo_game.tscn -Rig res://tools/capture_rigs/pause_rig.gd
@@ -20,8 +19,8 @@ extends RefCounted
 ## taken the cursor is already visible, through the shipped path rather than a rig override.
 
 ## The pause page is instantiated inside open_pause_menu and MKRoot defers its focus pass by a frame,
-## so a short wait would photograph an unfocused (and, on the first frame, unlaid-out) panel. 40
-## matches the settings rig, which has the same runtime-built-page problem.
+## so a short wait photographs an unfocused (and, on the first frame, unlaid-out) panel. Frames, not
+## seconds — size any change to this for the fastest common refresh rate, never the typical one.
 func wait_frames() -> int:
 	return 40
 
@@ -36,10 +35,9 @@ func setup(node: Node, _tree: SceneTree) -> void:
 	# hidden photographs a page with no focus ring on anything.
 	root.visible = true
 	if not root.open_pause_menu():
-		# open_pause_menu returns false when the config defines no usable "pause" page — its pre-check
-		# refuses BEFORE anything is suspended, so nothing is left behind except the visibility this rig
-		# set the line above. Without undoing that, the shot would be an opaque, empty shell over the
-		# world and would look like a panel-layout bug rather than a missing page def.
+		# A refused open suspended nothing, so the visibility set above is the only thing to undo —
+		# without this the shot is an opaque empty shell over the world, which reads as a layout bug
+		# rather than a missing page def.
 		root.visible = false
 		push_error("pause_rig: open_pause_menu() refused — the config defines no 'pause' page")
 

@@ -1,13 +1,12 @@
 @tool
 class_name MKProbeCreationStep
 extends Control
-## A scriptable creation step, for the flow tests (Phase 5).
+## A scriptable creation step, for the flow tests.
 ##
 ## [MKCreationHost] is a flow engine over a duck-typed step contract, and every rule worth asserting
-## about it — ownership collisions, merge order, skip semantics, the D17 drop — is a statement about
-## an ARBITRARY set of steps, not about the three the addon happens to ship. Driving those rules
-## through the shipped steps would mean expressing "two steps claim one key" as a coincidence of
-## which real scenes exist, and there is no pair of shipped steps that collide.
+## about it — ownership collisions, merge order, skip semantics, the schema-requirement drop — is a
+## statement about an ARBITRARY set of steps, not about the three the addon happens to ship. No pair
+## of shipped steps collides, so those rules are unreachable through them.
 ##
 ## So this probe declares its owned keys, its validity and its commit values from exported data, and
 ## the tests build a [PackedScene] per case with [method PackedScene.pack]. It is a real
@@ -32,7 +31,8 @@ signal step_state_changed()
 ## test can invalidate a live step the way a player emptying a field does.
 @export var valid := true
 
-## The D17 marker's answer. The METHOD is always present (a test cannot conditionally define one);
+## The schema-requirement marker's answer. The METHOD is always present (a test cannot
+## conditionally define one);
 ## false is the ordinary "this step does not need a schema" reply, so the drop is driven by the
 ## value, exactly as a host step would.
 @export var requires_schema := false

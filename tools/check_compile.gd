@@ -2,7 +2,7 @@ extends SceneTree
 ## Compile / scene gate for MenuKit. Loads every project .gd and .tscn — compiling scripts,
 ## validating scenes and their script refs — and reports failures.
 ##
-## Unlike the source project's gate this DOES scan res://addons, because the addon is the product.
+## res://addons IS scanned here, because the addon is the product.
 ##
 ##   <godot_console> --headless --path . --script tools/check_compile.gd
 ##
@@ -56,9 +56,9 @@ func _check(path: String) -> void:
 	# A .gd with a parse error can still load as a NON-null GDScript resource; can_instantiate() is
 	# false until it actually compiles.
 	#
-	# Abstract scripts report can_instantiate() false BY DESIGN, so they cannot use that signal — but
-	# exempting them outright meant a parse error in any of the five backend bases compiled green.
-	# reload() surfaces the parse result directly, so they get a real check instead of a pass.
+	# Abstract scripts report can_instantiate() false BY DESIGN, so they cannot use that signal.
+	# Exempting them outright would let a parse error in any abstract base compile green, so they
+	# get reload(), which surfaces the parse result directly.
 	if res is GDScript:
 		var script := res as GDScript
 		if _is_abstract(path):

@@ -2,7 +2,7 @@
 class_name MKRoot
 extends Control
 ## The MenuKit shell: page state machine, back stack, backend ownership, and the two contracts an
-## FPS host hits on day one — process mode and mouse capture (plan §4.2, §4.2a, §4.7a).
+## FPS host hits on day one — process mode and mouse capture.
 ##
 ## [b]Per-scene instance, not a persistent singleton.[/b] Counters are per-instance and reset
 ## naturally on a scene change, which is only safe because of the teardown rule in
@@ -11,14 +11,14 @@ extends Control
 ## discarded by design and no [signal pause_menu_toggled] is emitted — a host that must move a shell
 ## closes the pause menu first.
 ##
-## [b]The whole subtree runs [constant Node.PROCESS_MODE_ALWAYS].[/b] Backends, the revert
-## countdown, the modal layer, tweens and the audio player are all Nodes and would otherwise freeze
-## under [member SceneTree.paused] — the D14 confirm-or-revert dialog would hang forever with no
-## failing write to reveal it. This is unconditional and must never become policy-dependent: it
-## costs nothing under a no-pause policy and it is what keeps the countdown alive.
-## Host-supplied content is set to [member host_content_process_mode] on add — PAUSABLE by
-## default, so a host's preview scene does not keep animating during pause and behave differently
-## there than in-game; a pause-hosting shell exports it as ALWAYS (the export's doc has the why).
+## [b]The whole subtree runs [constant Node.PROCESS_MODE_ALWAYS].[/b] Backends, the revert countdown,
+## the modal layer, tweens and the audio player are all Nodes and would otherwise freeze under
+## [member SceneTree.paused] — the confirm-or-revert dialog would hang forever with no failing write
+## to reveal it. This is unconditional and must never become policy-dependent: it costs nothing under
+## a no-pause policy and it is what keeps the countdown alive.
+## Host-supplied content is set to [member host_content_process_mode] on add — PAUSABLE by default,
+## so a host's preview scene does not keep animating during pause and behave differently there than
+## in-game; a pause-hosting shell exports it as ALWAYS (the export's doc has the why).
 
 ## Emitted after a page change completes, for hosts driving their own state off navigation.
 signal page_changed(id: StringName)
@@ -50,12 +50,12 @@ const SETTINGS_SERVICE_PATH := MKConfig.SETTINGS_SERVICE_PATH
 
 ## Whether this shell draws the config's backdrop behind its pages.
 ##
-## The backdrop is main-menu scenery. The in-game pause configuration (plan §4.2a) parks a second
-## [MKRoot] inside the game scene, and an opaque backdrop there hides the very world the pause menu
-## is supposed to sit on top of — the paused game behind the panel is what tells a player this is a
-## pause and not a scene change. The backdrop node still exists when this is off (the shell layout
-## does not fork); it just displays nothing, which [MKBackdrop] treats as a supported state rather
-## than a missing texture.
+## The backdrop is main-menu scenery. The in-game pause configuration parks a second [MKRoot] inside
+## the game scene, and an opaque backdrop there hides the very world the pause menu is supposed to
+## sit on top of — the paused game behind the panel is what tells a player this is a pause and not a
+## scene change. The backdrop node still exists when this is off (the shell layout does not fork); it
+## just displays nothing, which [MKBackdrop] treats as a supported state rather than a missing
+## texture.
 @export var show_backdrop := true
 
 @export_group("Audio hooks")
@@ -103,11 +103,9 @@ var _pause_menu_open := false
 ## somewhere else". Empty whenever [member _pause_menu_open] is false.
 var _pause_page_id: StringName = &""
 ## The nav bar's visibility as [method open_pause_menu] found it, so [method close_pause_menu]
-## RESTORES that value instead of asserting a default. A host is entitled to run its shell with no
-## nav bar at all (one page, or its own chrome); an unconditional [code]visible = true[/code] on
-## close made the pause gesture a way to summon a strip the host had deliberately hidden. Meaningless
-## while [member _pause_menu_open] is false, and zeroed with the rest of the pause state in
-## [method _exit_tree].
+## RESTORES that value instead of writing true — a host is entitled to run its shell with no nav bar,
+## and the pause gesture must not summon a strip it hid on purpose. Meaningless while
+## [member _pause_menu_open] is false.
 var _nav_visible_before_pause := true
 
 
@@ -127,9 +125,9 @@ func _ready() -> void:
 ##
 ## Two things this deliberately does NOT do:
 ## [br]- It never calls [method MKPausePolicy.exit_menu]. [constant Node.NOTIFICATION_EXIT_TREE]
-##   propagates children first, so the policy is already out of the tree here and its
-##   [method Node.get_tree] is null — the cross-node call would crash the shipped default on every
-##   quit-while-paused. Each policy undoes its own effects in its own [method Node._exit_tree].
+##   propagates children first, so the policy is already out of the tree and its
+##   [method Node.get_tree] is null. Each policy undoes its own effects in its own
+##   [method Node._exit_tree].
 ## [br]- It never restores the [i]saved[/i] mouse mode. That value was captured from gameplay, so
 ##   restoring it here would re-capture the cursor on the main menu. Teardown discards; only a
 ##   normal close restores.
@@ -137,31 +135,25 @@ func _exit_tree() -> void:
 	if Engine.is_editor_hint():
 		return
 	var was_suspended := _suspend_depth > 0
-	# DISCARD the stack; do not pop it. A real pop here reaches _pop_suspend's 1→0 edge and calls
+	# DISCARD the stack; do not pop it. A real pop here reaches _pop_suspend's 1->0 edge and calls
 	# exit_menu on a policy that is already out of the tree — the crash this function's contract
-	# exists to prevent — and restores the gameplay cursor onto the main menu. An earlier revision
-	# popped here and did both.
+	# exists to prevent — and restores the gameplay cursor onto the main menu.
 	if _modal_layer != null and is_instance_valid(_modal_layer):
 		_modal_layer.clear_for_teardown()
 	_suspend_depth = 0
 	_modal_suspensions = 0
 	_policy_entered = false
 	_pause_menu_open = false
-	# Zeroed with the rest of the pause state. The nav bar's visibility needs no restore here for the
-	# reason the counters do not need a real pop: this instance is on its way out, so nothing outside
-	# the subtree is still reading _nav_bar. That is true of the SUPPORTED lifecycle only — a free or
-	# a scene change. Under a REPARENT the instance survives its own _exit_tree, and everything above
-	# is discarded rather than unwound: the nav bar stays hidden, the pause state is dropped with no
-	# pause_menu_toggled(false), and the host is never told. Reparenting a live shell is unsupported;
-	# see the class doc.
+	# Zeroed with the rest of the pause state. The nav bar needs no restore: this instance is on its
+	# way out. That holds for the SUPPORTED lifecycle only — a free or a scene change. Under a
+	# REPARENT the instance survives its own _exit_tree and all of this is discarded rather than
+	# unwound; reparenting a live shell is unsupported (see the class doc).
 	_pause_page_id = &""
 	_nav_visible_before_pause = true
-	# Persist the settings this scene OWNS. MKSettingsBackend.save() had no production caller at all,
-	# so a value written through a panel lived in memory and in nothing else: it survived until the
-	# process ended and then did not. This is one of the two owners (the other is MKSettingsService,
-	# which saves the instance it built in its own _exit_tree); an ADOPTED backend is deliberately not
-	# saved here, because MKRoot dies on every scene change while the service outlives them all — a
-	# save from here would be both redundant and the wrong node's decision.
+	# Persist the settings this scene OWNS, or a value written through a panel would live in memory
+	# and in nothing else. This is one of the two owners (the other is MKSettingsService, which saves
+	# the instance it built in its own _exit_tree); an ADOPTED backend is deliberately not saved here,
+	# because MKRoot dies on every scene change while the service outlives them all.
 	if not _adopted_settings and _settings_backend != null and is_instance_valid(_settings_backend):
 		_settings_backend.save()
 	# Only touch the cursor if we were actually holding it, and set it VISIBLE rather than restoring
@@ -174,20 +166,18 @@ func _exit_tree() -> void:
 ## Hiding the shell IS closing the pause menu.
 ##
 ## The in-game gesture MenuKit documents is [code]visible = open[/code] on a shell parked inside the
-## game scene, and a host that hides it directly — a cutscene, a death screen, its own menu key —
-## otherwise stranded the whole suspension: world paused, cursor free, counter at one, and no visible
-## surface anywhere to unwind it from. Answering the hide with a close is what makes the host's own
-## [code]visible = open[/code] handler safe in BOTH directions rather than only the opening one.
+## game scene. A host that hides it directly — a cutscene, a death screen, its own menu key — would
+## otherwise strand the whole suspension: world paused, cursor free, counter at one, and no visible
+## surface to unwind it from. Answering the hide with a close makes the host's own
+## [code]visible = open[/code] handler safe in BOTH directions.
 ##
-## Re-entry is not a hazard, in either direction:
-## [br]- The demo's [code]pause_menu_toggled[/code] handler hides the shell in RESPONSE to a close, by
-##   which point [member _pause_menu_open] is already false and this is a no-op.
-## [br]- Opening sets [code]visible = true[/code] BEFORE [method open_pause_menu], so the notification
-##   that fires there arrives while the flag is still false — also a no-op, and the ordering is the
-##   host's for its own focus reason anyway (see the demo's comment on that line).
+## Re-entry is not a hazard: a host hiding the shell in RESPONSE to a close arrives when
+## [member _pause_menu_open] is already false, and an opening host sets [code]visible = true[/code]
+## BEFORE [method open_pause_menu], so the notification arrives while the flag is still false. Both
+## are no-ops.
 ##
-## Teardown cannot reach this by accident, and that is measured rather than reasoned: leaving the
-## tree fires [constant Node.NOTIFICATION_EXIT_TREE] and NO visibility notification, even though
+## Teardown cannot reach this by accident: leaving the tree fires
+## [constant Node.NOTIFICATION_EXIT_TREE] and NO visibility notification, even though
 ## [method CanvasItem.is_visible_in_tree] answers false afterwards. So a freed shell runs
 ## [method _exit_tree]'s discard-don't-pop contract and never this method's real close — which is
 ## what it must do, because by then the pause policy is already out of the tree.
@@ -201,46 +191,33 @@ func _notification(what: int) -> void:
 
 
 ## Cancel is consumed by the innermost open thing. Precedence is
-## rebind capture → modal stack top → page back stack → pause rung → root quit-confirm.
+## rebind capture -> modal stack top -> page back stack -> pause rung -> root quit-confirm.
 ##
 ## The pause rung is PAGE-AWARE, not merely flag-aware: it resumes only when the shell is actually
 ## showing the page [method open_pause_menu] opened. While the pause menu is open on some OTHER page
-## with nothing on the back stack — reachable only programmatically, since [method open_pause_menu]
-## hides the nav bar — the rung navigates BACK to the pause page instead. That is a recovery, not a
-## resume: the alternative readings are both worse, because resuming hands the player a running game
-## under a full-screen menu page, and falling through to the quit-confirm answers ESC with
-## "Quit to desktop?" over a paused world. An earlier revision keyed the rung on the flag alone and
-## did the first of those.
+## with nothing on the back stack — reachable only programmatically — the rung navigates BACK to the
+## pause page instead. Resuming there would hand the player a running game under a full-screen menu
+## page, and falling through would answer ESC with "Quit to desktop?" over a paused world.
 ##
 ## Rebind capture does not appear here by name because it is handled by mechanism: a listening row
-## consumes input in [method Node._input] and calls
-## [method Viewport.set_input_as_handled], so a live capture never reaches
-## [method Node._unhandled_input] at all. That is what makes Escape unbindable without a blacklist,
-## and what stops one Escape from both aborting a capture and popping the Controls page.
+## consumes input in [method Node._input] and calls [method Viewport.set_input_as_handled], so a live
+## capture never reaches [method Node._unhandled_input] at all. That is what makes Escape unbindable
+## without a blacklist.
 ##
-## [b]A shell that is not visible in the tree consumes nothing.[/b] The in-game configuration
-## (plan §4.2a) parks an [MKRoot] hidden inside the game scene and shows it on the host's ESC
-## gesture. A hidden shell still runs — the whole subtree is
-## [constant Node.PROCESS_MODE_ALWAYS] and [method Node._unhandled_input] does not care about
-## visibility — so without the check below it would swallow the very gesture the host's own ESC
-## handler needs in order to open it, and, with both stacks empty, answer it by opening a
-## quit-confirm dialog nobody can see. Visibility is the right test rather than a flag because it is
-## the same condition that decides whether anything this method could act on is on screen.
+## [b]A shell that is not visible in the tree consumes nothing.[/b] A hidden shell still runs (the
+## whole subtree is [constant Node.PROCESS_MODE_ALWAYS] and [method Node._unhandled_input] ignores
+## visibility), so without the check below a shell parked hidden inside a game scene would swallow
+## the very ESC gesture the host needs in order to open it.
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_visible_in_tree():
 		return
 	if not event.is_action_pressed(&"ui_cancel"):
 		return
 	if _modal_layer != null and not _modal_layer.is_empty():
-		# The return value is deliberately not branched on, because under this guard it cannot be false.
-		# [method MKModalLayer.handle_cancel] returns false ONLY for an empty stack, which this guard has
-		# already excluded; every non-empty route — a live top modal consuming the gesture, a top modal
-		# declining and being popped, a freed corpse being cleared — returns true. An earlier revision
-		# had a `pop_modal()` fallback here, and the only way to reach it would have been for the layer
-		# to report false with entries still stacked: a second pop that destroys a modal the gesture had
-		# nothing to do with. The self-heal for a stale entry lives in the layer, where it can tell the
-		# difference; a RESOLVED MKRevertCountdown declines its own cancel for exactly that reason and
-		# the layer, not this method, pops it.
+		# The return value is deliberately not branched on: under this guard it cannot be false.
+		# MKModalLayer.handle_cancel returns false ONLY for an empty stack, which this guard has already
+		# excluded. The self-heal for a stale entry lives in the layer, where it can tell the difference;
+		# a RESOLVED MKRevertCountdown declines its own cancel and the layer, not this method, pops it.
 		_modal_layer.handle_cancel()
 		get_viewport().set_input_as_handled()
 		return
@@ -251,9 +228,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	# The pause rung sits between the back stack and the quit-confirm, and the order is the contract:
 	# with Settings pushed over the pause page the back stack is non-empty, so Escape returns to the
 	# pause page (handled above) rather than resuming the game out from under the player. Only at the
-	# pause page itself — both stacks empty — does Escape resume, which is the gesture symmetry a
-	# player expects from the key that opened the menu. Without this rung that same press opened a
-	# "Quit to desktop?" dialog over a paused game.
+	# pause page itself — both stacks empty — does Escape resume, the gesture symmetry a player expects
+	# from the key that opened the menu.
 	if _pause_menu_open:
 		if _page_id == _pause_page_id:
 			close_pause_menu()
@@ -261,12 +237,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			# Recovery, not resume — see the ladder doc above. _show_page, not go_to_page: the back
 			# stack is already empty under this branch, so clearing it again would be theatre.
 			if not _show_page(_pause_page_id):
-				# The recovery TARGET is gone: the page def was removed, or the config swapped, while
-				# the menu was open. There is nothing left to recover to, and doing nothing is the one
-				# unrecoverable answer — every later Escape would be consumed by this same branch with
-				# the world suspended and no page offering a way out. So resume instead: a running game
-				# with a warning in the log (the one _show_page just printed, naming the config) beats a
-				# frozen one with no exit.
+				# The recovery TARGET is gone (the page def was removed, or the config swapped, while the
+				# menu was open). Doing nothing would consume every later Escape with the world suspended
+				# and no page offering a way out, so resume instead: a running game with a warning in the
+				# log beats a frozen one with no exit.
 				close_pause_menu()
 		return
 	request_quit_confirm()
@@ -311,8 +285,8 @@ func get_back_depth() -> int:
 	return _back_stack.size()
 
 
-## Cancel at the root. A quit gesture with nothing to go back to should ask rather than fall through
-## to nothing, which is what the source menu did.
+## Cancel at the root. A quit gesture with nothing to go back to asks rather than falling through to
+## nothing.
 func request_quit_confirm() -> void:
 	if _modal_layer == null:
 		return
@@ -332,17 +306,15 @@ func request_quit_confirm() -> void:
 ## Returns whether the page actually changed, so callers can react to a refused navigation —
 ## [method push_page] drops the return address it pushed for a page it never left, and
 ## [method open_pause_menu]'s ESC recovery closes the pause state when the pause page cannot be
-## re-shown. (Nobody unwinds a SUSPENSION off this return anymore: open_pause_menu's pre-check
-## refuses before suspending — see the containment comment at its bare call.)
+## re-shown. No caller unwinds a SUSPENSION off this return: open_pause_menu's pre-check refuses
+## before suspending.
 func _show_page(id: StringName) -> bool:
 	if config == null:
 		return false
-	# Every page change pops the modal stack — INCLUDING one that fails on a bad id. This lives here
-	# rather than in push_page because go_to_page is the path nav tabs and open_pause_menu take:
-	# leaving it out stranded a modal above the new page AND stranded its suspend count, since the
-	# modal that owned the count was no longer reachable to dismiss. Under a tree pause policy that is
-	# a permanently paused world. Popping before the id check keeps the two routes identical on a bad
-	# id rather than leaving one of them holding a stranded modal.
+	# Every page change pops the modal stack — INCLUDING one that fails on a bad id. It lives here
+	# because go_to_page is the path nav tabs and open_pause_menu take: otherwise a modal is stranded
+	# above the new page along with its suspend count, and under a tree pause policy that is a
+	# permanently paused world.
 	if _modal_layer != null:
 		_modal_layer.pop_all()
 	var def := config.get_page(id)
@@ -362,9 +334,9 @@ func _show_page(id: StringName) -> bool:
 	else:
 		var inst := def.scene.instantiate()
 		# Host-supplied content must not keep animating under pause and behave differently there than
-		# in-game (plan §4.2a). The pause menu's own page is the exception a host must be able to
-		# make: a PAUSABLE control has can_process() false, and Godot does not dispatch GUI input to
-		# it, so under a tree pause policy its Resume button would not respond.
+		# in-game. The pause menu's own page is the exception a host must be able to make: a PAUSABLE
+		# control has can_process() false and Godot does not dispatch GUI input to it, so under a tree
+		# pause policy its Resume button would not respond.
 		inst.process_mode = host_content_process_mode
 		_page_host.add_child(inst)
 		if inst is Control:
@@ -374,10 +346,9 @@ func _show_page(id: StringName) -> bool:
 	_page_id = id
 	if _nav_bar != null:
 		_nav_bar.set_active(id)
-	# Focus something on every page change, or the shell is a gamepad dead end: gate 4 requires the
-	# whole demo be completable with a gamepad alone, and a page that focuses nothing has no entry
-	# point. Deferred so the new page's own _ready has run and its controls exist. Falls back to the
-	# nav bar when a page has no focusable content of its own.
+	# Focus something on every page change, or the shell is a gamepad dead end. Deferred so the new
+	# page's own _ready has run and its controls exist. Falls back to the nav bar when a page has no
+	# focusable content of its own.
 	_focus_page_content.call_deferred()
 	page_changed.emit(id)
 	return true
@@ -389,14 +360,11 @@ func _focus_page_content() -> void:
 			return
 	# The visibility test is not decoration: open_pause_menu hides the bar, and handing focus to a tab
 	# nobody can see is a worse dead end than no focus at all — the player's next input would activate
-	# an invisible Start Game. The shipped pause page always has a focusable Resume, so this fallback is
-	# not the pause page's route to focus in the first place.
+	# an invisible Start Game.
 	#
-	# is_visible_in_tree(), NOT the local `visible` flag. The in-game configuration (plan §4.2a) parks
-	# this whole shell hidden inside the game scene, and a hidden ANCESTOR leaves _nav_bar.visible true
-	# — measured: booting a shell with root.visible = false landed focus on a nav tab nobody could see,
-	# which is the exact dead end this fallback exists to avoid. The tree-wide answer is also the one
-	# MKFocus uses when it collects focusables, so the two agree by construction.
+	# is_visible_in_tree(), NOT the local `visible` flag: a shell parked hidden inside a game scene
+	# still leaves _nav_bar.visible true. It is also the answer MKFocus uses when collecting
+	# focusables, so the two agree by construction.
 	if _nav_bar != null and is_instance_valid(_nav_bar) and _nav_bar.is_visible_in_tree():
 		_nav_bar.focus_active()
 
@@ -408,21 +376,17 @@ func _focus_page_content() -> void:
 ## Returns whether the pause menu opened.
 ##
 ## [b]It refuses BEFORE suspending anything when the page cannot be shown.[/b] Suspending the world
-## and freeing the cursor to display nothing is strictly worse than not pausing, and the bare call
-## defaults to a page id a host config need not define. Two cases qualify and the pre-check covers
-## both, because [method _show_page] returns true for the second: no page def under the id, and a def
-## whose [member MKMenuPageDef.scene] is null (that path only warns and empties the page host — a
-## refusal doc written against the return value alone was simply false). The pre-check now owns
-## refusal outright: there is no post-[method _show_page] unwind. That is a containment decision,
-## not an impossibility claim — foreign code runs between the pre-check and the show, and the bare
-## call below names the two windows and the recovery rung that contains a failure there.
+## and freeing the cursor to display nothing is worse than not pausing, and the bare call defaults to
+## a page id a host config need not define. Both qualifying cases are covered here rather than off
+## [method _show_page]'s return, because that returns TRUE for a def whose
+## [member MKMenuPageDef.scene] is null. There is no post-[method _show_page] unwind.
 ##
 ## [b]While the pause menu is open the shell is a PAUSE shell: the nav bar is hidden.[/b] A tab press
-## is a lateral [method go_to_page], which clears the back stack, leaves [member _pause_menu_open]
-## true, and parks the shell on a foreign page — after which Escape hit the resume rung and handed
-## the player a running game under a full settings page. Worse, the shipped tabs reach Start Game and
-## character deletion, which are main-menu gestures, not pause gestures. Hiding is per-instance and
-## per-open; [method close_pause_menu] restores it.
+## is a lateral [method go_to_page]: it clears the back stack, leaves [member _pause_menu_open] true,
+## and parks the shell on a foreign page, after which Escape hits the resume rung and hands the player
+## a running game under a full settings page. The shipped tabs also reach Start Game and character
+## deletion, which are main-menu gestures. Hiding is per-instance and per-open;
+## [method close_pause_menu] restores it.
 ##
 ## Programmatic navigation during pause remains HOST territory — nothing here refuses a
 ## [method go_to_page] call — but the ladder's pause rung recovers from it by navigating back to the
@@ -437,37 +401,20 @@ func open_pause_menu(page_id: StringName = &"pause") -> bool:
 		return false
 	_pause_menu_open = true
 	_push_suspend(&"pause")
-	# The return value is deliberately not branched on, and that is a CONTAINMENT argument rather than
-	# an impossibility one. _show_page reports false for exactly two states — a null config, and no
-	# page def under the id — and the pre-check above established both were false a moment ago. But
-	# "a moment ago" is the whole of the guarantee: two windows of foreign code run in between, and
-	# either can invalidate it.
-	# - The pause policy's enter_menu, called from _push_suspend. The shipped policies cannot reach
-	#   this node's config, but a policy is a CHILD of this root, so a custom one only has to walk
-	#   get_parent().config and erase the page def.
-	# - _show_page's own first act is _modal_layer.pop_all(), which runs host-supplied modal teardown
-	#   BEFORE the get_page lookup it is about to make.
-	# What makes the missing branch safe is the state a false return leaves: _pause_menu_open true,
-	# _pause_page_id recorded, and the shell still on the OLD page. That is precisely the divergent
-	# state the Escape ladder's pause rung is page-aware for — it takes the recovery branch, re-runs
-	# _show_page against the same missing def, gets false again, and closes the pause menu (see
-	# _unhandled_input's lost-recovery-target branch, which test_pause_menu drives end to end). So the
-	# world is one Escape away from running, with a warning in the log naming the config, rather than
-	# suspended forever. An unwind branch here would be a second, unreachable-in-practice copy of that
-	# recovery. (A page whose scene is null does not qualify either way — _show_page returns TRUE
-	# there, which is precisely why the pre-check exists.)
+	# The return value is deliberately not branched on: the pre-check above established the only two
+	# states _show_page reports false for. If foreign code running in between (the policy's
+	# enter_menu, or _show_page's own _modal_layer.pop_all()) erases the page def, the false return
+	# leaves the shell on the OLD page with _pause_page_id recorded — the divergent state the Escape
+	# ladder's pause rung is page-aware for, and it closes the pause menu from there.
 	_show_page(page_id)
 	_pause_page_id = page_id
 	_back_stack.clear()
-	# The pause page is not a tab, so _show_page's set_active(page_id) matched no button and cleared
-	# the highlight — documented as a legitimate state on MKNavBar.set_active (an unknown id is silent
-	# by design there). Hiding the bar makes that moot for the shipped configuration and is what stops
-	# a tab press defeating the whole rung; the set_active call is left alone rather than special-cased,
-	# because it is already correct for a host that shows the bar itself.
+	# The pause page is not a tab, so _show_page's set_active(page_id) matches no button and clears
+	# the highlight — a legitimate state on MKNavBar.set_active, which is silent on an unknown id.
+	# Hiding the bar makes that moot and is what stops a tab press defeating the whole rung; the
+	# set_active call is left alone because it is already correct for a host that shows the bar itself.
 	if _nav_bar != null:
-		# Recorded, not assumed. A host may already be running the shell with no nav bar (a single-page
-		# shell, or its own chrome), and close_pause_menu restores THIS value rather than writing true —
-		# otherwise the pause gesture is a way to summon a strip the host hid on purpose.
+		# Recorded, not assumed: close_pause_menu restores THIS value rather than writing true.
 		_nav_visible_before_pause = _nav_bar.visible
 		_nav_bar.visible = false
 	pause_menu_toggled.emit(true)
@@ -475,18 +422,15 @@ func open_pause_menu(page_id: StringName = &"pause") -> bool:
 
 
 ## Drops the pause suspension and restores the shell chrome. [b]It does not navigate[/b]: the page
-## stays wherever navigation left it, which is normally the pause page and, after a host's own
-## go_to_page, some other one. That is deliberate — a hidden shell's next visible page is the host's
-## decision (it may be about to change scene entirely, as Quit to Menu does), and a close that
-## navigated would fight the host for it. With the nav bar hidden while open and the ladder's rung
-## recovering to the pause page, the divergent state is only reachable programmatically.
+## stays wherever navigation left it. That is deliberate — a hidden shell's next visible page is the
+## host's decision (it may be about to change scene entirely, as Quit to Menu does), and a close that
+## navigated would fight the host for it.
 ##
 ## [b]It DOES clear the back stack.[/b] A pause sub-navigation (Settings from the pause page) leaves
-## a return address to the pause page on the stack, and a close that left it there handed the resumed
-## shell a stale one: the very next Escape — a gesture the player means as "open the pause menu" —
-## popped straight to the pause PAGE with [member _pause_menu_open] false, i.e. a full-screen pause
-## panel over a running game with no rung to close it. Return addresses into a shell that is about to
-## be hidden (or scene-changed away) are not worth keeping.
+## a return address to the pause page on the stack, and leaving it there hands the resumed shell a
+## stale one: the very next Escape — a gesture the player means as "open the pause menu" — would pop
+## straight to the pause PAGE with [member _pause_menu_open] false, i.e. a full-screen pause panel
+## over a running game with no rung to close it.
 func close_pause_menu() -> void:
 	if not _pause_menu_open:
 		return
@@ -517,15 +461,11 @@ func _push_suspend(reason: StringName) -> void:
 	if _suspend_depth != 1:
 		return
 	# Latch whether enter_menu actually ran. _pop_suspend must NOT re-ask can_pause(): a policy whose
-	# answer changes while a menu is open — the stated multiplayer story, where a session can start
-	# mid-menu — would skip its own exit_menu and leave the world paused with no menu on screen and no
-	# diagnostic. exit_menu is the counterpart of an enter that happened, not of a condition that
-	# still holds.
+	# answer changes while a menu is open (a multiplayer session starting mid-menu) would skip its own
+	# exit_menu and leave the world paused with no menu on screen. exit_menu is the counterpart of an
+	# enter that happened, not of a condition that still holds.
 	if _pause_policy != null and _pause_policy.can_pause():
-		# Latched before the call as a matter of ordering hygiene — the flag means "enter_menu was
-		# invoked", and setting it after would briefly disagree with that. (It is not load-bearing
-		# against a policy erroring mid-call: a GDScript runtime error aborts only the innermost
-		# function, so the assignment would run either way.)
+		# Latched before the call: the flag means "enter_menu was invoked".
 		_policy_entered = true
 		_pause_policy.enter_menu(reason)
 	elif _pause_policy != null:
@@ -571,7 +511,7 @@ func get_settings_backend() -> MKSettingsBackend:
 
 
 ## This scene's own brightness controller, or null — null is the [b]normal[/b] result when the
-## settings service owns one (plan §4.3). Ask the service first when you need "the live controller".
+## settings service owns one. Ask the service first when you need "the live controller".
 func get_brightness_controller() -> MKBrightnessController:
 	return _brightness_controller
 
@@ -584,17 +524,15 @@ func get_pause_policy() -> MKPausePolicy:
 	return _pause_policy
 
 
-## One call to paste into a bug report (plan §4.8).
+## One call to paste into a bug report.
 func dump_diagnostics() -> String:
 	var lines := PackedStringArray()
 	lines.append(MKVersion.version_string())
 	lines.append("config: %s" % MKLog.context(config))
 	lines.append("page: %s  back_stack: %s" % [_page_id, _back_stack])
-	# pause_page_id rides the pause line because it is the field that distinguishes "paused, on the
-	# pause page" from "paused, navigated elsewhere" — the state the Escape ladder's recovery rung
-	# exists for, and unanswerable from a bug report without it. It is ALSO the invariant nothing else
-	# can observe: it must read empty whenever pause_menu_open is false, and a test asserts exactly
-	# that through this string.
+	# pause_page_id rides the pause line: it distinguishes "paused, on the pause page" from "paused,
+	# navigated elsewhere" — the state the Escape ladder's recovery rung exists for, and unanswerable
+	# from a bug report without it. It must read empty whenever pause_menu_open is false.
 	lines.append("suspend_depth: %d  pause_menu_open: %s  pause_page_id: %s  mouse_mode: %d"
 		% [_suspend_depth, _pause_menu_open, _pause_page_id, Input.mouse_mode])
 	lines.append("modal_depth: %d" % (_modal_layer.depth() if _modal_layer != null else -1))
@@ -608,9 +546,9 @@ func dump_diagnostics() -> String:
 		if node != null:
 			var s := node.get_script() as Script
 			desc = s.resource_path if s != null else node.get_class()
-			# §4.8 requires the dump to carry resolved user:// paths, and ship gate 9 checks for them:
-			# "settings don't persist" is usually a question about WHICH file was written, and without
-			# this the answer costs a round trip with the reporter.
+			# The dump carries resolved user:// paths: "settings don't persist" is usually a question
+			# about WHICH file was written, and without this the answer costs a round trip with the
+			# reporter.
 			if node.has_method("get_file_path"):
 				desc += "  store: %s" % node.call("get_file_path")
 		lines.append("backend %s: %s" % [pair[0], desc])
@@ -618,8 +556,7 @@ func dump_diagnostics() -> String:
 	if config != null:
 		lines.append("pages: %d visible of %d" % [config.get_visible_pages().size(), config.pages.size()])
 		# The creation module's counts live on MKConfig (creation_diagnostics builds the line) because
-		# the config owns those arrays; this dump only assembles. Plan §4.8 names loaded step/archetype
-		# counts as part of the bug-report surface.
+		# the config owns those arrays; this dump only assembles.
 		lines.append(config.creation_diagnostics())
 	return "\n".join(lines)
 
@@ -638,13 +575,9 @@ func _resolve_config() -> void:
 			return
 	MKLog.verbose = MKLog.verbose or config.verbose
 	# Regenerate when the config swaps its palette. _apply_theme subscribes to the palette itself for
-	# per-field edits, but nothing re-invoked it when config.palette was REASSIGNED — so the disconnect
-	# logic there guarded a state it could never reach, and swapping a palette was a no-op at runtime.
-	# No unsubscribe-the-old-config branch here: _resolve_config runs once, from _ready, so there is
-	# no second entry point at which a previous config could exist. Assigning `config` at runtime is
-	# NOT a supported gesture — it re-runs nothing, rebuilds no nav, and restyles nothing. The
-	# palette-level equivalent below is different precisely because the `changed` signal gives it a
-	# second entry point.
+	# per-field edits, but nothing re-invokes it when config.palette is REASSIGNED. There is no
+	# unsubscribe-the-old-config branch: _resolve_config runs once, from _ready. Assigning `config` at
+	# runtime is NOT a supported gesture — it re-runs nothing, rebuilds no nav, and restyles nothing.
 	if not config.changed.is_connected(_apply_theme):
 		config.changed.connect(_apply_theme)
 	# Report every problem at once: a first-time integrator gets one list to work through instead of
@@ -654,9 +587,9 @@ func _resolve_config() -> void:
 
 
 func _apply_theme() -> void:
-	# Unsubscribe FIRST, before any early return. Behind the null-palette check, setting
-	# config.palette = null left the discarded palette wired to this root, so every later edit to it
-	# re-entered here and emitted another "no MKPalette assigned" warning.
+	# Unsubscribe FIRST, before any early return: behind the null-palette check, setting
+	# config.palette = null would leave the discarded palette wired to this root and every later edit
+	# to it would re-enter here.
 	var next_palette: MKPalette = config.palette if config != null else null
 	if _themed_palette != null and is_instance_valid(_themed_palette) \
 			and _themed_palette != next_palette \
@@ -667,9 +600,8 @@ func _apply_theme() -> void:
 		MKLog.warn("no MKPalette assigned — panels will fall back to the engine default theme")
 		return
 	# Rebuild whenever the palette changes. Without this subscription every per-field emit_changed()
-	# in MKPalette has no listener, and editing a palette at runtime restyles nothing — the shipped
-	# Theme is a one-shot snapshot taken at boot. Re-skinning is the package's core promise, so the
-	# live path has to work, not just the editor bake.
+	# in MKPalette has no listener and editing a palette at runtime restyles nothing — the Theme
+	# would be a one-shot snapshot taken at boot.
 	if not next_palette.changed.is_connected(_apply_theme):
 		next_palette.changed.connect(_apply_theme)
 	var generated := MKThemeGenerator.build(next_palette)
@@ -741,10 +673,10 @@ func _instantiate_backends() -> void:
 	_settings_backend = _resolve_settings_backend()
 
 
-## Adopt-or-instantiate (plan §4.2). Two settings-backend instances over one JSON file means the
-## revert countdown snapshots one while the panel writes the other, and last-save silently wins — a
-## bug that is near-impossible to diagnose from a bug report. So when the autoload exists it owns the
-## instance and this node borrows it.
+## Adopt-or-instantiate. Two settings-backend instances over one JSON file means the revert countdown
+## snapshots one while the panel writes the other, and last-save silently wins — a bug that is
+## near-impossible to diagnose from a bug report. So when the autoload exists it owns the instance and
+## this node borrows it.
 func _resolve_settings_backend() -> MKSettingsBackend:
 	var service := get_node_or_null(SETTINGS_SERVICE_PATH)
 	if service == null:
@@ -761,23 +693,17 @@ func _resolve_settings_backend() -> MKSettingsBackend:
 		return _boot_own_settings_backend()
 	_adopted_settings = true
 	# The service lives outside this subtree, so it does not inherit the ALWAYS process mode — and the
-	# D14 revert countdown runs on it. Left PAUSABLE, that countdown freezes under a tree pause policy
-	# and the confirm-or-revert dialog hangs forever with no failing write to reveal it.
+	# revert countdown runs on it. Left PAUSABLE, that countdown freezes under a tree pause policy and
+	# the confirm-or-revert dialog hangs forever with no failing write to reveal it.
 	live.process_mode = Node.PROCESS_MODE_ALWAYS
 	# A scene naming a different script than the service already built is a misconfiguration, not a
 	# reason to double-instantiate. Keep the service's instance and say so, naming both scripts.
 	var slot := config.settings_backend
 	if slot != null and slot.is_assigned():
 		# The slot's PARAMS are ignored on this path — the service already built and configured the
-		# instance from its own slot — and nothing said so: a config naming its own file_path adopted
-		# the service's store with zero diagnostics, and _exit_tree's save-on-exit then persisted the
-		# values into a file the config never mentions.
-		#
-		# Debug rather than warn, and the shipped demo is the reason: demo_config assigns file_path
-		# AND is the config menu_kit/config_path points the service at, so the service builds from
-		# this very slot and the demo's adopt ignores nothing. A warn would fire on every demo boot
-		# for a correct configuration — and ship gate 2's zero-warnings bar is not something to spend
-		# on a message that is right only for the hosts whose two configs disagree.
+		# instance from its own slot — so a config naming its own file_path would otherwise adopt the
+		# service's store with no diagnostic. Debug rather than warn: a host whose config IS the one the
+		# service builds from ignores nothing, and a warn would fire on every correct boot.
 		if not slot.params.is_empty():
 			MKLog.debug("%s: params are ignored when %s owns the backend — configure the service's slot instead"
 				% [MKLog.context(slot, "params"), SETTINGS_SERVICE_PATH])
@@ -792,10 +718,9 @@ func _resolve_settings_backend() -> MKSettingsBackend:
 ## Builds this scene's own settings backend AND boots it.
 ##
 ## The three calls are what make a settings store mean anything, and in a service-less configuration
-## nothing else makes them: [MKRoot] used to instantiate the backend and never load it, so a stored
-## resolution was never read and a stored rebind was never applied. Every panel then reads an empty
-## store, and the symptom — "my settings don't stick" — looks like a bug in whatever panel the user
-## happened to be on.
+## nothing else makes them: without the load, a stored resolution is never read and a stored rebind
+## never applied, every panel reads an empty store, and the symptom — "my settings don't stick" —
+## looks like a bug in whatever panel the user happened to be on.
 ##
 ## The order matches [code]MKSettingsService[/code] exactly and is load-bearing: the snapshot must
 ## precede the load, or the captured "defaults" are the user's own overrides and Reset to Defaults
@@ -812,34 +737,26 @@ func _boot_own_settings_backend() -> MKSettingsBackend:
 	return backend
 
 
-## The standalone brightness tier (plan §4.3) — reached only from [method _boot_own_settings_backend],
-## i.e. only when no settings service owns the store.
+## The standalone brightness tier — reached only from [method _boot_own_settings_backend], i.e. only
+## when no settings service owns the store.
 ##
-## [b]Be honest about this tier: it is closer to the floor than to the autoload behaviour.[/b] This
-## controller is a child of a [b]per-scene[/b] [MKRoot], so it dies with the root: brightness gaps
-## across every scene transition and reaches gameplay only if the game scene also hosts an [MKRoot].
-## The [code]MKSettingsService[/code] autoload is the supported configuration for brightness, and
-## [code]INTEGRATION.md[/code] says so. This exists so the no-autoload configuration is not a dead
-## slider, not because it is equivalent.
+## [b]This tier is closer to the floor than to the autoload behaviour.[/b] The controller is a child
+## of a [b]per-scene[/b] [MKRoot], so it dies with the root: brightness gaps across every scene
+## transition and reaches gameplay only if the game scene also hosts an [MKRoot]. The
+## [code]MKSettingsService[/code] autoload is the supported configuration for brightness. This exists
+## so the no-autoload configuration is not a dead slider, not because it is equivalent.
 ##
 ## [b]Two controllers must never coexist[/b] — each applies its own gamma pass and the image would be
 ## corrected twice. The adopt path never reaches this method, so the check below covers the
-## service-shaped route: [code]/root/MKSettingsService[/code] is resolved duck-typed (get_node_or_null plus
-## has_method), so the node answering that name need not be the shipped service. A host-supplied one
-## that owns a brightness controller while returning null from [code]get_settings_backend()[/code]
-## sends this scene down the build-your-own path with a controller already live, and without the check
-## that scene would add the second gamma pass.
+## service-shaped route: [code]/root/MKSettingsService[/code] is resolved duck-typed, so the node
+## answering that name need not be the shipped service. A host-supplied one that owns a brightness
+## controller while returning null from [code]get_settings_backend()[/code] would otherwise send this
+## scene down the build-your-own path with a controller already live.
 ##
-## The shipped [code]MKSettingsService[/code] cannot reach that state — its [code]_boot_brightness[/code]
-## runs only after a backend booted, so an inert service owns no controller either — which is why this
-## is a check against a host's node, not a second guess about our own.
-##
-## What it deliberately does NOT cover: two standalone shells mounted SIMULTANEOUSLY with no
-## service at all — each walks this path, sees no service, and builds its own controller, stacking
-## two gamma passes. No shipped configuration mounts two service-less shells at once (the demo uses
-## the autoload; scenes swap rather than coexist), so the gap is documented rather than guarded;
-## a host running that shape owns brightness itself or mounts the service. Phase 9's
-## INTEGRATION.md carries the sentence.
+## What it deliberately does NOT cover: two standalone shells mounted SIMULTANEOUSLY with no service
+## at all — each walks this path, sees no service, and builds its own controller, stacking two gamma
+## passes. No shipped configuration mounts two service-less shells at once, so the gap is documented
+## rather than guarded; a host running that shape owns brightness itself or mounts the service.
 func _boot_own_brightness(backend: MKSettingsBackend) -> void:
 	if config == null or not config.manage_brightness:
 		return
@@ -873,8 +790,7 @@ func _on_brightness_setting_changed(id: StringName, value: Variant) -> void:
 ##
 ## [param params] reach the backend through [code]_mk_configure(params) -> Array[String][/code],
 ## which returns the keys it consumed. Only the backend knows its keys and only this node knows the
-## slot's identity, so the leftover-key warning can be produced by neither alone — a silently ignored
-## typo in a config dictionary is otherwise a bad afternoon.
+## slot's identity, so the leftover-key warning can be produced by neither alone.
 func _make_backend(slot: MKBackendSlot, base: Script, field: String) -> Node:
 	if slot == null or not slot.is_assigned():
 		return null
@@ -938,7 +854,7 @@ func _on_nav_page_selected(id: StringName) -> void:
 ## [br]- [b]The cursor is captured[/b] — a dialog raised over live gameplay that never went through
 ##   [method open_pause_menu] (connection lost, an in-game confirm). Depth is 0 there too, but a
 ##   Doom-like runs [constant Input.MOUSE_MODE_CAPTURED], so skipping the push would leave the dialog
-##   literally unclickable. An earlier revision keyed purely on depth and did exactly that.
+##   literally unclickable.
 ##
 ## What is excluded is the main menu: nothing is suspended and the cursor is already free, so a
 ## confirm dialog must not pause the tree — otherwise a [code]MKTreePausePolicy[/code] would freeze a
@@ -955,9 +871,9 @@ func _on_modal_pushed(_control: Control) -> void:
 	_push_suspend(&"modal")
 
 
-## [param mouse_mode] is a parameter purely so tests can drive the captured-cursor branch: under
-## [code]--headless[/code] the dummy DisplayServer never leaves [constant Input.MOUSE_MODE_VISIBLE],
-## so that branch is otherwise unreachable from the suite and the regression it guards had no test.
+## [param mouse_mode] is a parameter purely so the captured-cursor branch can be driven directly:
+## under [code]--headless[/code] the dummy DisplayServer never leaves
+## [constant Input.MOUSE_MODE_VISIBLE], so that branch is otherwise unreachable.
 func _modal_should_suspend(mouse_mode: int = Input.mouse_mode) -> bool:
 	if _suspend_depth > 0:
 		return true

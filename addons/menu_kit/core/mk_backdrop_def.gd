@@ -4,10 +4,9 @@ extends Resource
 ## One swappable fullscreen backdrop: an image (or a generated gradient), a tint, and blur/scroll.
 ##
 ## Backdrops are data so the visible background can be changed from one resolution point — a host's
-## seasonal/served backdrop only needs to select a different id, never touch menu code. This is a
-## trimmed port of the source project's def: the game-specific bits are gone, and the ability to
-## describe a backdrop with NO texture is new, because the shipped catalog must contain a working
-## entry that references no external image (plan §3.1, cold-drop gate 2).
+## seasonal/served backdrop only needs to select a different id, never touch menu code. A def with
+## NO texture is fully supported, so the shipped catalog can carry a working entry that references
+## no external image.
 ##
 ## Presentation-only and inert: it draws nothing itself, [MKBackdrop] applies it.
 
@@ -49,6 +48,5 @@ func is_valid() -> bool:
 
 
 ## True when the def needs no external image and can be rendered from its gradient colors alone.
-## Exists so callers (and tests) can assert the cold-drop property directly.
 func is_generated() -> bool:
 	return texture == null

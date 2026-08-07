@@ -1,5 +1,5 @@
 extends MKTest
-## The D14 confirm-or-revert countdown (plan §4.3), standalone and driven through a real panel.
+## The confirm-or-revert countdown, standalone and driven through a real panel.
 ##
 ## The property that makes this dialog work at all is that it ticks in [method Node._process] under
 ## [member SceneTree.paused]. Display settings are changed from the pause menu, where a [Timer] or a
@@ -175,8 +175,9 @@ func _test_invalid_duration_falls_back() -> void:
 	await step_frame()
 
 
-## [b]The D14 property.[/b] Display settings are changed from the pause menu; a countdown that froze
-## with the world would leave the dialog open forever, and the change it was going to revert applied.
+## [b]The defining property.[/b] Display settings are changed from the pause menu; a countdown that
+## froze with the world would leave the dialog open forever, and the change it was going to revert
+## applied.
 func _test_ticks_while_the_tree_is_paused() -> void:
 	var countdown := _make_countdown()
 	check_eq(countdown.process_mode, Node.PROCESS_MODE_ALWAYS,
@@ -336,9 +337,9 @@ func _test_cancel_through_the_layer_pops_only_the_countdown() -> void:
 
 
 ## [b]The layer half of the declined cancel.[/b] A countdown that resolved while still stacked — its
-## owner gone, so nothing left to call [method MKModalLayer.remove_modal] — used to consume every
-## Escape forever, because [code]handle_cancel[/code] returned true unconditionally. That is the modal
-## layer's own documented worst case: [code]is_empty()[/code] false forever, scrim up over nothing,
+## owner gone, so nothing left to call [method MKModalLayer.remove_modal] — must DECLINE the cancel
+## rather than consuming it. A stale entry that answers [code]handle_cancel[/code] true reaches the
+## modal layer's documented worst case: [code]is_empty()[/code] false forever, scrim up over nothing,
 ## every later cancel swallowed, and a host modal parked underneath unreachable.
 ##
 ## Driven at the layer, with something beneath, because that is where the swallowing is visible: the
@@ -378,10 +379,10 @@ func _test_a_resolved_countdown_stops_swallowing_cancel() -> void:
 	await step_frame()
 
 
-## [b]D14's promise survives a nav tab.[/b] [code]MKRoot._show_page[/code] pops the whole modal stack
-## on EVERY page change, so a live countdown was unparented: its [method Node._process] stopped, it
-## never emitted, nothing freed it, and the un-confirmed display change stayed applied forever. One
-## click on a nav tab voided the entire feature and leaked a Control doing it.
+## [b]The promise survives a nav tab.[/b] [code]MKRoot._show_page[/code] pops the whole modal stack on
+## EVERY page change, so an unhandled pop unparents a live countdown: its [method Node._process] stops,
+## it never emits, nothing frees it, and the un-confirmed display change stays applied forever. One
+## click on a nav tab would void the entire feature and leak a Control doing it.
 ##
 ## Unconfirmed means NOT kept, so the departure resolves as a REVERT. The store is the assertion that
 ## matters; the leaked-node gate in the harness is the other half, and a subsequent visit proves
@@ -489,11 +490,10 @@ func _test_freeing_the_panel_reverts_an_unconfirmed_countdown(hard_free: bool) -
 	check_eq(root.get_suspend_depth(), base_depth,
 		"the suspension the push raised came back down — leaving it stacked held the world suspended under a dead dialog (%s)" % how)
 
-	# What "consumed by the page, not a corpse" looks like changed in Phase 6: the cancel ladder
-	# gained the pause-resume rung, so with the pause menu open and both stacks empty the root
-	# answers Escape by CLOSING the pause menu rather than by raising the quit-confirm. The corpse
-	# claim is unchanged — a swallowed gesture would leave the pause menu open and the stack empty,
-	# which is exactly what the two assertions below refuse.
+	# "Consumed by the page, not a corpse" reads through the pause-resume rung: with the pause menu
+	# open and both stacks empty the root answers Escape by CLOSING the pause menu, not by raising the
+	# quit-confirm. A swallowed gesture would leave the pause menu open and the stack empty, which is
+	# what the two assertions below refuse.
 	check(_cancel(root), "and the next Escape is consumed (%s)" % how)
 	check(not root.is_pause_menu_open(),
 		"by the ROOT's pause-resume rung — the gesture reached the page, not a corpse (%s)" % how)
@@ -504,9 +504,8 @@ func _test_freeing_the_panel_reverts_an_unconfirmed_countdown(hard_free: bool) -
 
 ## The SAME route, on the layout the shipped shell actually builds: the panel sits several levels down
 ## inside the page host, so it and the modal layer are detached in a different order than in the flat
-## fixture. Round 3 rested a claim on that ordering; the deferred reap does not move with it, and this
-## is the assertion that says so rather than the reasoning. Both free mechanisms, for the reason given
-## on the flat-layout test.
+## fixture. The deferred reap must not depend on that ordering, and this is the assertion that says so
+## rather than the reasoning. Both free mechanisms, for the reason given on the flat-layout test.
 func _test_freeing_the_panel_pops_under_the_shell_layout(hard_free: bool) -> void:
 	var how := "free()" if hard_free else "queue_free()"
 	var fixture := await _make_panel_fixture(null, true)
@@ -544,9 +543,8 @@ func _test_freeing_the_panel_pops_under_the_shell_layout(hard_free: bool) -> voi
 ##
 ## The orphan path cannot dispose of a stacked dialog synchronously — that is the mid-teardown pop the
 ## whole redesign exists to avoid — so for one flush the dialog sits on a LIVE stack with its owner
-## already gone. Everything it could do in that window has to be off, and this is the test that says
-## so; without it [method MKRevertCountdown.mark_resolved] could be emptied to `pass` and the whole
-## suite stayed green.
+## already gone. Everything it could do in that window has to be off, and this is the only test that
+## says so — without it [method MKRevertCountdown.mark_resolved] could be emptied to `pass`.
 ##
 ## Three properties, in the order they would bite a player:
 ## [br]- it is not running, and a forced advance of MORE than the full countdown emits nothing — a
@@ -585,8 +583,8 @@ func _test_the_corpse_frame_is_inert_and_self_heals() -> void:
 	check(layer.top() == countdown, "and it is still the top, so it is what a cancel gesture would reach")
 
 	# The process-flag half of mark_resolved, asserted directly: the manual _process() call below
-	# ignores set_process(), so WITHOUT these two lines that half is unprovable in principle
-	# (round 6, MAJOR 2 — a mark_resolved reduced to the latch alone stayed green).
+	# ignores set_process(), so WITHOUT these two lines that half is unprovable in principle — a
+	# mark_resolved reduced to the latch alone would pass.
 	check(not countdown.is_running(), "mark_resolved stopped the countdown running the moment its owner died")
 	check(not countdown.is_processing(), "and turned its _process off — the corpse does not tick between frames")
 
@@ -1182,7 +1180,7 @@ func _make_root() -> MKRoot:
 	page.scene = load("res://addons/menu_kit/panels/mk_welcome_page.tscn")
 	config.pages.append(page)
 	# A SECOND page, so a nav-tab move is stageable at all: _show_page pops the modal stack on every
-	# page change, and with one page there is nowhere to go and the D14 hole is unreachable.
+	# page change, and with one page there is nowhere to go and the case is unreachable.
 	var other := MKMenuPageDef.new()
 	other.id = &"other"
 	other.title = "Other"

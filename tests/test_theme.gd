@@ -1,11 +1,10 @@
 extends MKTest
-## The generated Theme and the live re-skin path (plan §1.2, ship gate 3).
+## The generated Theme and the live re-skin path.
 ##
 ## The re-skin promise is the package's core value: swapping an [MKPalette] must restyle everything
-## with no per-panel edits. Two things have to hold for that, and only one of them is visible in a
-## screenshot — the Theme must define the whole type-variation vocabulary, and a palette change must
-## actually reach a live root. The second was documented, had `emit_changed()` boilerplate written
-## for it in every palette setter, and had no subscriber at all.
+## with no per-panel edits. Two things have to hold for that, and only one is visible in a screenshot
+## — the Theme must define the whole type-variation vocabulary, and a palette change must actually
+## reach a live root.
 
 const PALETTE_PATH := "res://addons/menu_kit/themes/default_palette.tres"
 const CONFIG_PATH := "res://addons/menu_kit/default_config.tres"
@@ -25,9 +24,8 @@ func run_tests() -> void:
 		"generated Theme defines every variation in MKTheme.VARIATION_BASE")
 
 	# Assert styling per variation, not just registration. The generator registers the whole
-	# vocabulary in one unconditional loop, so a registration-only check asked whether that loop ran —
-	# deleting the panel styling or the label styling left the package rendering unstyled and the
-	# suite green.
+	# vocabulary in one unconditional loop, so a registration-only check asks whether that loop ran,
+	# not whether anything is styled.
 	for variation in MKTheme.VARIATION_BASE:
 		check(MKTheme.variation_is_styled(theme, variation),
 			"%s carries real theme entries, not just a registered base" % variation)
@@ -49,8 +47,7 @@ func run_tests() -> void:
 
 	# A slider's groove has no size of its own: its on-screen thickness IS the stylebox's content
 	# margins, so a zero-margin StyleBoxFlat renders a 0px-tall track with the grabber floating in
-	# space. That shipped once and was caught by eyeball on a capture while every headless assertion
-	# passed — this is the assertion that would have caught it.
+	# space — a purely visual failure that no other headless assertion reaches.
 	for slider_type in [&"HSlider", &"VSlider"]:
 		var groove := theme.get_stylebox(&"slider", slider_type) as StyleBoxFlat
 		check(groove != null, "%s defines a groove stylebox" % slider_type)
@@ -73,11 +70,10 @@ func run_tests() -> void:
 		check(ring.border_width_top > 0, "with a real border, which is the entire ring")
 		check_eq(ring.bg_color.a, 0.0, "and a transparent fill, so it never obscures the control inside")
 
-	# --- the CheckBox glyph and the check focus boxes (Phase 8) ---
-	# The unchecked box rendered near-invisible on the shipped dark panel, and no palette edit could
-	# move it: the glyph is an ICON, the one part of a control a StyleBox cannot reach. The generator
-	# now draws all four states from the palette, so this is where "the checkbox is visible" becomes
-	# assertable at all.
+	# --- the CheckBox glyph and the check focus boxes ---
+	# The glyph is an ICON — the one part of a control a StyleBox (and therefore a palette edit)
+	# cannot reach, which is why the generator draws all four states itself and why "the checkbox is
+	# visible" is only assertable here.
 	for state in [&"unchecked", &"checked", &"unchecked_disabled", &"checked_disabled"]:
 		var icon := theme.get_icon(state, &"CheckBox") as Texture2D
 		check(icon != null, "CheckBox defines a '%s' icon" % state)
@@ -90,21 +86,18 @@ func run_tests() -> void:
 		check(glyph != null and not glyph.is_empty(), "'%s' carries real pixels" % state)
 		if glyph != null and not glyph.is_empty():
 			# Every pixel of the box is written by the generator's loop; a fully transparent glyph is
-			# exactly what the invisible-checkbox defect looked like.
+			# an invisible checkbox.
 			check(glyph.get_pixel(0, 0).a > 0.0,
 				"'%s' has an opaque border pixel — a transparent glyph IS the defect this fix exists for"
 					% state)
 
-	# [b]The 2px border FLOOR, which is the whole fix and had nothing holding it.[/b] The generator
-	# draws the box at maxi(2, border_width), and the shipped palette's border_width is 1 — the exact
-	# panel-scale hairline that rendered the unchecked box near-invisible on a 20px glyph. So reverting
-	# the floor to maxi(1, …) reproduces the SHIPPED defect while every assertion above stays green:
-	# the glyph is still the right size, still opaque at (0,0), still different from the checked one.
+	# [b]The 2px border FLOOR.[/b] The generator draws the box at maxi(2, border_width) and the shipped
+	# palette's border_width is 1 — a panel-scale hairline that renders near-invisible on a 20px glyph,
+	# while every assertion above stays green (right size, opaque at (0,0), different from checked).
 	#
-	# Measured off the generator's own rule (`x < line or y < line or …`): at line 2 the pixel at (1,1)
-	# is border, at line 1 it is interior fill. Asserting the SECOND ring rather than a counted run
-	# keeps this a floor check — a palette raising border_width to 3 thickens the border and this still
-	# passes.
+	# Off the generator's own rule (`x < line or y < line or …`): at line 2 the pixel at (1,1) is
+	# border, at line 1 it is interior fill. Asserting the SECOND ring rather than a counted run keeps
+	# this a FLOOR check — a palette raising border_width to 3 thickens the border and still passes.
 	check_eq(palette.border_width, 1,
 		"precondition, and the reason the floor exists: the shipped palette's border_width is the hairline the glyph must not inherit")
 	var floor_icon := theme.get_icon(&"unchecked", &"CheckBox") as Texture2D
@@ -189,9 +182,9 @@ func run_tests() -> void:
 	if box != null:
 		check_eq(box.bg_color, probe, "the new accent actually reached the styled control")
 
-	# --- swapping the palette outright (D4 / ship gate 3) ---
-	# The headline re-skin gesture, and the one that had no reachable code path: the root stayed
-	# subscribed to the palette it no longer displayed, so only edits to the OLD palette did anything.
+	# --- swapping the palette outright ---
+	# The headline re-skin gesture. The root must re-subscribe: staying subscribed to the palette it
+	# no longer displays means only edits to the OLD palette do anything.
 	var swap_probe := Color(0.13, 0.77, 0.41)
 	var alt := config.palette.duplicate(true) as MKPalette
 	alt.accent = swap_probe

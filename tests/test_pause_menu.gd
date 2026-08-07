@@ -1,5 +1,5 @@
 extends MKTest
-## The Phase 6 pause shell: the shipped [MKPauseMenu] page over a real [MKRoot] (plan §5 row 6).
+## The pause shell: the shipped [MKPauseMenu] page over a real [MKRoot].
 ##
 ## [b]Every mechanism here is exercised against the SHIPPED assets at least once[/b] —
 ## [code]mk_pause_menu.tscn[/code] is the page in every fixture, and the button/ladder tests run on
@@ -8,8 +8,8 @@ extends MKTest
 ## game scene has its own suite ([code]test_demo_game.gd[/code]); this one is the addon half.
 ##
 ## [b]Gestures, not widget pokes.[/b] Buttons are activated by focusing them and pushing a real
-## [code]ui_accept[/code] press/release through the viewport (the [code]test_character_select[/code]
-## idiom), and every Escape is a pushed [code]ui_cancel[/code] through
+## [code]ui_accept[/code] press/release through the viewport, and every Escape is a pushed
+## [code]ui_cancel[/code] through
 ## [method Node._unhandled_input] — the precedence ladder is the thing under test, and calling
 ## [method MKRoot.close_pause_menu] directly would prove nothing about it.
 ##
@@ -68,8 +68,8 @@ func run_tests() -> void:
 ##
 ## The shipped adoption path is the subject, so the fixture mounts a real [code]MKSettingsService[/code]
 ## at the path [MKRoot] resolves and then builds TWO shells over it — a main-menu shell and the
-## in-game pause shell, which is literally the Phase 6 configuration (a second [MKRoot] parked inside
-## the game scene). Identity is asserted first because it is the mechanism; the write-through is
+## in-game pause shell (a second [MKRoot] parked inside the game scene), which is the shipped shape.
+## Identity is asserted first because it is the mechanism; the write-through is
 ## asserted second because identity alone would still pass against a shell that reloaded the file
 ## behind the other's back if the two were ever decoupled.
 func _test_one_settings_backend_serves_both_shells() -> void:
@@ -293,8 +293,8 @@ func _test_a_modal_over_pause_never_reaches_the_policy_exit_edge() -> void:
 
 
 ## Counts every edge, and pauses for real, so "the policy was not told" is distinguishable from "the
-## policy was told and did nothing". Its own _exit_tree teardown is the §4.2a contract every custom
-## policy owes; without it this spy would leave the harness's tree paused for the next test.
+## policy was told and did nothing". Its own _exit_tree teardown is the contract every custom policy
+## owes; without it this spy would leave the harness's tree paused for the next test.
 class CountingSpy extends MKPausePolicy:
 	static var enters := 0
 	static var exits := 0
@@ -354,15 +354,14 @@ func _test_resume_button_closes_the_menu() -> void:
 
 
 ## Settings-from-pause is a PUSH, and Escape walks the stack before it considers the resume rung —
-## the ladder order §4.2a/§4.7a states, driven end to end on the SHIPPED default config so the page
-## ids ("pause", "settings") are the shipped ones rather than fixture spellings.
+## the ladder order, driven end to end on the SHIPPED default config so the page ids ("pause",
+## "settings") are the shipped ones rather than fixture spellings.
 ##
 ## [b]The fixture arrives at the pause menu with a NON-EMPTY back stack[/b], because that is the only
 ## state in which [method MKRoot.open_pause_menu]'s clear() means anything: a player who walked into a
 ## sub-panel from the main menu and then started a game (or, in the shipped in-game shape, any host
-## that pushed before showing the shell) leaves a return address behind. An earlier revision of this
-## test opened on a freshly booted shell, where the stack was already empty — the depth assertion
-## below stayed green with the clear() deleted, which is a caption asserting nothing.
+## that pushed before showing the shell) leaves a return address behind. Opening on a freshly booted
+## shell instead makes the depth assertion below hold whether or not the clear() is there.
 func _test_settings_from_pause_pushes_and_escape_walks_back() -> void:
 	var root := _make_shipped_root()
 	await step_frame()
@@ -610,8 +609,8 @@ func _test_escape_on_a_foreign_page_recovers_to_the_pause_page() -> void:
 ## [method MKRoot.close_pause_menu] pops the modal stack, and the host-driven close is the route that
 ## proves it: Resume is pressed on a page that a stacked modal has covered, so the only caller that
 ## can reach this state is the host (or the ladder, which routes through the modal first). Deleting
-## the pop_all() left a measured triple — world frozen, shell hidden by the host, modal stranded on a
-## layer nobody can reach — and every existing assertion stayed green.
+## dropping the pop_all() leaves a triple — world frozen, shell hidden by the host, modal stranded on
+## a layer nobody can reach — that every other assertion in this suite passes over.
 func _test_close_pause_menu_clears_a_stacked_modal() -> void:
 	var root := _make_root(MKTreePausePolicy)
 	await step_frame()
@@ -782,8 +781,8 @@ func _test_diagnostics_carry_the_pause_page_id_and_it_clears_on_close() -> void:
 	check(root.dump_diagnostics().contains("pause_menu_open: false"), "with the flag down")
 
 	# A SECOND registered page id, so the field is measured rather than pattern-matched. With only the
-	# default id ever opened, a dump that FABRICATED the value — printing "pause" whenever the flag is
-	# true — carried the same string as the real field and every assertion above stayed green. The
+	# default id ever opened, a dump that FABRICATES the value — printing "pause" whenever the flag is
+	# true — carries the same string as the real field and satisfies every assertion above. The
 	# fixture's other page is a legitimate pause target: it is registered and it has a scene, which is
 	# all open_pause_menu's pre-check asks for.
 	check(root.open_pause_menu(&"only"), "the shell opens the pause menu under a non-default page id")
@@ -857,7 +856,7 @@ func _test_close_restores_the_nav_bar_the_host_had_hidden() -> void:
 
 ## Quit to Menu unwinds the pause before the backend runs.
 ##
-## The page used to hand the whole unwind to teardown on the argument that
+## The unwind cannot be handed to teardown on the argument that
 ## [method SceneTree.change_scene_to_file] frees everything mid-call. It does not: the scene change is
 ## DEFERRED, so the call returns with the shell alive. And a backend need not change scene at all — an
 ## in-place state machine, a fade — in which case nothing is ever torn down and the world stays paused
@@ -996,10 +995,9 @@ class BackendProvider extends Control:
 		return backend
 
 
-## Pins the continue-past-null half of [code]MKPauseMenu._find_menu_backend[/code]'s walk — the
-## property its comment cites [MKCharacterSelect] for, which round 4 proved undefended here: a
-## first-responder walk (stop at whoever ANSWERS the method) passed the whole suite. The shape it
-## breaks is the documented one: a shell booted with an unassigned menu slot, wrapped by a host
+## Pins the continue-past-null half of [code]MKPauseMenu._find_menu_backend[/code]'s walk: a
+## first-responder walk (stop at whoever ANSWERS the method) satisfies every other test here. The
+## shape it breaks is the documented one: a shell booted with an unassigned menu slot, wrapped by a host
 ## controller that provides the backend — the walk must pass the null-answering MKRoot and reach
 ## the provider, or Quit to Menu warns "no backend" with a backend two levels up.
 ##
@@ -1039,13 +1037,12 @@ func _test_quit_to_menu_walks_past_a_null_answering_ancestor() -> void:
 ## The ANCESTOR-hide direction, and the reason the guard reads is_visible_in_tree() and not the
 ## local flag.
 ##
-## Round 4's surviving mutant: `not is_visible_in_tree()` → `not visible` passed the whole suite,
-## because both existing direction tests drive visibility on the SHELL itself, where the two reads
-## agree. They disagree exactly when a host hides a PARENT of the shell — a UI layer, a cutscene
-## container — which never touches the shell's own flag. Under the mutant that gesture strands the
-## suspension: world paused, cursor free, no surface on screen, the precise failure the hide-close
-## exists to prevent. The distinction is the same one _unhandled_input and _focus_page_content
-## already draw; this pins it on the third site.
+## `is_visible_in_tree()` and `visible` agree whenever visibility is driven on the SHELL itself, which
+## is what the other direction tests do. They disagree exactly when a host hides a PARENT of the shell
+## — a UI layer, a cutscene container — which never touches the shell's own flag, and reading the
+## wrong one there strands the suspension: world paused, cursor free, no surface on screen. The
+## distinction is the same one _unhandled_input and _focus_page_content already draw; this pins the
+## third site.
 func _test_hiding_an_ancestor_closes_the_pause_menu() -> void:
 	var layer := Control.new()
 	layer.name = "HostUiLayer"

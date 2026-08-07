@@ -1,13 +1,8 @@
 extends MKTest
-## InputMap override persistence and application (plan §4.2, §4.4).
+## InputMap override persistence and application — the surface the whole rebind UI is written against.
 ##
-## This half of the settings backend had no coverage at all: reducing `apply_all()` to `pass` AND
-## corrupting the stored `physical_keycode` to 0 — simultaneously — left the suite green. Rebinds
-## are the reason the settings service exists (§4.2 opens with "critically InputMap overrides"), and
-## Phase 4's whole rebind UI is written against this surface.
-##
-## §4.4 makes the storage format a decision, not an implementation detail: keyboard events serialise
-## by [code]physical_keycode[/code] so a rebind made on QWERTY lands on the same physical key for an
+## The storage format is a decision, not an implementation detail: keyboard events serialise by
+## [code]physical_keycode[/code] so a rebind made on QWERTY lands on the same physical key for an
 ## AZERTY user. Changing that later is a CHANGELOG [b]Breaking[/b] entry, so it is pinned here.
 ##
 ## Headless-safe: `InputMap` is a real subsystem under `--headless` (unlike `DisplayServer`), so
@@ -78,9 +73,9 @@ func _test_rebind_round_trip_and_apply() -> void:
 	reloaded.free()
 
 
-## Reset must restore the BOOT snapshot, which is why §4.2 orders snapshot before load. A snapshot
-## taken after the override would capture the user's own binding, and Reset would silently do
-## nothing while appearing to work.
+## Reset must restore the BOOT snapshot, which is why the snapshot is taken before the load. A
+## snapshot taken after the override would capture the user's own binding, and Reset would silently
+## do nothing while appearing to work.
 func _test_reset_to_default_uses_the_boot_snapshot() -> void:
 	_seed_action()
 	var backend := _make_backend()
@@ -101,8 +96,8 @@ func _test_reset_to_default_uses_the_boot_snapshot() -> void:
 	check(not _action_has_physical(ACTION, KEY_J), "and dropped the override")
 	check(not backend.has_action_override(ACTION), "the action no longer reports as overridden")
 
-	# The global reset — the Controls page's recovery button — takes the same restore path. It had no
-	# coverage, so dropping the restore from it alone would have gone unnoticed.
+	# The global reset — the Controls page's recovery button — takes the same restore path, and needs
+	# its own assertion: dropping the restore from it alone passes every check above.
 	var rebound := InputEventKey.new()
 	rebound.physical_keycode = KEY_K
 	backend.set_action_events(ACTION, [rebound])

@@ -1,29 +1,25 @@
 @tool
 class_name MKBrightnessController
 extends CanvasLayer
-## The working brightness implementation behind the Video page's brightness row (plan §4.3).
+## The working brightness implementation behind the Video page's brightness row.
 ##
-## Godot 4.7 has no global or OS gamma control, so "the backend applies brightness" is not a thing
-## that can be written. Demoting the row to a plain host-consumed value (the way FOV is) was
-## rejected for a reason worth restating: FOV needs host-owned state — a camera MenuKit does not
-## have — whereas brightness has a complete engine-level implementation that needs to know nothing
-## about the host's game. A dead slider in a Doom-like is a week-1 support question.
+## Godot has no global or OS gamma control, so brightness cannot be "applied by a backend"; this
+## node implements it at the engine level without knowing anything about the host's game.
 ##
-## [b]Who owns this node.[/b] [code]MKSettingsService[/code] — the autoload — not [MKRoot]. §4.2's
-## whole premise is that a host may boot straight into gameplay without ever instancing a MenuKit
-## scene; a controller owned by a per-scene root would not exist on that path, so the user would
-## calibrate in the menu, start the game, and watch it snap back. [MKRoot] creates one only in the
-## standalone no-service configuration, and that tier is honestly weaker: it dies with its per-scene
-## root, so brightness gaps across scene transitions and reaches gameplay only if the game scene
-## also hosts an [MKRoot]. The autoload is the supported configuration.
+## [b]Who owns this node.[/b] [code]MKSettingsService[/code] — the autoload — not [MKRoot]. A host
+## may boot straight into gameplay without ever instancing a MenuKit scene, and a controller owned by
+## a per-scene root would not exist on that path: the user would calibrate in the menu, start the
+## game, and watch it snap back. [MKRoot] creates one only in the standalone no-service
+## configuration, and that tier is weaker — it dies with its per-scene root, so brightness gaps
+## across scene transitions and reaches gameplay only if the game scene also hosts an [MKRoot]. The
+## autoload is the supported configuration.
 ##
 ## [b]This node is not the floor.[/b] The row writes a plain value through the settings backend
 ## either way, so a host that sets [code]MKConfig.manage_brightness = false[/code] and consumes the
 ## value itself loses nothing. This adds a working default on top of that floor.
 ##
-## [b]A CanvasLayer severs Control theme propagation[/b] (build handoff §4) — which is exactly why
-## the modal layer is not one. It is harmless here: this layer hosts a single unstyled [ColorRect]
-## with a [ShaderMaterial] and no themed control ever lives under it. Do not add one.
+## [b]A CanvasLayer severs Control theme propagation[/b] — harmless here, because this layer hosts a
+## single unstyled [ColorRect] with a [ShaderMaterial]. Never add a themed control under it.
 
 ## Which mechanism applies the brightness value.
 enum Mode {
@@ -33,8 +29,7 @@ enum Mode {
 	## shooter uses.
 	OVERLAY,
 	## Alternative: drives [member Environment.adjustment_enabled] and
-	## [member Environment.adjustment_brightness]. Honest caveats, all inherent to the approach
-	## rather than to this implementation:
+	## [member Environment.adjustment_brightness]. Caveats, all inherent to the approach:
 	## [br]- It drives the [b]active[/b] [Environment]. MenuKit never owns one, so either the host
 	##   names its [WorldEnvironment] through [member world_environment_path] or this walks the
 	##   current viewport's [World3D] — and finds nothing in a 2D or menu-only scene.
@@ -53,9 +48,9 @@ enum Mode {
 ## standalone tier all read it from here rather than each writing the string out.
 const SETTING_ID := &"video/brightness"
 
-## Sane range for the brightness value. Neutral is 1.0 in both modes. The bounds are not taste:
-## below ~0.4 the image is unrecoverable and above ~2.5 it is fully blown out, and a slider that can
-## render a game unplayable has no in-game route back to a readable menu.
+## Sane range for the brightness value. Neutral is 1.0 in both modes. Below ~0.4 the image is
+## unrecoverable and above ~2.5 it is fully blown out — a slider that can render a game unplayable
+## has no in-game route back to a readable menu.
 const MIN_BRIGHTNESS := 0.4
 const MAX_BRIGHTNESS := 2.5
 
@@ -90,16 +85,14 @@ const _GAMMA_PARAM := &"gamma"
 var _brightness := 1.0
 var _overlay: ColorRect
 var _material: ShaderMaterial
-## True once this node has taken over an [Environment]'s adjustment — i.e. written its brightness,
-## with or without having had to enable the flag. Teardown undoes only what it did, and only while
-## this is set: writing over an Environment this node never touched would be a silent visual
-## regression in the host's game.
+## True once this node has written an [Environment]'s adjustment. Teardown undoes only what it did,
+## and only while this is set — writing over an Environment this node never touched would be a
+## silent visual regression in the host's game.
 var _adjustment_owned := false
 var _adjusted_env: Environment
 ## The Environment's own adjustment state at the moment this node took it over, restored on teardown
 ## and on a mode switch. Captured as a PAIR: a host that already had adjustment enabled keeps its
-## flag, but its brightness was being overwritten and never put back, which is the half of this that
-## the "only the flag we set" rule used to miss entirely.
+## flag, and its brightness is put back too.
 var _prior_adjustment_enabled := false
 var _prior_adjustment_brightness := 1.0
 ## One warning per disappearance, not one per slider frame: the latch is cleared again the moment an
@@ -111,24 +104,21 @@ var _env_warned := false
 
 func _init() -> void:
 	layer = OVERLAY_LAYER
-	# The pause menu runs under `get_tree().paused = true` and the brightness row is live-apply, so a
-	# PAUSABLE controller would ignore the slider in exactly the screen where a player calibrates
-	# (plan §4.2a). This node hangs off the settings-service autoload, outside the MKRoot subtree, so
-	# it inherits nothing and must set this itself.
+	# The pause menu runs with the tree paused and the brightness row is live-apply, so a PAUSABLE
+	# controller would ignore the slider in exactly the screen where a player calibrates. This node
+	# hangs off the settings-service autoload, outside the MKRoot subtree, so it inherits nothing.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
 
 ## Applies [param value] as the brightness. 1.0 is neutral in both modes.
 ##
-## Out-of-range values are CLAMPED rather than refused: the caller is usually a stored setting from an
-## older build or a host's own slider, and dropping the write silently would be worse than clamping.
-## A non-finite value is the one exception and IS refused, with a warning — NAN has no in-range value
-## to clamp toward (clampf would propagate it), and writing it into the shader's gamma leaves a black
-## or blank screen that no later in-range write recovers from cleanly.
+## Out-of-range values are CLAMPED rather than refused: the caller is usually a stored setting from
+## an older build or a host's own slider. A non-finite value IS refused, with a warning — NAN has no
+## in-range value to clamp toward (clampf propagates it) and writing it into the shader's gamma
+## leaves a black or blank screen that no later in-range write recovers from.
 ##
 ## In [constant Mode.OVERLAY] a neutral value [b]hides the overlay entirely[/b] instead of drawing a
-## no-op pass. Every player who never touches the slider is on that path, so leaving a fullscreen
-## screen-texture read running for them would make the default configuration the expensive one.
+## no-op pass, so the untouched-slider default costs no fullscreen screen-texture read.
 func set_brightness(value: float) -> void:
 	if not is_finite(value):
 		MKLog.warn("MKBrightnessController.set_brightness: ignoring non-finite value '%s'" % value)
@@ -136,8 +126,8 @@ func set_brightness(value: float) -> void:
 	_brightness = clampf(value, MIN_BRIGHTNESS, MAX_BRIGHTNESS)
 	# @tool guard: the value is remembered, nothing is applied. Building the overlay in the editor
 	# would materialise an unowned child into whatever scene is open, and resolving an Environment
-	# from an inspector edit (the `mode` setter runs there) would warn about a viewport that does not
-	# exist yet.
+	# from an inspector edit (the `mode` setter runs there) would warn about a viewport that does
+	# not exist yet.
 	if Engine.is_editor_hint():
 		return
 	match mode:
@@ -147,8 +137,7 @@ func set_brightness(value: float) -> void:
 			_apply_environment()
 
 
-## The clamped value currently applied. Read by diagnostics and by tests; the settings backend
-## remains the store of record.
+## The clamped value currently applied. The settings backend remains the store of record.
 func get_brightness() -> float:
 	return _brightness
 
@@ -161,9 +150,8 @@ func is_overlay_active() -> bool:
 
 func _exit_tree() -> void:
 	# Undo the Environment write while this node still has a tree reference, and only when this node
-	# is the one that made it. NOTIFICATION_EXIT_TREE propagates children first (build handoff §4),
-	# so anything that reached for a parent or a sibling here would already be too late; the
-	# Environment is a Resource held directly, which is why this teardown is safe at all.
+	# made it. NOTIFICATION_EXIT_TREE propagates children first, so reaching for a parent or sibling
+	# here would be too late; the Environment is a Resource held directly, so this is safe.
 	_release_current_mode()
 
 
@@ -179,11 +167,10 @@ func _apply_overlay() -> void:
 	_overlay.visible = true
 
 
-## Builds the quad on first non-neutral use. Lazily, so a host that never moves the slider never
-## pays for the node — and so constructing this controller headless touches no renderer state.
-## Returns false when the vendored shader could not be loaded, which is a broken install rather than
-## a misconfiguration: it warns and leaves brightness at the documented floor (the value still
-## reaches the host through the backend) instead of taking the boot down.
+## Builds the quad on first non-neutral use — lazily, so a host that never moves the slider never
+## pays for the node, and constructing this controller headless touches no renderer state.
+## Returns false when the vendored shader could not be loaded: that is a broken install, so it warns
+## and leaves brightness a value the host consumes rather than taking the boot down.
 func _ensure_overlay() -> bool:
 	if _overlay != null and is_instance_valid(_overlay):
 		return true
@@ -198,13 +185,11 @@ func _ensure_overlay() -> bool:
 	_overlay = ColorRect.new()
 	_overlay.name = "GammaOverlay"
 	_overlay.material = _material
-	# The shader replaces the pixel with a re-encoded copy of the screen, so the quad's own colour is
-	# never read. White rather than transparent: a modulate of zero alpha would scale COLOR down in
-	# any future variant of the shader that respected it.
+	# The quad's own colour is never read by the shader. White rather than transparent: a zero-alpha
+	# modulate would scale COLOR down in any shader variant that respected it.
 	_overlay.color = Color.WHITE
-	# IGNORE, not STOP: a fullscreen quad above every menu that ate mouse input would make the entire
-	# UI unclickable the moment a player nudged the brightness slider off neutral — a bug that only
-	# appears for users who changed the setting.
+	# IGNORE, not STOP: a fullscreen quad above every menu that ate mouse input would make the whole
+	# UI unclickable as soon as the brightness slider left neutral.
 	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	# The layer resizes with the window, so the quad follows without a resize handler.
@@ -265,12 +250,10 @@ func _release_current_mode() -> void:
 
 ## Puts the Environment back the way this node found it: BOTH halves of the state it took over.
 ##
-## The brightness matters as much as the flag. A host that already ran with adjustment_enabled kept
-## its flag under the old rule and lost its brightness permanently — this node's last slider value
-## simply stayed in the resource, so quitting the menu left the game at the calibration value with
-## nothing on screen to say why. A host that had it OFF gets the flag cleared as before, and the
-## brightness restored too, because a remembered value under a cleared flag costs nothing and leaves
-## the resource byte-identical to how it arrived.
+## The brightness matters as much as the flag. Restoring only the flag would leave a host that ran
+## with adjustment_enabled stuck at this node's last slider value after the menu closes. A host that
+## had it OFF gets the flag cleared and the brightness restored, leaving the resource
+## byte-identical to how it arrived.
 func _release_environment() -> void:
 	if _adjusted_env != null and _adjustment_owned:
 		_adjusted_env.adjustment_brightness = _prior_adjustment_brightness

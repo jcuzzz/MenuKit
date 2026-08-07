@@ -1,22 +1,15 @@
 @tool
 class_name MKModalLayer
 extends Control
-## The modal stack: push/pop, a mouse-blocking scrim, and focus save/restore (plan §1.3).
+## The modal stack: push/pop, a mouse-blocking scrim, and focus save/restore.
 ##
-## This is greenfield, not a port. The source project's [code]ModalLayer[/code] is a fullscreen
-## click-blocker whose real job is group bookkeeping for click-to-move; it has no stack, no dim and
-## no focus management, and the source main menu does not use it at all. Nothing about it was
-## reusable, so the contract here is written from the requirement instead.
-##
-## [b]Why Control and NOT CanvasLayer — do not "fix" this back.[/b] This node was a [CanvasLayer]
-## once, for draw order: a [CanvasLayer] gets its own layer index, so it renders above the page no
-## matter where [code]MKRoot[/code] sits in a host's tree. That reasoning is real but it is
-## outweighed, and the cost is not subtle:
+## [b]Why Control and NOT CanvasLayer — do not "fix" this back.[/b] A [CanvasLayer] would get its own
+## layer index and render above the page regardless of where [code]MKRoot[/code] sits in a host's
+## tree, but the cost is not subtle:
 ## [br]- A [Theme] propagates down the [b]Control[/b] tree only. A [CanvasLayer] is not a [Control],
-##   so it SEVERS propagation. [code]MKRoot[/code] assigns the palette-generated Theme to itself, so
-##   every dialog parented under a CanvasLayer fell back to the engine default theme: grey buttons,
-##   no panel background, and a [constant MKTheme.DANGER_BUTTON] delete button that was not red.
-##   That breaks D4 re-skinning and ship gate 3, which is the entire promise of the package.
+##   so it SEVERS propagation: every dialog under one falls back to the engine default theme — grey
+##   buttons, no panel background, a [constant MKTheme.DANGER_BUTTON] that is not red — which breaks
+##   re-skinning, the entire promise of the package.
 ## [br]- A [Control] under a bare [CanvasLayer] has no parent rect driving its layout, so full-rect
 ##   anchors resolve against nothing and a centred dialog lands in the top-left at its minimum size.
 ##
@@ -31,16 +24,16 @@ extends Control
 ## The layout work happens on an internal fullscreen [Control] host, built in code so the scene and
 ## the script can never drift apart.
 ##
-## [b]Why this node does not read input.[/b] Cancel is a stack discipline (plan §4.4/§4.7a): the
-## precedence ladder is rebind capture → modal stack top → page back stack → root quit-confirm.
-## [code]MKRoot[/code] owns [code]_unhandled_input[/code] and calls [method handle_cancel]; if this
-## node also read [code]ui_cancel[/code] it would consume the gesture out of turn and the ladder
-## would be decided by node order instead of by policy.
+## [b]Why this node does not read input.[/b] Cancel is a stack discipline: the precedence ladder is
+## rebind capture -> modal stack top -> page back stack -> root quit-confirm. [code]MKRoot[/code] owns
+## [code]_unhandled_input[/code] and calls [method handle_cancel]; if this node also read
+## [code]ui_cancel[/code] it would consume the gesture out of turn and the ladder would be decided by
+## node order instead of by policy.
 ##
-## [b]Process mode.[/b] The whole [code]MKRoot[/code] subtree runs [constant Node.PROCESS_MODE_ALWAYS]
-## (plan §4.2a) so the pause menu works under [code]get_tree().paused[/code]. This node deliberately
-## leaves [member Node.process_mode] at [constant Node.PROCESS_MODE_INHERIT] — inherit it, do not
-## fight it.
+## [b]Process mode.[/b] The whole [code]MKRoot[/code] subtree runs
+## [constant Node.PROCESS_MODE_ALWAYS] so the pause menu works under [code]get_tree().paused[/code].
+## This node deliberately leaves [member Node.process_mode] at
+## [constant Node.PROCESS_MODE_INHERIT] — inherit it, do not fight it.
 
 ## Emitted after [param control] is parented and focused. Consumers use it for audio/analytics.
 signal modal_pushed(control: Control)
@@ -54,8 +47,8 @@ signal modal_popped(control: Control)
 signal emptied()
 
 ## Scrim tint. A plain [ColorRect] colour, not a theme override — MenuKit ships zero
-## [code]add_theme_*_override[/code] calls (ship gate 1), and a dim is presentation of this node's
-## own child rather than a restyle of someone else's control.
+## [code]add_theme_*_override[/code] calls, and a dim is presentation of this node's own child rather
+## than a restyle of someone else's control.
 @export var scrim_color := Color(0.0, 0.0, 0.0, 0.6):
 	set(value):
 		scrim_color = value
@@ -86,8 +79,8 @@ var _stack: Array[Control] = []
 ## Parallel to [member _stack]: the focus owner at the moment of each push. Stored as an
 ## [ObjectID]-safe reference and ALWAYS re-checked with [method @GlobalScope.is_instance_valid]
 ## before use — the remembered control is routinely freed while the modal is open (a settings row
-## whose panel rebuilt, a roster entry the modal just deleted). Plan §1.3 names this explicitly.
-## Deliberately untyped: a typed [code]Array[Control][/code] REFUSES to hand back an element whose
+## whose panel rebuilt, a roster entry the modal just deleted).
+## Deliberately untyped:
 ## object has been freed ("Trying to assign invalid previously freed instance"), which is precisely
 ## the case this array exists to survive.
 var _focus_memory: Array = []
@@ -152,7 +145,7 @@ func push_modal(control: Control) -> void:
 ## Pops the top modal, releases its focus trap and restores the focus owner recorded at its push.
 ## Restoration is guarded by [method @GlobalScope.is_instance_valid]: when the remembered control
 ## was freed while the modal was open, focus falls back to the new top modal (if any) and otherwise
-## is simply left alone — never a crash, which is a Phase 1 exit criterion.
+## is simply left alone — never a crash.
 ## The popped control is removed from this layer but NOT freed; ownership returns to whoever pushed
 ## it, so a cached dialog can be reused.
 func pop_modal() -> void:
@@ -213,8 +206,8 @@ func remove_modal(control: Control) -> bool:
 ##
 ## [MKSettingsPanel._resolve_orphaned_countdown] is the caller this exists for: a dialog the layer has
 ## already let go of (a [method pop_all] on a page change) is freed by the panel there and then, while
-## one that is still stacked is handed to [method reap_modal] deferred — because disposing of it
-## synchronously is a stack mutation, and that path may be running inside a teardown.
+## one that is still stacked is handed to [method reap_modal] deferred — disposing of it synchronously
+## is a stack mutation, and that path may be running inside a teardown.
 func has_modal(control: Control) -> bool:
 	return _stack.has(control)
 
@@ -230,8 +223,7 @@ func has_modal(control: Control) -> bool:
 ##   [method Node.queue_free] whose delete cascade reaches this layer. This layer is gone before the
 ##   [code]MessageQueue[/code] next flushes, and Godot drops a deferred call whose target object has
 ##   been freed. So nothing runs, nothing is emitted, and the dialog is freed with this layer's own
-##   subtree. That is measured behaviour, not an assumption: a call deferred onto a node that is
-##   memdeleted before the next flush never arrives.
+##   subtree: a call deferred onto a node memdeleted before the next flush never arrives.
 ## [br]- [b]Only the owner died and this layer outlives it[/b] — the deferred call arrives on a live
 ##   layer, the guard below is false, and the modal is popped for real. A real pop is the REQUIREMENT
 ##   here, not a hazard: the emissions unwind the host's suspend depth and mouse mode, which the push
@@ -244,10 +236,10 @@ func has_modal(control: Control) -> bool:
 ## the deferred call really does arrive — on a layer that is alive but doomed. Emitting there is the
 ## exact mid-teardown pop [method clear_for_teardown] exists to prevent. (Detach-then-queue is NOT
 ## that shape: [code]remove_child(root)[/code] runs [method clear_for_teardown] synchronously inside
-## the detach, so the stack is already empty at reap time — measured, round 6.) Hence the walk:
-## whether this layer, or anything above it, is queued for deletion. It is a walk rather than a check
-## on this node because the queued flag is set on whichever ancestor the host called
-## [method Node.queue_free] on and is not propagated down.
+## the detach, so the stack is already empty at reap time.) Hence the walk: whether this layer, or
+## anything above it, is queued for deletion. It is a walk rather than a check on this node because
+## the queued flag is set on whichever ancestor the host called [method Node.queue_free] on and is
+## not propagated down.
 ##
 ## Tolerant by design: the dialog may already have been popped, or freed, in the frame between the
 ## schedule and the flush (a cancel gesture in that window is declined by the resolved dialog, so the
@@ -282,9 +274,9 @@ func _is_tearing_down() -> bool:
 ## Teardown must not route through the normal pop path. [constant Node.NOTIFICATION_EXIT_TREE]
 ## propagates children first, so when [code]MKRoot._exit_tree[/code] runs, both this layer and the
 ## pause policy are already detached. A real pop there would drive MKRoot's suspend counter to its
-## 1→0 edge and call [code]MKPausePolicy.exit_menu[/code] on a policy whose
-## [method Node.get_tree] is null — crashing the shipped tree policy on exactly the
-## quit-while-paused sequence the plan spent a revision correcting. It would also restore the
+## 1->0 edge and call [code]MKPausePolicy.exit_menu[/code] on a policy whose
+## [method Node.get_tree] is null, crashing the tree policy on the quit-while-paused sequence. It
+## would also restore the
 ## [i]saved[/i] cursor, which was captured from gameplay, leaving the main menu with an invisible
 ## captured cursor.
 ##
@@ -321,8 +313,8 @@ func clear_for_teardown() -> void:
 
 
 ## Pops every modal, newest first, emitting the same signals as individual pops.
-## Page changes must never leave a modal orphaned above the new page (plan §4.7a), and a host
-## closing the menu wholesale needs one call it can trust.
+## Page changes must never leave a modal orphaned above the new page, and a host closing the menu
+## wholesale needs one call it can trust.
 func pop_all() -> void:
 	while not _stack.is_empty():
 		pop_modal()
@@ -396,7 +388,6 @@ func _restore_focus(remembered) -> void:
 		# and an off-tree control holding focus is an invisible keyboard dead end.
 		MKLog.debug("MKModalLayer: focus memory unusable on pop — releasing focus")
 		# Guarded: during teardown this layer is already out of the tree and get_viewport() is null.
-		# Unguarded, every quit-to-menu with a dialog open printed a script error.
 		var viewport := get_viewport()
 		if viewport != null:
 			viewport.gui_release_focus()
@@ -406,12 +397,11 @@ func _restore_focus(remembered) -> void:
 ## Keeps the scrim's visibility, its position in the child order, and this node's own
 ## [member Control.mouse_filter] in step with the stack — one function, so the three can never drift.
 ##
-## [b]The filter MUST be state-driven.[/b] Now that this node is a full-rect [Control] covering the
-## whole shell, a permanent [constant Control.MOUSE_FILTER_STOP] would swallow every click on the
-## page underneath and the menu would look dead — the obvious regression this conversion invites. So
-## it STOPs only while something is stacked and IGNOREs otherwise. The scrim already STOPs on its
-## own (and is hidden, hence non-interactive, when the stack is empty); this is the belt to its
-## braces, and it is what makes the no-modal case explicit rather than incidental.
+## [b]The filter MUST be state-driven.[/b] This node is a full-rect [Control] covering the whole
+## shell, so a permanent [constant Control.MOUSE_FILTER_STOP] would swallow every click on the page
+## underneath and the menu would look dead. It STOPs only while something is stacked and IGNOREs
+## otherwise. The scrim already STOPs on its own (and is hidden when the stack is empty); this makes
+## the no-modal case explicit rather than incidental.
 func _sync_scrim() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP if not _stack.is_empty() \
 		else Control.MOUSE_FILTER_IGNORE

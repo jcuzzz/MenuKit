@@ -3,35 +3,30 @@ class_name MKConfirmDialog
 extends Control
 ## A generic 2–3 button confirm modal pushed onto an [MKModalLayer].
 ##
-## Phase 1 needs it for the root quit-confirm; Phase 5 reuses it for character deletion and Phase 4
-## for rebind conflicts, so it carries NO roster or settings vocabulary — title, body and button
-## texts are arguments. That genericity is the point: a second, near-identical dialog script would
-## be exactly the parallel-code duplication the plan's upgrade story cannot afford.
+## The root quit-confirm, character deletion and rebind conflicts all use it, so it carries NO roster
+## or settings vocabulary — title, body and button texts are arguments. That genericity is the point: a
+## second, near-identical dialog script would be pure duplication.
 ##
-## It is not an [AcceptDialog]/[ConfirmationDialog]. Those are OS-ish [Window]s with their own
-## theming path and their own focus behaviour, neither of which can be driven by [MKTheme] type
-## variations or trapped by [MKModalLayer]. This is a plain [Control] so it stacks, dims, and
-## restyles like every other MenuKit panel.
+## It is not an [AcceptDialog]/[ConfirmationDialog]. Those are OS-ish [Window]s with their own theming
+## path and focus behaviour, neither of which can be driven by [MKTheme] type variations or trapped by
+## [MKModalLayer]. This is a plain [Control] so it stacks, dims, and restyles like every other MenuKit
+## panel.
 ##
-## The whole UI is built in code (plan §1.2's runtime-generation half): the accompanying
-## [code].tscn[/code] is the root node plus this script, so the scene can never drift from the
-## structure the script indexes into.
+## The whole UI is built in code: the accompanying [code].tscn[/code] is the root node plus this
+## script, so the scene can never drift from the structure the script indexes into.
 ##
 ## [b]Default focus follows [method open]'s [param destructive] flag, and it is decided by BUTTON
-## ORDER.[/b] A
-## non-destructive dialog opens with Confirm focused; a destructive one opens with Cancel focused, so
-## an [code]ui_accept[/code] that was already travelling when "Quit to desktop?" or "Delete
-## character?" appeared cannot commit the destructive action.
+## ORDER.[/b] A non-destructive dialog opens with Confirm focused; a destructive one opens with Cancel
+## focused, so an [code]ui_accept[/code] that was already travelling when "Quit to desktop?" or
+## "Delete character?" appeared cannot commit the destructive action.
 ##
-## There are three separate routes that decide where focus lands on a dialog, and only one of them is
-## this script's own [method _ready] grab: [method MKFocus.trap] re-grabs during
-## [method MKModalLayer.push_modal] (after [method _ready] has run), and both
-## [code]MKModalLayer._restore_focus[/code] (a modal stacked ABOVE this one popping) and its
-## focus-pullback re-grab later still. All three take the FIRST focusable in tree order. So the
-## decision is single-sourced as tree order rather than as a grab: [method _build] puts the default
-## button first among the dialog's buttons, and [method get_default_focus_button] names the same rule for
-## the one explicit grab. A dialog that only agreed with itself in [method _ready] would be overridden
-## by the very next trap.
+## Four routes decide where focus lands, and only one is this script's own [method _ready] grab:
+## [method MKFocus.trap] re-grabs during [method MKModalLayer.push_modal] (after [method _ready] has
+## run), and both [code]MKModalLayer._restore_focus[/code] (a modal stacked ABOVE this one popping)
+## and its focus-pullback re-grab later still. All of them take the FIRST focusable in tree order, so
+## the decision is single-sourced AS tree order: [method _build] puts the default button first among
+## the dialog's buttons, and [method get_default_focus_button] names the same rule for the one explicit
+## grab. A dialog that only agreed with itself in [method _ready] would be overridden by the next trap.
 ##
 ## The visible consequence for a destructive dialog is the button row reading Cancel → (alternate) →
 ## Confirm rather than the other way round, which also puts the red button furthest from the one the
@@ -84,10 +79,9 @@ static func open(layer: MKModalLayer, title: String, body: String, confirm_text 
 		dialog._owns_self = true
 		layer.push_modal(dialog)
 	else:
-		# Returning the orphan leaked one Control per call — on the error path of the very method
-		# whose contract promises callers never own cleanup. Nothing can be done with an unparented
-		# dialog anyway, so dispose of it and return null rather than handing back a dead object for
-		# a caller to connect signals to.
+		# Returning the orphan would leak one Control per call, on the error path of the very method whose
+		# contract promises callers never own cleanup. Nothing can be done with an unparented dialog, so
+		# dispose of it and return null.
 		MKLog.error("MKConfirmDialog.open: no MKModalLayer given — nothing to show the dialog on")
 		dialog.free()
 		return null
@@ -99,18 +93,16 @@ func _ready() -> void:
 	# unowned children and save them into whatever instanced it — the hazard MKWelcomePage documents.
 	if Engine.is_editor_hint():
 		return
-	# Anchors AND offsets. set_anchors_preset moves the anchors but leaves the rect at whatever size
-	# the node was constructed with, so the dialog stayed a small box pinned to the top-left and the
-	# CenterContainer below had nothing to centre within. Centring here is pure container work —
-	# never an add_theme_*_override (ship gate 1).
+	# Anchors AND offsets: set_anchors_preset moves the anchors but leaves the rect at whatever size the
+	# node was constructed with, so the dialog would stay a small box pinned to the top-left with the
+	# CenterContainer below having nothing to centre within.
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	# STOP so a click on the dialog body never reaches the scrim or anything behind it.
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_build()
 	# The dialog must be usable keyboard/gamepad-only from the frame it appears, including when nobody
-	# pushed it onto an MKModalLayer (a host parenting it itself gets no trap). _build has already put
-	# the same button first in tree order, so this grab and every later trap/restore/pullback agree —
-	# see the class doc's focus paragraph.
+	# pushed it onto an MKModalLayer (a host parenting it itself gets no trap). _build has already put the
+	# same button first in tree order, so this grab and every later trap/restore/pullback agree.
 	var default_button := get_default_focus_button()
 	if default_button != null:
 		default_button.grab_focus()
@@ -118,17 +110,14 @@ func _ready() -> void:
 		_layer.modal_popped.connect(_on_popped)
 
 
-## [method MKModalLayer.pop_modal] deliberately does not free what it pops, so a host can cache and
-## reuse a dialog. That leaves [method open] — whose result nobody is required to hold — leaking one
-## node per invocation, which the Phase 1 test caught as leaked ObjectDB instances at exit. A dialog
-## that constructed itself owns itself, so it frees itself on pop.
+## Called by [method MKModalLayer.clear_for_teardown]. Teardown emits no
+## [signal MKModalLayer.modal_popped], so a dialog that frees itself on that signal would otherwise
+## leak once the layer also unparents it. Only self-built dialogs dispose here; one a host constructed
+## and pushed is handed back untouched.
 ##
-## The signal carries the popped control, so a dialog stacked under another one ignores that pop and
-## only reacts to its own.
-## Called by [method MKModalLayer.clear_for_teardown]. Teardown emits no [signal
-## MKModalLayer.modal_popped], so a dialog that frees itself on that signal would otherwise leak once
-## the layer also unparents it. Only self-built dialogs dispose here; one a host constructed and
-## pushed is handed back untouched, same as everywhere else.
+## The ownership split: [method MKModalLayer.pop_modal] deliberately does not free what it pops, so a
+## host can cache and reuse a dialog — which leaves [method open], whose result nobody is required to
+## hold, owning its own instance.
 func _mk_layer_teardown() -> void:
 	if _owns_self:
 		queue_free()
@@ -169,9 +158,8 @@ func _build() -> void:
 	frame.custom_minimum_size = Vector2(_MIN_WIDTH, 0.0)
 	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	# MKPanel is what draws the dialog's background and border. Without it the body sat directly on
-	# the scrim — the visible half of the theme-propagation defect this class doc's layer counterpart
-	# describes.
+	# MKPanel is what draws the dialog's background and border; without it the body sits directly on the
+	# scrim.
 	MKTheme.set_variation(frame, MKTheme.PANEL)
 	centre.add_child(frame)
 
@@ -225,13 +213,12 @@ func _build() -> void:
 	MKTheme.set_variation(_cancel_button, MKTheme.PANEL_BUTTON)
 	_cancel_button.pressed.connect(_on_cancel)
 
-	# ORDER IS THE FOCUS DECISION, not a layout preference: every focus route into this dialog takes
-	# the first focusable in tree order (class doc), and an HBoxContainer's child order is also what the
+	# ORDER IS THE FOCUS DECISION, not a layout preference: every focus route into this dialog takes the
+	# first focusable in tree order (class doc), and an HBoxContainer's child order is also what the
 	# player sees left-to-right. Destructive therefore parents Cancel first — the default-focus rule and
-	# the visual row are the same single fact, so neither can be changed without the other following.
-	# Built as a typed local rather than an inline literal, for the reason the footer chain in
-	# MKCharacterSelect._build records: an untyped Array is refused at runtime by link_chain's
-	# Array[Control] parameter.
+	# the visual row are one fact, so neither can change without the other following.
+	# Built as a typed local rather than an inline literal: an untyped Array is refused at runtime by
+	# link_chain's Array[Control] parameter.
 	var row: Array[Control] = [get_default_focus_button()]
 	if _alt_button != null:
 		row.append(_alt_button)
@@ -249,9 +236,8 @@ func _build() -> void:
 ##
 ## Null only before [method _build] has run (i.e. before the dialog entered the tree). A destructive
 ## dialog whose Cancel button a host later DISABLES loses the guarantee at the trap seam rather than
-## here: [method MKFocus.collect_focusables] skips disabled buttons, so the ring would then start on
-## Confirm. No shipped path disables Cancel, and a dialog whose decline is unavailable has bigger
-## problems than its focus.
+## here: [method MKFocus.collect_focusables] skips disabled buttons, so the ring would start on
+## Confirm. No shipped path disables Cancel.
 func get_default_focus_button() -> Button:
 	return _cancel_button if _destructive and _cancel_button != null else _confirm_button
 
@@ -263,7 +249,7 @@ func get_confirm_button() -> Button:
 
 
 ## Returns the cancel button. Exposed for the same reason as [method get_confirm_button], and
-## because the rebind row's abort rule hit-tests the Cancel rect (plan §4.4).
+## because the rebind row's abort rule hit-tests the Cancel rect.
 func get_cancel_button() -> Button:
 	return _cancel_button
 
@@ -300,9 +286,8 @@ func _on_alternate() -> void:
 
 
 ## Removes the dialog from the stack. Freeing is deliberately NOT done here: ownership is decided in
-## exactly one place, [method _on_popped], which frees only what [method open] built. A second
-## unconditional free here would also destroy a dialog a host constructed and intends to reuse,
-## contradicting the ownership split this class documents.
+## exactly one place, [method _on_popped], which frees only what [method open] built. An unconditional
+## free here would also destroy a dialog a host constructed and intends to reuse.
 func _close() -> void:
 	# Always ask the layer to do the removal, even when this dialog is not on top. Reparenting
 	# ourselves out from under it would leave a stale entry in its stack, and from then on the layer

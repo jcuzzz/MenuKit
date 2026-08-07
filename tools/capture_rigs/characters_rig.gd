@@ -1,36 +1,34 @@
 extends RefCounted
-## Capture rig: navigates the shell to the Characters page (Phase 5), optionally seeds the roster and
+## Capture rig: navigates the shell to the Characters page, optionally seeds the roster and
 ## optionally pushes on to the creation wizard, so the runtime-built select panel and creation host
-## can be eyeballed — their failure modes (an unstyled card, a dead grid, a collapsed step footer) are
-## visual by construction, same argument as the settings rig.
+## can be eyeballed — their failure modes (an unstyled card, a dead grid, a collapsed step footer)
+## are visual by construction.
 ##
 ## MK_CAPTURE_SEED=<n>  creates n throwaway profiles through the demo's real profile backend before
 ##                      the shot, CAPPED AT 5 — the rig carries five authored names and seeds
-##                      mini(n, 5), so a larger number is silently the same picture as 5. The
-##                      isolation that makes this safe lives in the WRAPPER
-##                      (tools/capture_scene.ps1 redirects APPDATA into .agent_tmp for the child
-##                      engine, the same mechanism check.ps1 uses for the test sweep) — this script
-##                      writes through the ordinary backend and knows nothing about where user://
-##                      resolves. Absent/0 = the empty-roster state, which is itself a Phase 5
-##                      deliverable worth a picture.
+##                      mini(n, 5), so a larger number is the same picture as 5. The isolation that
+##                      makes this safe lives in the WRAPPER (tools/capture_scene.ps1 redirects
+##                      APPDATA into .agent_tmp for the child engine); this script writes through
+##                      the ordinary backend and knows nothing about where user:// resolves.
+##                      Absent/0 = the empty-roster state.
 ## MK_CAPTURE_CREATE=<n> non-empty pushes the character_create page after seeding, so the shot is the
 ##                      creation host; a NUMERIC value additionally advances Next that many times, to
 ##                      reach later steps. Any non-numeric value is accepted and ignored beyond the
 ##                      push — there is no step-id form, deliberately: reaching a step by id would mean
 ##                      committing every step before it with values the rig would have to invent.
 ##
-## [b]Advancing needs a valid step 1.[/b] The first step is the name field and its Next is disabled
-## until the name validates, so a rig that only pressed Next never left step 1 and every
-## MK_CAPTURE_CREATE=n shot was the same picture. The rig therefore types a name FIRST — and emits
-## text_changed itself, because assigning LineEdit.text emits nothing (the same trap as
-## OptionButton.select) so the step would never re-poll its validity. Presses are then spaced on
-## timers rather than run in a loop: each step builds its widgets on being shown, and the host
-## re-gates Next off the newly visible step, so a same-frame second press reads the previous step's
-## button state.
+## [b]Advancing needs a valid step 1.[/b] The first step is the name field and its Next stays
+## disabled until the name validates, so the rig types a name FIRST — and emits text_changed itself,
+## because assigning LineEdit.text emits nothing and the step would never re-poll its validity.
+## Presses are then spaced on timers rather than run in a loop: each step builds its widgets on being
+## shown, and the host re-gates Next off the newly visible step, so a same-frame second press reads
+## the previous step's button state.
 
-## Long enough for the whole advance chain to finish before the shot: the timers above run 0.2s to
-## find the host plus 0.15s per press, so a three-step advance needs ~0.65s of frames. 120 frames at
-## the capture's tick rate covers it with room, and an over-long wait costs only capture seconds.
+## Long enough for the whole advance chain to finish before the shot: the timers below run 0.2s to
+## find the host plus 0.15s per press, so a three-step advance needs ~0.65s. Frames, not seconds —
+## this count only means "~0.65s" at an assumed refresh rate, so it must be sized for the FASTEST
+## common display (a 60 Hz-sized wait under-waits on a 144/165 Hz panel and photographs an earlier
+## step). An over-long wait costs only capture seconds.
 func wait_frames() -> int:
 	return 120
 

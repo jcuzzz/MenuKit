@@ -2,25 +2,23 @@
 extends EditorPlugin
 ## Editor-side registration for MenuKit.
 ##
-## Owns four things a host would otherwise have to do by hand — the plan's position is that the
-## delivery mechanism for integration should be the plugin itself, not a step buried in docs:
-## [br]1. The [code]MKRoot[/code] custom type, so the shell is a Create-Node entry.
-## [br]2. The [code]menu_kit/config_path[/code] project setting, which is how the
+## Enabling the plugin registers everything a host would otherwise wire by hand:
+## [br]- The [code]menu_kit/config_path[/code] project setting, which is how the
 ##    [code]MKSettingsService[/code] autoload finds its config — an autoload cannot see a
 ##    scene-assigned [code]MKConfig[/code].
-## [br]3. The [code]MKSettingsService[/code] autoload itself, so persisted settings and rebinds apply
-##    on a host that boots straight into gameplay without ever instancing a MenuKit scene (plan
-##    §4.2). Hosts that refuse third-party autoloads disable it in Project Settings and take the
-##    documented manual path.
-## [br]4. A tool menu entry that bakes the palette-generated [Theme] to disk for editor preview.
+## [br]- The [code]MKSettingsService[/code] autoload, so persisted settings and rebinds apply on a
+##    host that boots straight into gameplay without ever instancing a MenuKit scene. Hosts that
+##    refuse third-party autoloads disable it in Project Settings and take the documented manual
+##    path.
+## [br]- A tool menu entry that bakes the palette-generated [Theme] to disk for editor preview.
 ##    Runtime never needs the bake; [code]MKRoot[/code] generates the same Theme at
 ##    [method Node._ready], so a cold drop is styled with zero manual steps.
 
-## The autoload is REGISTERED under the same name the runtime RESOLVES it by, derived from
+## Registered under the same name the runtime RESOLVES it by, derived from
 ## [constant MKConfig.SETTINGS_SERVICE_NAME] rather than spelled again here. Registering under a name
-## nothing looks for is the worst form of the drift that constant describes: every lookup falls back
-## to its no-autoload path, and the host silently runs two settings backends over one JSON file and
-## two brightness controllers over one screen, with no error anywhere.
+## nothing looks for fails silently: every lookup falls back to its no-autoload path, and the host
+## runs two settings backends over one JSON file and two brightness controllers over one screen,
+## with no error anywhere.
 const SETTINGS_SERVICE_NAME := MKConfig.SETTINGS_SERVICE_NAME
 const SETTINGS_SERVICE_SCRIPT := "res://addons/menu_kit/core/mk_settings_service.gd"
 const CONFIG_PATH_SETTING := "menu_kit/config_path"
@@ -29,34 +27,26 @@ const BAKE_MENU_ITEM := "Bake MenuKit Theme"
 const BAKED_THEME_PATH := "res://addons/menu_kit/themes/generated_theme.tres"
 const DEFAULT_PALETTE_PATH := "res://addons/menu_kit/themes/default_palette.tres"
 
-## No [code]add_custom_type[/code] call: [code]class_name MKRoot[/code] already registers the type
-## globally, so adding it again would duplicate the Create-Node entry — and the custom-type entry
-## hands out a bare scripted [Control], not [code]mk_root.tscn[/code], which is the thing hosts
-## actually want to instance. [code]INTEGRATION.md[/code] says "instance
-## [code]addons/menu_kit/core/mk_root.tscn[/code]" for that reason.
+## Deliberately no [code]add_custom_type[/code] call: [code]class_name MKRoot[/code] already
+## registers the type globally, and the custom-type entry would hand out a bare scripted [Control]
+## rather than [code]mk_root.tscn[/code], which is what hosts actually want to instance.
 func _enter_tree() -> void:
 	_register_config_path_setting()
-	# Unlike the project setting above, this needs no ProjectSettings.save() — the editor persists
-	# autoloads itself. Do not add one assuming symmetry.
 	add_autoload_singleton(SETTINGS_SERVICE_NAME, SETTINGS_SERVICE_SCRIPT)
 	add_tool_menu_item(BAKE_MENU_ITEM, _bake_theme)
 
 
 func _exit_tree() -> void:
 	remove_tool_menu_item(BAKE_MENU_ITEM)
-	# Removed on disable, unlike the project setting: an autoload left behind would keep loading a
-	# script from a plugin the host has turned off. The setting is a host's own choice of config
-	# path and is deliberately left in place — removing it would discard a repointed path on a
-	# disable/enable cycle.
+	# The autoload goes; the project setting deliberately stays — it is the host's own choice of
+	# config path, and removing it would discard a repointed path on a disable/enable cycle.
 	remove_autoload_singleton(SETTINGS_SERVICE_NAME)
 
 
-## Writes the config-path setting, with two details that are silent-failure traps rather than
-## preferences:
-## [br]- [method ProjectSettings.set_setting] mutates the in-memory map only, so without an explicit
+## Writes the config-path setting. Two silent-failure traps, not preferences:
+## [br]- [method ProjectSettings.set_setting] mutates the in-memory map only; without an explicit
 ##   [method ProjectSettings.save] the key evaporates on the next editor launch and the service
-##   silently falls back to the default path — a bug whose signature only appears on the
-##   [i]second[/i] run.
+##   falls back to the default path.
 ## [br]- The key is written [b]only when unset[/b], or re-enabling the plugin stomps a host that
 ##   repointed it.
 ##
@@ -66,12 +56,9 @@ func _register_config_path_setting() -> void:
 	if ProjectSettings.has_setting(CONFIG_PATH_SETTING):
 		return
 	ProjectSettings.set_setting(CONFIG_PATH_SETTING, DEFAULT_CONFIG_PATH)
-	# The initial value must DIFFER from the value being written. Godot omits from project.godot any
-	# setting whose current value equals its initial value, so setting both to the same path made
-	# save() a silent no-op: the key never reached disk, has_setting() stayed false on every launch,
-	# and the settings-service autoload — which is specified to find its config through this key —
-	# would always fall back to the default. An empty initial value means "the host has not chosen
-	# one", which is what the default actually represents.
+	# The initial value must DIFFER from the value being written: Godot omits from project.godot any
+	# setting whose current value equals its initial value, which makes save() a silent no-op. Empty
+	# means "the host has not chosen one", which is what the default actually represents.
 	ProjectSettings.set_initial_value(CONFIG_PATH_SETTING, "")
 	ProjectSettings.add_property_info({
 		"name": CONFIG_PATH_SETTING,
@@ -84,9 +71,9 @@ func _register_config_path_setting() -> void:
 		MKLog.error("failed to persist %s (error %d)" % [CONFIG_PATH_SETTING, err])
 
 
-## Bakes the default palette's Theme to disk purely for editor preview, so panel scenes are not
-## unstyled while authoring them. The artifact is gitignored and its absence changes nothing at
-## runtime — it is never the source of truth.
+## Bakes the default palette's Theme to disk for editor preview, so panel scenes are not unstyled
+## while authoring them. The artifact is gitignored and its absence changes nothing at runtime — it
+## is never the source of truth.
 func _bake_theme() -> void:
 	var palette := ResourceLoader.load(DEFAULT_PALETTE_PATH) as MKPalette
 	if palette == null:

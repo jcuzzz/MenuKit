@@ -2,9 +2,8 @@ extends RefCounted
 ## Capture rig: opens a confirm dialog over the shell so the scrim, dialog layout, and destructive
 ## styling can be eyeballed.
 ##
-## The modal stack is the one Phase 1 deliverable whose failure mode is entirely visual — a scrim
-## that does not cover, a dialog that renders behind the page, or a focus ring that never appears
-## all pass every headless assertion in the suite.
+## The modal stack's failure modes are entirely visual — a scrim that does not cover, a dialog that
+## renders behind the page, or a focus ring that never appears all pass every headless assertion.
 
 func wait_frames() -> int:
 	return 20

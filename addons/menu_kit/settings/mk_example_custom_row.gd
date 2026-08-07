@@ -1,14 +1,12 @@
 @tool
 class_name MKExampleCustomRow
 extends HBoxContainer
-## The shipped [constant MKSettingDef.RowType.CUSTOM] example — documentation by code (plan §3.1,
-## §4.3).
+## The shipped [constant MKSettingDef.RowType.CUSTOM] example — documentation by code.
 ##
-## [constant MKSettingDef.RowType.CUSTOM] is the escape hatch for the closed row-type enum: when a
-## host needs a control MenuKit does not ship (a colour picker, a three-way segmented switch, a
-## calibration widget), it authors a scene and points a [MKSettingDef] at it. This is the smallest
-## complete implementation of that contract, and the Gameplay page carries a live instance of it so
-## the path is exercised by the shipped defaults rather than only described in a document.
+## CUSTOM is the escape hatch for the closed row-type enum: when a host needs a control MenuKit does
+## not ship (a colour picker, a segmented switch, a calibration widget), it authors a scene and points
+## a [MKSettingDef] at it. This is the smallest complete implementation of that contract, and the
+## shipped Gameplay page carries a live instance so the path is exercised, not merely described.
 ##
 ## [b]The whole contract is one method[/b], called by [MKSettingsPanel] immediately after
 ## instantiation:
@@ -28,13 +26,11 @@ extends HBoxContainer
 ##   so a custom row cannot make every other setting re-apply.
 ## [br]- [b]Subscribe to [signal MKSettingsBackend.setting_changed] if you want to stay live.[/b]
 ##   [MKSettingsPanel] re-syncs the rows IT built; it cannot write a widget it has never seen, so a
-##   CUSTOM row owns that end of the relationship. Without this, a host writing the same id — a revert,
-##   a load, a "reset to defaults" button — moves the store while this control keeps showing the old
-##   number, which is the "the setting didn't take" bug in its purest form.
+##   CUSTOM row owns that end. Without this, a host writing the same id — a revert, a load, a "reset
+##   to defaults" button — moves the store while this control keeps showing the old number.
 ##
 ## Styling uses theme type variations only — MenuKit ships zero [code]add_theme_*_override[/code]
-## calls (plan §1.2, ship gate 1), and that rule binds host-facing examples as much as core panels,
-## because an example is the thing people copy.
+## calls, and that rule binds host-facing examples as much as core panels.
 
 var _backend: MKSettingsBackend
 var _def: MKSettingDef
@@ -42,7 +38,7 @@ var _label: Label
 var _spin: SpinBox
 ## True while this row is writing its own control FROM the store, so the resulting
 ## [signal Range.value_changed] is not mistaken for the user turning the dial and written straight
-## back. The panel's own rows carry the identical guard for the identical reason.
+## back. The panel's own rows carry the identical guard.
 var _syncing := false
 
 
@@ -112,7 +108,6 @@ func _on_value_changed(value: float) -> void:
 	if _syncing or _backend == null or _def == null:
 		return
 	_backend.set_value(_def.id, value)
-	# Plain ids are no-ops in apply_one — the host consumes them (plan §4.3). Calling it anyway is
-	# deliberate: a custom row must not need to know whether its id happens to be reserved, and the
-	# copy-paste target for the next host's row should carry the complete gesture.
+	# Plain ids are no-ops in apply_one — the host consumes them — but it is called anyway: a custom
+	# row must not need to know whether its id happens to be reserved.
 	_backend.apply_one(_def.id)

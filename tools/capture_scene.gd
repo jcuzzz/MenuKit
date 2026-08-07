@@ -3,7 +3,9 @@ extends SceneTree
 # Visual capture harness — renders ONE scene for a fixed number of frames and saves the
 # viewport to PNG so an agent (or human) can inspect layout without launching the full game.
 # Invoked by tools/capture_scene.ps1; do not run under --headless (needs a real renderer).
-# Ruleset + rig contract: docs/tooling/visual_capture.md.
+#
+# A rig may only RAISE the frame count (maxi below), never cap it: rig waits are refresh-rate
+# arithmetic, so a rig that knows it needs N frames must not be shortened by the caller.
 #
 # User args (after `--`), key=value:
 #   scene=res://path/to.tscn   (required)

@@ -1,11 +1,11 @@
 @tool
 class_name MKPauseMenu
 extends Control
-## The in-game pause page: Resume, Settings, Quit to Menu (plan §3.1, §5 row 6).
+## The in-game pause page: Resume, Settings, Quit to Menu.
 ##
 ## [b]It is a page, not a shell.[/b] [method MKRoot.open_pause_menu] navigates the page host to it,
 ## so this panel never touches [member SceneTree.paused], the mouse mode, or the suspend counter —
-## all three belong to [MKRoot] and its [MKPausePolicy] (plan §4.2a). Resume calls
+## all three belong to [MKRoot] and its [MKPausePolicy]. Resume calls
 ## [method MKRoot.close_pause_menu] and nothing else, which is what keeps the policy edge, the
 ## cursor restore and the page state unwinding in one order in one place.
 ##
@@ -15,21 +15,19 @@ extends Control
 ## export's own doc for why a PAUSABLE control's buttons are input-dead under a tree pause. Writing
 ## a process mode here would silently defeat a host that deliberately configured a different one.
 ##
-## [b]The whole UI is built in code[/b] (plan §1.2): the accompanying [code].tscn[/code] is the root
-## node plus this script, so the scene cannot drift from the structure this script indexes into —
-## the same rule [MKCharacterSelect] and [MKConfirmDialog] document.
+## [b]The whole UI is built in code[/b]: the accompanying [code].tscn[/code] is the root node plus this
+## script, so the scene cannot drift from the structure this script indexes into — the same rule
+## [MKCharacterSelect] and [MKConfirmDialog] document.
 ##
-## [b]Styling is type variations only[/b] — zero [code]add_theme_*_override[/code] calls (ship gate
-## 1), so a palette swap re-skins this page like every other.
+## [b]Styling is type variations only[/b] — zero [code]add_theme_*_override[/code] calls, so a palette
+## swap re-skins this page like every other.
 
-## The page id [method _on_settings_pressed] pushes. Named here rather than spelled at the call site
-## for the reason [constant MKCharacterSelect.CREATE_PAGE_ID] is: a host repointing the settings page
-## edits one constant, and both shipped configs (addon and demo) author a page under exactly this id.
+## The page id [method _on_settings_pressed] pushes. Named here rather than at the call site so a host
+## repointing the settings page edits one constant.
 const SETTINGS_PAGE_ID := &"settings"
 
-## Width floor for the button column, so three short labels do not collapse into a thin strip. A
-## layout rhythm, not a palette value — the distinction [constant
-## MKCharacterSelect._CARD_COLUMN_WIDTH] draws.
+## Width floor for the button column, so three short labels do not collapse into a thin strip. A layout
+## rhythm, not a palette value.
 const _COLUMN_WIDTH := 360.0
 
 var _menu_backend: MKMenuBackend
@@ -108,11 +106,10 @@ func _build() -> void:
 	_quit_button.pressed.connect(_on_quit_pressed)
 	column.add_child(_quit_button)
 
-	# Built as a typed local rather than an inline literal, for the reason MKConfirmDialog._build
-	# records: an untyped Array is refused at runtime by link_chain's Array[Control] parameter.
-	# Vertical chain, wrapping, because the buttons are stacked in a VBoxContainer. Nothing here is
-	# ever disabled, so — unlike MKCharacterSelect's footer — there is no ordering constraint between
-	# a disabled-flag pass and this call.
+	# Built as a typed local rather than an inline literal: an untyped Array is refused at runtime by
+	# link_chain's Array[Control] parameter. Vertical chain, wrapping, because the buttons are stacked in
+	# a VBoxContainer. Nothing here is ever disabled, so — unlike MKCharacterSelect's footer — there is
+	# no ordering constraint between a disabled-flag pass and this call.
 	var buttons: Array[Control] = [_resume_button, _settings_button, _quit_button]
 	MKFocus.link_chain(buttons)
 	# No grab_focus here: MKRoot._focus_page_content runs deferred after every page change and focuses
@@ -149,24 +146,19 @@ func _on_quit_pressed() -> void:
 			_warned_no_menu_backend = true
 			MKLog.warn("MKPauseMenu: Quit to Menu pressed but no MKMenuBackend is reachable — assign MKConfig.menu_backend")
 		return
-	# No confirmation dialog: quit-to-menu is not quit-to-desktop, and the plan's §5 row 6 asks for
-	# three buttons and no prompt. A host wanting one wraps the backend, which is where the question
-	# "is there unsaved progress?" can actually be answered.
+	# No confirmation dialog: quit-to-menu is not quit-to-desktop. A host wanting one wraps the backend,
+	# which is where "is there unsaved progress?" can actually be answered.
 	#
-	# Close FIRST, then quit. Two facts make that the order, and both contradict this comment's
-	# previous claim that the backend frees everything mid-call:
-	# - SceneTree.change_scene_to_file is DEFERRED. The shipped MKSceneMenuBackend returns with this
-	#   page and the MKRoot above it still alive, and the swap happens at the end of the frame — so
-	#   there is no mid-call free to be careful around, and the close below runs on a live shell.
+	# Close FIRST, then quit. Two facts make that the order:
+	# - SceneTree.change_scene_to_file is DEFERRED. The shipped MKSceneMenuBackend returns with this page
+	#   and the MKRoot above it still alive, and the swap happens at the end of the frame — so there is
+	#   no mid-call free to be careful around, and the close below runs on a live shell.
 	# - A backend need not change scene at all. A host whose to_main_menu re-uses the current scene (an
-	#   in-place state machine, a fade) never triggers MKRoot._exit_tree, and leaning on teardown left
-	#   that host with a paused world, a free cursor and a suspension counter nobody would unwind.
-	# Closing first is therefore better in both configurations: with the shipped backend the closed
-	# state is freed a frame later either way, and with a custom one it is the ONLY unwind.
+	#   in-place state machine, a fade) never triggers MKRoot._exit_tree, so leaning on teardown would
+	#   leave it with a paused world, a free cursor and a suspension counter nobody unwinds.
 	#
-	# Duck-typed and null-tolerant for the same reason Resume's lookup is: a host may wrap the shell.
-	# A missing ancestor is not worth a warning here — the quit still happens, which is the gesture the
-	# player asked for.
+	# Duck-typed and null-tolerant, like Resume's lookup: a host may wrap the shell. A missing ancestor
+	# is not worth a warning — the quit still happens, which is the gesture the player asked for.
 	var root := _find_ancestor_with("close_pause_menu")
 	if root != null:
 		root.call("close_pause_menu")
@@ -175,10 +167,9 @@ func _on_quit_pressed() -> void:
 
 # --- Ancestor lookups ---------------------------------------------------------
 
-## The duck-typed parent walk MenuKit resolves shell services with, verbatim from
-## [code]MKCharacterSelect._find_ancestor_with[/code]. Duck-typed rather than typed to [MKRoot]
-## because a host may wrap the shell, or embed this panel under its own controller that forwards the
-## call; a typed cast would refuse exactly that.
+## The duck-typed parent walk MenuKit resolves shell services with. Duck-typed rather than typed to
+## [MKRoot] because a host may wrap the shell, or embed this panel under its own controller that
+## forwards the call; a typed cast would refuse exactly that.
 func _find_ancestor_with(method: String) -> Node:
 	var node := get_parent()
 	while node != null:
@@ -188,9 +179,9 @@ func _find_ancestor_with(method: String) -> Node:
 	return null
 
 
-## Kept separate from [method _find_ancestor_with] for the reason [MKCharacterSelect] records: an
-## ancestor may ANSWER the method and still return null (a shell booted with an unassigned slot), and
-## the walk must continue past it rather than stop at the first responder.
+## Kept separate from [method _find_ancestor_with]: an ancestor may ANSWER the method and still return
+## null (a shell booted with an unassigned slot), and the walk must continue past it rather than stop
+## at the first responder.
 func _find_menu_backend() -> MKMenuBackend:
 	var node := get_parent()
 	while node != null:

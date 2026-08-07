@@ -1,13 +1,11 @@
 extends Node
-## The optional autoload that owns the one live [MKSettingsBackend] and applies settings at boot
-## (plan §4.2).
+## The optional autoload that owns the one live [MKSettingsBackend] and applies settings at boot.
 ##
 ## [b]This script deliberately has NO [code]class_name[/code].[/b] Godot forbids a global class name
 ## that matches an autoload singleton name, and this script is registered as the autoload
-## [code]MKSettingsService[/code]. Declaring both made the script fail to parse at every boot —
-## "Class ... hides an autoload singleton" — so the autoload never instantiated and §4.2's entire
-## mechanism was absent from every real host, while the headless tests (which mount the node
-## directly, with no autoload registered) stayed green. [MKRoot] resolves this node duck-typed via
+## [code]MKSettingsService[/code]. Declaring both makes the script fail to parse at every boot
+## ("Class ... hides an autoload singleton"), so the autoload never instantiates — and headless tests
+## that mount the node directly would not notice. [MKRoot] resolves this node duck-typed via
 ## [method Node.get_node_or_null] plus [method Object.has_method], so nothing needs the type.
 ##
 ## [b]Why an autoload exists at all.[/b] Persisted settings — critically [InputMap] overrides — must
@@ -25,16 +23,16 @@ extends Node
 ## the rebinds must. This node owns that controller, and [MKRoot] adopts it rather than building a
 ## second one.
 ##
-## [b]It is optional[/b] (decision D3). A host that refuses third-party autoloads disables it in
-## Project Settings and makes the same three calls from its main scene [method Node._ready];
-## [code]INTEGRATION.md[/code] documents that as a supported path, and it is tested rather than only
-## documented. What is not supported is skipping it and expecting rebinds to apply.
+## [b]It is optional.[/b] A host that refuses third-party autoloads disables it in Project Settings
+## and makes the same three calls from its main scene [method Node._ready];
+## [code]INTEGRATION.md[/code] documents that as a supported path. What is not supported is skipping
+## it and expecting rebinds to apply.
 ##
 ## [b]It also resolves the single-instance rule.[/b] Two settings backends over one JSON file means
-## the D14 revert countdown snapshots one while a panel writes the other, and last-[method
-## MKSettingsBackend.save] silently wins. [MKRoot] therefore checks for this node and adopts
-## [method get_settings_backend] rather than building its own — see
-## [code]MKRoot._resolve_settings_backend[/code]. The method name is the contract; do not rename it.
+## the revert countdown snapshots one while a panel writes the other, and the last
+## [method MKSettingsBackend.save] silently wins. [MKRoot] therefore checks for this node and adopts
+## [method get_settings_backend] rather than building its own. The method name is the contract; do
+## not rename it.
 ##
 ## An autoload cannot see a scene-assigned [MKConfig], so it resolves its own from the
 ## [code]menu_kit/config_path[/code] project setting, which [code]plugin.gd[/code] writes on enable.
@@ -54,8 +52,7 @@ const BRIGHTNESS_SETTING := MKBrightnessController.SETTING_ID
 ## [b]A testing seam, not a host feature.[/b] Registering a real autoload needs an editor session, so
 ## a headless test cannot reach this class through the shipped path; assigning this before the node
 ## enters the tree supplies the slot directly and skips config resolution entirely. Everything after
-## that — call order, process mode, [method get_settings_backend] — is identical on both routes, so
-## what the tests exercise is the real behaviour and only the slot's origin differs.
+## that — call order, process mode, [method get_settings_backend] — is identical on both routes.
 ##
 ## A host wanting a different backend repoints [code]menu_kit/config_path[/code] at its own
 ## [MKConfig] instead; that is the supported gesture and this field is not part of it.
@@ -72,19 +69,17 @@ var _brightness: MKBrightnessController
 ## config path must not take a host's game down at launch, and an autoload that throws is the worst
 ## possible place to learn about a typo.
 func _ready() -> void:
-	# The pause menu runs under `get_tree().paused = true`, and a paused backend cannot apply the
-	# display change a D14 countdown is waiting to revert (plan §4.2a). This node lives outside the
-	# MKRoot subtree, so it inherits nothing and must set it itself.
+	# The pause menu runs with the tree paused, and a paused backend cannot apply the display change
+	# a revert countdown is waiting on. This node lives outside the MKRoot subtree, so it inherits
+	# nothing and must set this itself.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
 	var slot := override_backend_slot
 	if slot == null or not slot.is_assigned():
 		slot = _resolve_slot_from_config()
 	if slot == null or not slot.is_assigned():
-		# Not a warning: an unassigned settings slot is valid config. The shipped
-		# `default_config.tres` does assign one, but a host that repoints `menu_kit/config_path` at
-		# a config of its own may legitimately leave it empty, and ship gate 2 demands zero warnings
-		# out of the box.
+		# Not a warning: an unassigned settings slot is valid config, and a cold drop must stay
+		# warning-free.
 		MKLog.debug("no settings backend configured — MKSettingsService is inert")
 		return
 
@@ -102,17 +97,15 @@ func _ready() -> void:
 
 ## Flushes the store this node owns. [b]This is what makes settings survive a relaunch.[/b]
 ##
-## [method MKSettingsBackend.save] had no production caller anywhere: every panel write reached
-## [method MKSettingsBackend.set_value], the value applied immediately and lived in memory, and the
-## process then ended without ever writing the file. The symptom is the one §4.2's whole
-## single-instance argument is about — "my settings don't stick" — with no bad handle to blame.
+## Without this flush, every panel write would reach [method MKSettingsBackend.set_value], apply
+## immediately, live in memory, and never reach the file.
 ##
 ## Exit is the right moment rather than every write: a slider drag would otherwise rewrite the file
-## per tick, and this node is an autoload, so its exit is the process's exit. That last step is
-## measured, not assumed: a node left parented to the root when [method SceneTree.quit] runs receives
-## [constant Node.NOTIFICATION_EXIT_TREE] before it is deleted (probed on 4.7 — shutdown frees the
-## root through the tree, so autoloads exit it rather than being dropped where they stand). A host
-## wanting an earlier flush calls [method MKSettingsBackend.save] itself; nothing here prevents it.
+## per tick, and this node is an autoload, so its exit is the process's exit. A node left parented to
+## the root when [method SceneTree.quit] runs receives [constant Node.NOTIFICATION_EXIT_TREE] before
+## it is deleted — shutdown frees the root through the tree, so autoloads exit it rather than being
+## dropped where they stand. A host wanting an earlier flush calls [method MKSettingsBackend.save]
+## itself.
 ##
 ## Guarded on validity because the backend is a child and children exit BEFORE their parent — it is
 ## out of the tree by now, but not freed, which is exactly the state a flush needs (the write touches
@@ -131,26 +124,26 @@ func get_brightness_controller() -> MKBrightnessController:
 
 
 ## The live backend, or null when none is configured. [b][MKRoot] calls exactly this name[/b] to
-## adopt the instance instead of building a second one (plan §4.2).
+## adopt the instance instead of building a second one.
 func get_settings_backend() -> MKSettingsBackend:
 	return _backend
 
 
-## The [MKConfig] this service resolved, or null. Exposed for [code]MKRoot.dump_diagnostics()[/code]
-## and for tests that need to see which config actually took effect — "which config is live" is
-## otherwise unanswerable from a bug report when a host has repointed the setting.
+## The [MKConfig] this service resolved, or null. Exposed for
+## [code]MKRoot.dump_diagnostics()[/code] — "which config is live" is otherwise unanswerable from a
+## bug report when a host has repointed the setting.
 func get_config() -> MKConfig:
 	return _config
 
 
-## Creates and wires the brightness controller (plan §4.3), and this is the node that must do it.
+## Creates and wires the brightness controller — and this is the node that must do it.
 ##
 ## [b]Why here and not [MKRoot].[/b] This is the same argument that put InputMap overrides in this
 ## class: brightness is a persisted setting that must apply on a boot which never opens a menu. A
 ## controller hanging off a per-scene [MKRoot] would not exist on a straight-into-gameplay boot, so
 ## the player would calibrate in the menu, press Play, and watch the image snap back — with no error
-## anywhere. Ship gate 4c tests exactly that boot. This node is an autoload, so it survives every
-## scene swap and the correction is continuous.
+## anywhere. This node is an autoload, so it survives every scene swap and the correction is
+## continuous.
 ##
 ## Wiring is deliberately through [signal MKSettingsBackend.setting_changed] rather than a direct
 ## call from the settings panel: the panel is not the only writer (a host writing the value itself,
@@ -214,13 +207,13 @@ func _resolve_slot_from_config() -> MKBackendSlot:
 
 
 ## Builds the slot's script as a child-to-be. A near-twin of [code]MKRoot._make_backend[/code] rather
-## than a shared helper because that one is a private method on a [Control] the autoload path never
-## instances; the shared surface is the [MKBackendSlot] contract itself, which both go through.
+## than a shared helper: that one is a private method on a [Control] the autoload path never
+## instances. The shared surface is the [MKBackendSlot] contract itself, which both go through.
 func _instantiate(slot: MKBackendSlot) -> MKSettingsBackend:
 	var reason := slot.validate_against(MKSettingsBackend)
 	if not reason.is_empty():
-		# Plan §4.8: a backend that does not extend its base is a contract violation, not a
-		# recoverable misconfiguration — every later call against it would fail obscurely.
+		# A backend that does not extend its base is a contract violation, not a recoverable
+		# misconfiguration — every later call against it would fail obscurely.
 		MKLog.error(reason)
 		return null
 

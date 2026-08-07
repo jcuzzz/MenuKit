@@ -1,7 +1,7 @@
 @tool
 class_name MKCreationStepDef
 extends Resource
-## One step of the character creation flow (plan §4.5).
+## One step of the character creation flow.
 ##
 ## The flow is an ORDERED ARRAY of these, exactly as a settings page is an array of [MKSettingDef]:
 ## adding "choose a starting town" is authoring one resource plus one scene, never an addon edit. The
@@ -9,9 +9,9 @@ extends Resource
 ## its own widgets and the payload keys it declares.
 ##
 ## [b]The step scene's ROOT implements a four-method duck-typed contract[/b], mirroring the
-## [constant MKSettingDef.RowType.CUSTOM] row's [code]_mk_bind[/code] convention (finding M7 — the same
-## reasoning: a scene that silently discards everything is worse than an absent step plus a named
-## warning):
+## [constant MKSettingDef.RowType.CUSTOM] row's [code]_mk_bind[/code] convention. A root that does not
+## honour it is skipped with a named warning — a scene that silently discards everything is worse than
+## an absent step:
 ## [codeblock]
 ## signal step_state_changed()
 ## func _mk_step_bind(host: MKCreationHost, def: MKCreationStepDef, ctx: Dictionary) -> void
@@ -41,11 +41,9 @@ extends Resource
 ## Both flags exist because they answer different questions: this one is about the FLOW ("the payload
 ## is incomplete without it"), and [member skippable] is about the CONTROL ("offer a Skip button").
 ## Required wins by HIDING the Skip control ([code]skippable and not required[/code], in
-## [method MKCreationHost._refresh_buttons]) rather than by rendering one that refuses to work: the
-## player is never offered a gesture that does nothing. It is not reported anywhere, because the
-## combination is a legitimate authoring state — a step toggled back to required keeps its skippable
-## flag for when it is toggled again, and warning about that would fire on every well-formed flow that
-## ever changed its mind.
+## [method MKCreationHost._refresh_buttons]) rather than by rendering one that refuses to work. The
+## combination is not reported: it is a legitimate authoring state, since a step toggled back to
+## required keeps its skippable flag for when it is toggled again.
 @export var required: bool = true
 
 ## Shows a Skip control while this step is current — and only when [member required] is false.
@@ -59,7 +57,6 @@ extends Resource
 
 ## True when this def is identifiable. The id alone, deliberately: a missing [member scene] is a
 ## separate failure with a separate message ("has no scene"), and folding it in here would collapse two
-## distinct authoring mistakes into one indistinguishable "invalid step" line — the exact thing
-## [MKLog]'s naming rule exists to prevent. The host checks both, in that order.
+## distinct authoring mistakes into one "invalid step" line. The host checks both, in that order.
 func is_valid() -> bool:
 	return id != &""

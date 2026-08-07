@@ -2,19 +2,18 @@
 class_name MKSettingsPanel
 extends Control
 ## The data-driven settings panel: builds every tab and every row at runtime from
-## [code]Array[MKSettingsPageDef][/code] (plan §4.3, D5) and applies each change instantly through
+## [code]Array[MKSettingsPageDef][/code] (D5) and applies each change instantly through
 ## [MKSettingsBackend] (D14).
 ##
 ## [b]Nothing here is authored per row.[/b] There is no settings [code].tscn[/code] with hand-placed
-## controls, because the moment a host needs one extra row it would have to fork one — the same
-## hardcoded-list trap [MKMenuPageDef] exists to avoid for navigation. Adding "Mouse Sensitivity" is
-## authoring one [MKSettingDef] sub-resource.
+## controls, because the moment a host needs one extra row it would have to fork one. Adding "Mouse
+## Sensitivity" is authoring one [MKSettingDef] sub-resource.
 ##
-## [b]Styling is type variations only.[/b] MenuKit ships ZERO [code]add_theme_*_override[/code] calls
-## (plan §1.2, ship gate 1): an override beats the [Theme], so a package using one could never be
-## re-skinned by swapping an [MKPalette]. Plain controls ([CheckBox], [HSlider], [OptionButton],
-## [LineEdit]) rely on the generated Theme's BASE type styling, which [MKThemeGenerator] provides for
-## exactly this reason; if one of them ever looks unstyled the fix is in the generator, never here.
+## [b]Styling is type variations only.[/b] MenuKit ships ZERO [code]add_theme_*_override[/code] calls:
+## an override beats the [Theme], so a package using one could never be re-skinned by swapping an
+## [MKPalette]. Plain controls ([CheckBox], [HSlider], [OptionButton], [LineEdit]) rely on the
+## generated Theme's BASE type styling, which [MKThemeGenerator] provides for exactly this reason; if
+## one of them ever looks unstyled the fix is in the generator, never here.
 ##
 ## [b]A null backend is not an error.[/b] The panel renders its rows disabled with one warning rather
 ## than refusing to build. A panel that vanishes when a backend is unassigned is indistinguishable
@@ -27,9 +26,9 @@ signal built()
 ## Default confirm-or-revert window for [member MKSettingDef.requires_confirm] rows (D14).
 const REVERT_SECONDS := 10.0
 
-## The autoload that owns the one settings backend when a host registered it (plan §4.2). Aliased
-## from [constant MKConfig.SETTINGS_SERVICE_PATH], never re-spelled: see that constant for what a
-## rename silently costs when the three sites that resolve this node disagree.
+## The autoload that owns the one settings backend when a host registered it. Aliased from
+## [constant MKConfig.SETTINGS_SERVICE_PATH], never re-spelled — see that constant for what a rename
+## costs when the sites that resolve this node disagree.
 const SETTINGS_SERVICE_PATH := MKConfig.SETTINGS_SERVICE_PATH
 
 ## Ids this panel gives behaviour beyond the generic row types. All three are reserved by the shipped
@@ -40,8 +39,7 @@ const ID_RESOLUTION := &"video/resolution"
 const ID_BRIGHTNESS := &"video/brightness"
 
 ## Width reserved for row labels, so every control on a page lines up in one column. A pixel value
-## rather than a palette step because it is a layout rhythm, not a visual constant a re-skinner would
-## reach for (plan §1.2's rule for what earns a palette field).
+## rather than a palette step because it is a layout rhythm, not a visual constant.
 const LABEL_COLUMN_WIDTH := 260.0
 
 ## How far the slider focus ring is grown beyond the slider's own rect (see
@@ -54,9 +52,8 @@ const FOCUS_RING_GROW := 4.0
 @export var pages: Array[MKSettingsPageDef] = []
 
 ## Extra events a [constant MKSettingDef.RowType.KEYBIND] row must REFUSE to bind, appended to the
-## ones [method _reserved_input_events] derives. Exported so a host can widen the list — a game whose
-## menu is also opened by Start, or by a second gamepad face button, has a hazard MenuKit cannot know
-## about — without forking the panel.
+## ones [method _reserved_input_events] derives. Exported so a host can widen the list without forking
+## the panel — a game whose menu also opens on Start has a hazard MenuKit cannot know about.
 ##
 ## See [method _reserved_input_events] for why the derived part of the list is so short, and why
 ## keyboard Escape is deliberately NOT on it.
@@ -74,13 +71,9 @@ var _syncing := false
 
 ## [b]A testing seam, not a host feature.[/b] When valid, this [Callable] answers
 ## [code]() -> int[/code] with a [enum DisplayServer.WindowMode] IN PLACE OF
-## [method DisplayServer.window_get_mode], and installing one also makes [method _is_windowed] take
-## its real-display branch under the headless driver.
-##
-## It exists because the decision [method _is_windowed] documents — the WINDOW beats the store, the
-## store is consulted only when there is no window — is unobservable in this suite otherwise: headless
-## has no window to diverge from the store, so both orderings behave identically and the rule could be
-## inverted without a single assertion going red. The probe stages the divergence the rule is about.
+## [method DisplayServer.window_get_mode], and installing one also makes [method _is_windowed] take its
+## real-display branch under the headless driver — which is the only way to stage the window/store
+## divergence that method's rule is about.
 ##
 ## Production behaviour is untouched: with no probe installed, a real display still queries
 ## [DisplayServer] and headless still falls back to the stored mode. Same convention as
@@ -159,7 +152,7 @@ func is_built() -> bool:
 
 ## Duck-typed backend discovery, in the order a host's configurations actually occur.
 ##
-## 1. The [code]MKSettingsService[/code] autoload, which is the supported configuration (plan §4.2) —
+## 1. The [code]MKSettingsService[/code] autoload, which is the supported configuration —
 ##    checked FIRST so a panel inside an [MKRoot] that adopted the service still resolves the same
 ##    single instance either way.
 ## 2. Any ancestor exposing [code]get_settings_backend()[/code] — in practice [MKRoot], which owns the
@@ -202,13 +195,12 @@ func _disconnect_backend() -> void:
 ## on its way out.
 ##
 ## [b]The backend is disconnected FIRST, and the order is load-bearing.[/b] The teardown revert is a
-## real [method MKSettingsBackend.set_value], so with the connection still live it came straight back
-## through [method _on_setting_changed] and re-entered [method _sync_control] and
+## real [method MKSettingsBackend.set_value], so with the connection still live it comes straight back
+## through [method _on_setting_changed] and re-enters [method _sync_control] and
 ## [method _update_conditional_rows] on a panel that is mid-[method Node._exit_tree] — writing widgets
-## that are being freed, from inside the notification that is freeing them. Resolving first was the
-## original order and the [code]is_inside_tree()[/code] guard in
-## [method _resolve_orphaned_countdown] did not cover it, because that guard is on the panel's OWN
-## sync call and not on the one arriving back through the signal.
+## that are being freed. The [code]is_inside_tree()[/code] guard in
+## [method _resolve_orphaned_countdown] does not cover that, because it guards the panel's OWN sync
+## call and not the one arriving back through the signal.
 ##
 ## Nothing in the revert needs the connection: [method _revert_value] calls the backend directly, and
 ## since the orphan path no longer touches the modal layer there is no second consumer either.
@@ -256,11 +248,10 @@ func rebuild() -> void:
 ## Enforces the dispatch order [MKInputGlyphs]'s class doc states as a contract: the tracker is this
 ## panel's LAST child, so [method Node._input]'s reverse-order walk reaches it before any row.
 ##
-## Without this the order INVERTS across a rebuild and nobody notices. A first build creates the
-## tracker mid-build, after the tab strip, so it lands last by accident; [method _clear] then frees
-## the tab strip but deliberately keeps the tracker, and the next [method rebuild] re-adds "Pages"
-## BELOW it — putting the rows first and the tracker behind a listening row's
-## [method Viewport.set_input_as_handled].
+## Without this the order INVERTS across a rebuild: the first build creates the tracker after the tab
+## strip so it lands last by accident, [method _clear] frees the tab strip but deliberately keeps the
+## tracker, and the next [method rebuild] re-adds "Pages" BELOW it — putting the rows first and the
+## tracker behind a listening row's [method Viewport.set_input_as_handled].
 func _place_input_glyphs_last() -> void:
 	if _input_glyphs == null or not is_instance_valid(_input_glyphs):
 		return
@@ -336,12 +327,10 @@ func _build_page(page: MKSettingsPageDef) -> void:
 ## Records a built control under its id, or refuses and warns when that id is already taken.
 ##
 ## [b]First registration wins, and the collision is named.[/b] [member _controls] and [member _defs]
-## are keyed by id alone, so two rows sharing one — the ordinary way a page is duplicated and edited —
-## used to overwrite each other silently: the LAST row registered received every external sync, every
-## revert and every visible_condition lookup, while the first sat on screen answering to nothing. Both
-## rows are still built (dropping one would hide the mistake rather than report it); only the tracking
-## is refused, and the warning names both pages and the id so the duplicate is findable without
-## diffing two resources by eye.
+## are keyed by id alone, so without this two rows sharing one id overwrite each other silently: the
+## LAST registered would receive every external sync, revert and visible_condition lookup while the
+## first sat on screen answering to nothing. Both rows are still built (dropping one would hide the
+## mistake); only the tracking is refused, and the warning names both pages and the id.
 func _register_control(def: MKSettingDef, control: Control) -> void:
 	var existing: MKSettingDef = _defs.get(def.id, null)
 	if existing != null and existing != def:
@@ -399,17 +388,12 @@ func _wrap(def: MKSettingDef, control: Control) -> Control:
 	var label := Label.new()
 	label.text = def.label if not def.label.is_empty() else String(def.id)
 	label.custom_minimum_size = Vector2(LABEL_COLUMN_WIDTH, 0.0)
-	# [b]FILL, not EXPAND_FILL — this is the mechanism behind the slider/enum column drift.[/b] With
-	# EXPAND the label was not a COLUMN at all: an HBox splits the row's LEFTOVER width between its
-	# expanding children, so the label's final width — and therefore the x its control starts at —
-	# was a function of the minimum widths of everything ELSE on that line. Those differ per row type:
-	# a SLIDER row appends a 72px readout this wrap never sees, and an OptionButton's minimum width is
-	# its widest option's text while an HSlider's is a groove. So no two row types resolved the same
-	# label width, and the "one aligned table" this shell exists to produce was aligned only within a
-	# type. Without EXPAND the label is LABEL_COLUMN_WIDTH on every row, unconditionally.
-	# (The DIRECTION of the old drift is a measurement, not an argument — the round-2 NIT recorded
-	# slider controls sitting left of enum ones; the widths above say why any difference at all was
-	# possible.)
+	# FILL, not EXPAND_FILL. With EXPAND the label is not a COLUMN at all: an HBox splits the row's
+	# LEFTOVER width between its expanding children, so the label's width — and the x its control starts
+	# at — becomes a function of the minimum widths of everything ELSE on that line. Those differ per row
+	# type: a SLIDER row appends a 72px readout this wrap never sees, an OptionButton's minimum width is
+	# its widest option's text while an HSlider's is a groove. Without EXPAND the label is
+	# LABEL_COLUMN_WIDTH on every row, unconditionally.
 	label.size_flags_horizontal = Control.SIZE_FILL
 	MKTheme.set_variation(label, MKTheme.ROW_LABEL)
 	row.add_child(label)
@@ -478,16 +462,14 @@ func _build_slider_row(def: MKSettingDef) -> Control:
 	return _with_brightness_swatch(def, row, slider)
 
 
-## Gives [param slider] a visible focus indicator, because [HSlider] has no focus StyleBox of its
-## own: the engine's Slider theme defines the groove, the grabber and its highlight and nothing that
-## changes when focus arrives. A keyboard or gamepad player traversing a settings page therefore had
-## no way to tell which slider the arrow keys were about to move — the D12 promise with the one
-## control type that cannot honour it.
+## Gives [param slider] a visible focus indicator, because [HSlider] has no focus StyleBox of its own:
+## the engine's Slider theme defines the groove, the grabber and its highlight, and nothing that
+## changes when focus arrives — so a keyboard or gamepad player has no way to tell which slider the
+## arrow keys are about to move.
 ##
-## The ring is a [Panel] child of the slider carrying [constant MKTheme.FOCUS_RING], the variation
-## the generated Theme has always defined and nothing consumed. Variation mechanics only: no
-## [code]add_theme_*_override[/code] (ship gate 1), so a host swapping [MKPalette] restyles this ring
-## with everything else.
+## The ring is a [Panel] child of the slider carrying [constant MKTheme.FOCUS_RING]. Variation
+## mechanics only, no [code]add_theme_*_override[/code], so a host swapping [MKPalette] restyles this
+## ring with everything else.
 ##
 ## Parented to the slider (not the row) so the ring tracks the CONTROL's rect rather than the whole
 ## labelled line, and grown by [constant FOCUS_RING_GROW] so it traces the groove instead of sitting
@@ -508,17 +490,13 @@ func _add_focus_ring(slider: HSlider) -> void:
 	slider.focus_exited.connect(func() -> void: ring.visible = false)
 
 
-## Brightness gets a reference gradient beneath the slider (plan §4.3): a brightness control with no
-## calibration target is unusable by construction — "drag until the dark end is barely visible" is the
-## only instruction that works across monitors, and it needs something to look at.
-##
-## The gradient is built in code from a [GradientTexture2D]; no external asset, so the isolation rule
-## (§3) is untouched.
+## Brightness gets a reference gradient beneath the slider: "drag until the dark end is barely
+## visible" is the only calibration instruction that works across monitors, and it needs something to
+## look at. The gradient is built in code from a [GradientTexture2D] — no external asset.
 ##
 ## Shown while the user is adjusting: [signal Slider.drag_started]/[signal Slider.drag_ended] cover
 ## the mouse, and focus covers keyboard and gamepad, which emit no drag signals at all — without the
-## focus half the swatch would be permanently invisible to a controller player, in a package whose
-## D12 promise is full gamepad navigation.
+## focus half the swatch would be permanently invisible to a controller player.
 func _with_brightness_swatch(def: MKSettingDef, row: Control, slider: HSlider) -> Control:
 	var column := VBoxContainer.new()
 	column.name = "Row_" + String(def.id).replace("/", "_") + "_Calibrated"
@@ -608,11 +586,10 @@ func _collect_choices(def: MKSettingDef, labels: Array[String], values: Array) -
 		# the display string IS the value — which is what a plain string choice wants and saves an
 		# author authoring the same list twice.
 		values.append(def.option_values[i] if i < def.option_values.size() else def.options[i])
-	# Surplus values have no label, so they cannot be rendered as entries and are dropped. Said out
-	# loud, and NAMING the def: a value list longer than its label list is an editing slip (a row
-	# deleted from one array only), and the symptom without this line is a choice that is simply absent
-	# from the dropdown with nothing anywhere to explain it. Debug rather than a warning — it is not a
-	# broken page, and the resolution row's own collector treats the same shape as normal by design.
+	# Surplus values have no label, so they cannot be rendered as entries and are dropped. Reported and
+	# NAMING the def, because the symptom otherwise is a choice simply absent from the dropdown. Debug
+	# rather than a warning — it is not a broken page, and the resolution row's own collector treats the
+	# same shape as normal by design.
 	if def.option_values.size() > def.options.size():
 		MKLog.debug("%s: enum row '%s' authored %d option_values but only %d options — the %d surplus value(s) have no label and are not offered"
 			% [MKLog.context(def, "option_values"), def.id, def.option_values.size(),
@@ -620,22 +597,20 @@ func _collect_choices(def: MKSettingDef, labels: Array[String], values: Array) -
 
 
 ## The resolution row's options are a curated [Vector2i] list on the def, filtered to what fits the
-## current screen, with the native size always present (plan §4.3, finding F4).
+## current screen, with the native size always present.
 ##
 ## Godot 4 exposes no "list the supported modes" API — only [method DisplayServer.screen_get_size] —
 ## so enumeration is authored data plus this filter, not a query. Under the headless driver every
 ## screen query is meaningless, so the curated list passes through unfiltered rather than being
 ## filtered against a phantom 0x0 screen, which would empty the dropdown in the test suite.
 ## [b]Authored labels are USED, positionally.[/b] [member MKSettingDef.options] is optional on this row
-## — the size is the whole meaning, and formatting it is a better default than making every host spell
-## "1920 x 1080" twice — but a host that DID author labels ("1920 x 1080 (Native)", a localised
-## string) had them silently discarded and the formatted string shown instead. So the candidate list
-## is [member MKSettingDef.option_values] in full, and each one takes its authored label when the
-## arrays line up at that index and the formatted fallback otherwise. Nothing is dropped for being
-## unlabelled and nothing warns about it: on THIS row a longer values array is the normal shape, not
-## the drift [method _collect_choices] reports. Surplus LABELS are the other direction and ARE
-## reported, because a label past the end of the values array is attached to no size and is simply
-## lost — the same editing slip, and silence about it was an asymmetry rather than a policy.
+## — the size is the whole meaning and formatting it is a better default than making every host spell
+## "1920 x 1080" twice — but a host that DID author labels ("1920 x 1080 (Native)", a localised string)
+## must get them. So the candidate list is [member MKSettingDef.option_values] in full, and each one
+## takes its authored label when the arrays line up at that index and the formatted fallback otherwise.
+## Nothing is dropped for being unlabelled and nothing warns about it: on THIS row a longer values
+## array is the normal shape, not the drift [method _collect_choices] reports. Surplus LABELS ARE
+## reported — a label past the end of the values array is attached to no size and is simply lost.
 func _collect_resolution_choices(def: MKSettingDef, labels: Array[String], values: Array) -> void:
 	var candidates: Array = def.option_values.duplicate()
 	# Keyed by the value rather than carried by index: the filtering below drops candidates and appends
@@ -643,19 +618,16 @@ func _collect_resolution_choices(def: MKSettingDef, labels: Array[String], value
 	var authored: Dictionary = {}
 	for i in candidates.size():
 		if i < def.options.size() and not def.options[i].is_empty():
-			# Keyed by value, so a repeated size collapses onto one key and the LAST label wins. Behaviour
-			# kept — one entry per distinct size is what the dropdown wants either way — but said out loud
-			# and NAMING the def, because the symptom otherwise is an authored label that simply never
-			# appears with nothing anywhere to explain it.
+			# Keyed by value, so a repeated size collapses onto one key and the LAST label wins. Reported and
+			# NAMING the def, because the symptom otherwise is an authored label that never appears.
 			if authored.has(candidates[i]) and authored[candidates[i]] != def.options[i]:
 				MKLog.debug("%s: resolution row '%s' authors %s twice with different labels ('%s' then '%s') — one entry is offered and the LAST label wins"
 					% [MKLog.context(def, "option_values"), def.id, candidates[i],
 						authored[candidates[i]], def.options[i]])
 			authored[candidates[i]] = def.options[i]
-	# The MIRROR of the surplus-values line _collect_choices prints, at the same level and for the same
-	# reason. On this row a longer VALUES array is the normal shape, so nothing is said about it — but a
-	# longer LABELS array is the same editing slip in the other direction, and its trailing labels are
-	# attached to no candidate and vanish. Reporting only one direction is how that stayed invisible.
+	# The MIRROR of the surplus-values line _collect_choices prints. On this row a longer VALUES array is
+	# the normal shape, so nothing is said about it — but a longer LABELS array leaves trailing labels
+	# attached to no candidate, which vanish silently otherwise.
 	if def.options.size() > candidates.size():
 		MKLog.debug("%s: resolution row '%s' authored %d labels but only %d option_values — the %d trailing label(s) belong to no size and are not shown"
 			% [MKLog.context(def, "options"), def.id, def.options.size(), candidates.size(),
@@ -716,14 +688,13 @@ func _commit_text(def: MKSettingDef, edit: LineEdit) -> void:
 
 ## [constant MKSettingDef.RowType.CUSTOM]: instantiate the host's scene and hand it the backend.
 ##
-## The contract (plan §4.3, finding M7) is one method on the scene root:
+## The contract is one method on the scene root:
 ## [code]_mk_bind(backend: MKSettingsBackend, def: MKSettingDef) -> void[/code]. It is called
 ## immediately after instantiation — before the row is parented — so the scene can size itself from
 ## the value it reads.
 ##
 ## A root without the method is skipped with a named warning and freed. Adding it anyway would put an
-## unbound control on screen that silently discards every change, which is the worst available outcome
-## and the exact failure M7 was raised about.
+## unbound control on screen that silently discards every change.
 func _build_custom(def: MKSettingDef) -> Control:
 	if def.custom_scene == null:
 		MKLog.warn("%s: CUSTOM row '%s' has no custom_scene — skipping it"
@@ -773,23 +744,22 @@ func _build_keybind(def: MKSettingDef) -> Control:
 		return null
 	if def.requires_confirm:
 		# D14's confirm-or-revert machinery is built entirely on the scalar value store (capture the
-		# previous value, write, apply, put it back on timeout). A binding lives in the INPUT store
-		# instead, which that path cannot read or restore, so honouring the flag here would raise a
-		# countdown that reverts nothing. Ignored and said out loud rather than silently obeyed-and-broken.
+		# previous value, write, apply, put it back on timeout). A binding lives in the INPUT store, which
+		# that path cannot read or restore, so honouring the flag would raise a countdown that reverts
+		# nothing. Ignored, and said out loud rather than silently obeyed-and-broken.
 		MKLog.debug("%s: KEYBIND row '%s' sets requires_confirm — ignored. Confirm-or-revert operates on the value store, and a binding is not in it; the row's own abort (Escape) and Reset are its undo"
 			% [MKLog.context(def, "requires_confirm"), def.id])
 
 	var row := MKRebindRow.new()
 	row.name = "Row_" + String(def.id).replace("/", "_")
 	# No tooltip write here: setup() below assigns it unconditionally (empty clears), and a second,
-	# conditional write above it was the same stale-tooltip shape the round-1 n3 fix removed.
+	# conditional write above it would leave a stale tooltip on a re-pointed row.
 	# Registered BEFORE setup, so a duplicate id is reported against the row that is about to go on
 	# screen rather than after it has already wired itself to the backend.
 	_register_control(def, row)
-	# A null backend is passed through rather than skipping the row, which is the policy every other
-	# row type here follows (see rebuild(): ONE warning per panel, then rows render disabled). A page
-	# that loses half its rows to an unassigned backend slot looks like a missing resource; a page of
-	# visibly disabled rows looks like what it is.
+	# A null backend is passed through rather than skipping the row — the policy every other row type
+	# here follows. A page that loses half its rows to an unassigned backend slot looks like a missing
+	# resource; a page of visibly disabled rows looks like what it is.
 	row.setup(def, _backend, _find_modal_layer(), Callable(self, "_managed_rebind_actions"),
 		_reserved_input_events(), _ensure_input_glyphs())
 	# One capture at a time, enforced HERE because rows cannot see each other. Without this, two rows
@@ -801,9 +771,9 @@ func _build_keybind(def: MKSettingDef) -> Control:
 			_end_other_captures(row)
 	)
 	# The Replace outcome of a conflict rewrites an action some OTHER row displays; the emitting row
-	# cannot reach it, so the panel redraws them all. Every rebind row, not the one whose action
-	# matches: the set is small, refresh_display() is a read-and-repaint, and matching by action here
-	# would quietly miss two defs naming one action.
+	# cannot reach it, so the panel redraws them all. Every row, not just the matching action: the set is
+	# small, refresh_display() is a read-and-repaint, and matching by action would miss two defs naming
+	# one action.
 	row.binding_changed.connect(func(_action: StringName) -> void:
 		_refresh_rebind_rows()
 	)
@@ -814,15 +784,13 @@ func _build_keybind(def: MKSettingDef) -> Control:
 ## The panel's single [MKInputGlyphs], created the first time a KEYBIND row asks for one and reused
 ## for the panel's whole life.
 ##
-## [b]One per PANEL, not one per row.[/b] The tracker exists to answer "keyboard or pad" from
-## [method Node._input], and that answer is identical for every row on the page — seven trackers
-## would be seven dispatches per event producing seven copies of one boolean. Created lazily so a
-## panel with no keybind rows (the addon's own four shipped pages have none) mounts no input handler
-## at all.
+## [b]One per PANEL, not one per row.[/b] The tracker answers "keyboard or pad" from
+## [method Node._input], and that answer is identical for every row on the page. Created lazily, so a
+## panel with no keybind rows mounts no input handler at all.
 ##
-## [b]It survives [method _clear].[/b] Rebuilds free and rebuild every row, and a tracker rebuilt with
-## them would reset to its keyboard default — silently relabelling a pad player's prompts every time
-## the panel refreshed. The rows are handed the surviving instance instead.
+## [b]It survives [method _clear].[/b] A tracker rebuilt with the rows would reset to its keyboard
+## default, relabelling a pad player's prompts every time the panel refreshed. The rows are handed the
+## surviving instance instead.
 ##
 ## Never marks input handled ([MKInputGlyphs] documents that as a contract), so mounting it cannot
 ## take a press away from a listening [MKRebindRow] below it. Where it sits among this panel's
@@ -881,7 +849,7 @@ func _managed_rebind_actions() -> Array[StringName]:
 	return actions
 
 
-## Events a rebind row must refuse to capture (plan §4.4).
+## Events a rebind row must refuse to capture.
 ##
 ## [b]The list is short on purpose, and keyboard Escape is deliberately NOT on it.[/b] Escape is
 ## unbindable by MECHANISM: it is the row's abort gesture, so a press of it ends the capture and never
@@ -917,17 +885,16 @@ func _reserved_input_events() -> Array[InputEvent]:
 	return reserved
 
 
-## The recovery net (plan §4.4): one button that puts every managed binding back to its boot default.
+## The recovery net: one button that puts every managed binding back to its boot default.
 ##
 ## [b]Focusable and PANEL_BUTTON-styled, deliberately.[/b] The user most likely to need this is one
 ## who has just bound something over the key they were navigating with, so the button has to be
 ## reachable by mouse AND by gamepad — a mouse-only recovery path is no recovery path for a controller
 ## player, which is the case that produces the state this button exists to undo.
 ##
-## [b]No confirmation dialog, and that is a choice rather than an omission.[/b] A destructive global
-## action normally earns one; this one does not, because a confirm dialog is one more thing the user
-## must drive with input they may have just broken, and its cost — re-pressing seven keys they chose
-## on purpose — is fully recoverable by hand. If this ever grows a confirm, it must be reachable by
+## [b]No confirmation dialog, deliberately.[/b] A confirm dialog is one more thing the user must drive
+## with input they may have just broken, and the cost of an accidental press — re-binding the keys
+## they chose — is fully recoverable by hand. If this ever grows a confirm, it must be reachable by
 ## every input device the reset itself is.
 func _build_reset_all_bindings_button() -> Button:
 	var button := Button.new()
@@ -956,15 +923,12 @@ func _build_reset_all_bindings_button() -> Button:
 ## inert, never wrong.
 ##
 ## [b]One press can log the "no boot snapshot" warning TWICE for the same action, and that is
-## accepted.[/b] The two sites are the backend's own restore inside
-## [method MKSettingsBackend.reset_all_actions_to_defaults] and the explicit
-## [method MKSettingsBackend.apply_action] below; both warn when an action carries an override but no
-## snapshot. That state is only reachable when the §4.2 host contract has ALREADY been breached
-## (snapshot_input_defaults() never ran, or ran after the override existed), so the duplicate appears
-## exclusively in a run that is being diagnosed by that very warning — where two lines are noise, not
-## a wrong answer. Deduping would mean the panel asking the backend whether a snapshot exists before
-## deciding to apply, which couples this method to snapshot internals the abstract
-## [MKSettingsBackend] deliberately does not expose, to tidy the log of an already-broken boot.
+## accepted.[/b] Both [method MKSettingsBackend.reset_all_actions_to_defaults] and the explicit
+## [method MKSettingsBackend.apply_action] below warn when an action carries an override but no
+## snapshot. That state is only reachable when the host contract has ALREADY been breached
+## (snapshot_input_defaults() never ran, or ran after the override existed). Deduping would mean asking
+## the backend whether a snapshot exists, coupling this method to internals the abstract
+## [MKSettingsBackend] deliberately does not expose.
 func _reset_all_bindings() -> void:
 	if _backend == null:
 		return
@@ -986,23 +950,16 @@ func _current(def: MKSettingDef) -> Variant:
 
 ## The store's value for [param def], coerced to what that row's control can be assigned.
 ##
-## [b]ONE helper for the build path and [method _sync_control], and that is the whole point.[/b]
-## [code]bool(null)[/code] and [code]float(null)[/code] are SCRIPT ERRORS, not coercions. The build
-## path carried the guards; the sync path did not, so once every external write was routed into
-## [method _sync_control] a host calling [code]set_value(id, null)[/code] — a reset-to-unset, a load
-## of a file with a null in it — took the panel down on a TOGGLE or SLIDER row the build path had
-## already been taught to survive. Two copies of a coercion rule is how they diverge, so there is one.
+## [b]ONE helper for the build path and [method _sync_control].[/b] [code]bool(null)[/code] and
+## [code]float(null)[/code] are SCRIPT ERRORS, not coercions, and a host calling
+## [code]set_value(id, null)[/code] (a reset-to-unset, a load of a file with a null in it) reaches both
+## paths. Two copies of a coercion rule is how they diverge, so there is one.
 ##
-## The fallbacks are the build path's, unchanged: TOGGLE false, SLIDER the def's own minimum (which
-## [Range] would clamp to anyway), TEXT the empty string. ENUM has no coercion of its own and gets the
-## stored value untouched — [method _index_of_value] is type-gated and handles null by simply not
-## matching. [constant MKSettingDef.RowType.CUSTOM] never arrives here: nothing in this panel reads or
-## writes a custom row's display (see [method _sync_control]), so there is no widget to coerce for.
-## [constant MKSettingDef.RowType.KEYBIND] never arrives either, and by the same two routes: it is
-## excluded from [method _sync_control], and the build path does not call this — a rebind row reads
-## the input store, not the value store. Nor can it reach [method _write] or the D14 countdown, which
-## are entered only from the signal handlers of the widgets THIS panel builds, and it is not one of
-## them.
+## Fallbacks: TOGGLE false, SLIDER the def's own minimum (which [Range] would clamp to anyway), TEXT
+## the empty string. ENUM gets the stored value untouched — [method _index_of_value] is type-gated and
+## handles null by simply not matching. [constant MKSettingDef.RowType.CUSTOM] and
+## [constant MKSettingDef.RowType.KEYBIND] never arrive here: both are excluded from
+## [method _sync_control], and the build path does not call this for either.
 func _display_value(def: MKSettingDef) -> Variant:
 	var current: Variant = _current(def)
 	match def.type:
@@ -1043,23 +1000,19 @@ func _write(def: MKSettingDef, value: Variant) -> void:
 ## The countdown is pushed as a modal through the [MKModalLayer] the shell already owns, so it dims
 ## the page, traps focus, and takes cancel ahead of the page back stack like every other modal. It
 ## runs under [member SceneTree.paused] because the whole [MKRoot] subtree is
-## [constant Node.PROCESS_MODE_ALWAYS] (plan §4.2a) — without that it would freeze open forever when
+## [constant Node.PROCESS_MODE_ALWAYS] — without that it would freeze open forever when
 ## opened from the pause menu, with no failing write to reveal it.
 ##
 ## With no modal layer reachable (a host embedding this panel bare) the change simply stays applied
 ## and one warning names the gap. Reverting silently instead would undo a change the user asked for
 ## and never saw questioned.
-## [b]One live countdown per setting id, and it keeps the FIRST unconfirmed value.[/b] A second
-## change to the same row while its countdown is up used to push a SECOND dialog carrying the
-## intermediate value as its [code]previous[/code]: two scrimmed dialogs over one row, and — because
-## the first one is still ticking underneath — a player who pressed Keep on the second still had the
-## first lapse a moment later and drag the setting back to the value it had shown, over the change
-## they had just confirmed.
+## [b]One live countdown per setting id, and it keeps the FIRST unconfirmed value.[/b] A second dialog
+## for the same row would leave two scrims over one row and — the first still ticking underneath — let
+## the first lapse over a change the user had just confirmed on the second.
 ##
-## Replacement rather than a second dialog: the existing countdown's timer is RESTARTED (the user just
-## acted, so they get the full window again to react to what they can now see) and its
-## [code]previous[/code] is deliberately left alone. A→B→C reverting to A is the correct chain — B was
-## never confirmed either, so restoring it would restore a value the user never agreed to keep.
+## So the existing countdown's timer is RESTARTED (the user just acted, so they get the full window
+## again to react to what they can now see) and its [code]previous[/code] is deliberately left alone.
+## A→B→C reverting to A is the correct chain — B was never confirmed either.
 ##
 ## Different ids stay independent: each def's revert is its own, and a window-mode countdown has
 ## nothing to say about a resolution change.
@@ -1092,14 +1045,10 @@ func _start_revert_countdown(def: MKSettingDef, previous: Variant) -> void:
 	)
 	countdown.reverted.connect(func() -> void:
 		_live_countdowns.erase(entry)
-		# Read from the ENTRY rather than from the captured `previous` local. Stated honestly: this is a
-		# STYLE choice with no behavioural difference today. entry["previous"] is written once, at
-		# construction, and never mutated anywhere, so the entry read and the closure capture are the
-		# same value on every path — there is no test that can tell them apart, and none is pretended.
-		# What it buys is one place to look: the entry is where the orphan/teardown route already reads
-		# the target value from, so if a future path ever DOES rewrite an entry's previous (a revision of
-		# the same-def replacement rule above is the obvious candidate), both routes follow it instead of
-		# this one silently keeping the value the lambda closed over.
+		# Read from the ENTRY rather than from the captured `previous` local. No behavioural difference
+		# today (the entry is written once and never mutated), but the orphan/teardown route already reads
+		# the target value there, so a future path that DOES rewrite an entry's previous is followed by
+		# both routes rather than only one.
 		_revert_value(def, entry["previous"])
 		# Put the CONTROL back too. The store and the engine are restored above, but a dropdown still
 		# reading the rejected value is the shape of this bug that users report as "it didn't revert".
@@ -1129,9 +1078,8 @@ func _revert_value(def: MKSettingDef, previous: Variant) -> void:
 ##
 ## D14's promise is that a display change nobody confirmed does not stick. But the dialog is only a
 ## dialog: [code]MKRoot._show_page[/code] calls [method MKModalLayer.pop_all] on EVERY page change, so
-## clicking a nav tab while the countdown was up unparented it — its [method Node._process] stopped,
-## nothing ever emitted, the panel was freed a moment later, and the un-confirmed change stayed applied
-## forever. One click voided the entire promise, and leaked a Control doing it.
+## clicking a nav tab while the countdown is up unparents it — its [method Node._process] stops,
+## nothing ever emits, and the unconfirmed change would stay applied forever.
 ##
 ## Unconfirmed means NOT kept, so both departures resolve the same way: the value goes back. Reached
 ## from two directions because the two orders both really happen —
@@ -1141,13 +1089,13 @@ func _revert_value(def: MKSettingDef, previous: Variant) -> void:
 ## Whichever arrives first erases the entry, so the other is a no-op.
 ##
 ## [b]This path never touches the modal stack SYNCHRONOUSLY, and that is the whole of its second
-## contract.[/b] It used to call [method MKModalLayer.remove_modal] inline, which is a real pop: on
-## [code]MKRoot.queue_free()[/code] the panel's [method Node._exit_tree] runs BEFORE the root's
-## (exit propagates children first), so that pop emitted [signal MKModalLayer.modal_popped] and
+## contract.[/b] [method MKModalLayer.remove_modal] inline is a real pop: on
+## [code]MKRoot.queue_free()[/code] the panel's [method Node._exit_tree] runs BEFORE the root's (exit
+## propagates children first), so that pop emits [signal MKModalLayer.modal_popped] and
 ## [signal MKModalLayer.emptied] DURING teardown — driving MKRoot's suspend counter to its 1→0 edge,
 ## calling [method MKPausePolicy.exit_menu] on a policy already out of the tree, and restoring the
-## GAMEPLAY cursor onto the menu that is about to be shown. Every one of those is the failure
-## [method MKModalLayer.clear_for_teardown] exists to prevent, routed around it by its own caller.
+## GAMEPLAY cursor onto the menu about to be shown. Every one of those is what
+## [method MKModalLayer.clear_for_teardown] exists to prevent.
 ##
 ## So disposal is decided by ownership instead:
 ## [br]- [b]Off the stack[/b] — the [method MKModalLayer.pop_all] on a page change already let go of
@@ -1170,30 +1118,26 @@ func _revert_value(def: MKSettingDef, previous: Variant) -> void:
 ##   [method MKModalLayer.clear_for_teardown] disposes of the dialog through
 ##   [code]_mk_layer_teardown[/code].
 ## [br]- [b]The shell is ALIVE and only the panel died[/b] (a host tearing down its options screen, a
-##   page rebuild). The reap arrives on a live layer and pops for real. That is not a hazard here, it
-##   is the requirement: the emissions unwind MKRoot's suspend depth and its mouse mode, which the
-##   push had raised. Leaving the dialog stacked instead left a live
-##   [constant Node.PROCESS_MODE_ALWAYS] countdown repainting and about to emit
-##   [signal MKRevertCountdown.reverted] into a dropped connection, trapping focus, holding that
-##   suspension, swallowing the Escape AND the Keep click of a user looking at it — and after its
-##   cancel was finally declined it was unparented rather than freed: one leaked Control per event.
+##   page rebuild). The reap arrives on a live layer and pops for real, which is the requirement here:
+##   the emissions unwind MKRoot's suspend depth and its mouse mode, which the push had raised.
+##   Leaving the dialog stacked instead would leave a live [constant Node.PROCESS_MODE_ALWAYS]
+##   countdown repainting, holding that suspension, trapping focus, and about to emit
+##   [signal MKRevertCountdown.reverted] into a dropped connection.
 ##
-## The cost of the deferral is one frame of a marked, inert corpse on the stack, and it is paid for
-## rather than merely tolerated: [method MKRevertCountdown.mark_resolved] has already stopped its
-## [method Node._process] and latched its signals, so it cannot tick, lapse or emit in that window,
-## and an Escape landing there is DECLINED — which routes the gesture to
-## [method MKModalLayer.handle_cancel]'s own pop, clearing the entry and self-healing the stack. The
-## reap then finds it already gone and does nothing. That window is asserted in the suite rather than
-## argued.
+## The cost of the deferral is one frame of a marked, inert entry on the stack, and it is paid for:
+## [method MKRevertCountdown.mark_resolved] has already stopped its [method Node._process] and latched
+## its signals, so it cannot tick, lapse or emit in that window, and an Escape landing there is
+## DECLINED — which routes the gesture to [method MKModalLayer.handle_cancel]'s own pop, clearing the
+## entry and self-healing the stack. The reap then finds it already gone and does nothing.
 ##
-## Both layouts — the shipped shell and a panel parented straight under an [MKRoot] — are asserted,
-## because sibling exit order decides which of the layer and the panel is detached first and the
-## answer must not move with it.
+## Sibling exit order decides which of the layer and the panel is detached first, and the answer must
+## not move with it — both layouts (the shipped shell, and a panel parented straight under an
+## [MKRoot]) resolve the same way.
 ##
 ## The control sync is skipped once the panel is out of the tree: the widgets are being freed, and the
-## store — restored above — is the half that outlives the panel and the half D14 actually promises.
-## The guard is REAL, not defensive tidiness: [method _exit_tree] reaches here after
-## [method _disconnect_backend], so this is the only remaining sync call on a dying panel.
+## store — restored above — is the half that outlives the panel and the half D14 promises. The guard is
+## reachable: [method _exit_tree] reaches here after [method _disconnect_backend], so this is the only
+## remaining sync call on a dying panel.
 func _resolve_orphaned_countdown(entry: Dictionary) -> void:
 	if not _live_countdowns.has(entry):
 		return
@@ -1241,12 +1185,11 @@ func _dismiss_countdown(layer: MKModalLayer, countdown: Control) -> void:
 		# have let go of this dialog (a pop_all on a page change, a host popping it) and the free below
 		# is still owed either way.
 		#
-		# This is the only remove_modal this file calls DIRECTLY, and deliberately so: a Keep, a Revert
-		# or a cancel is a real resolution with the shell alive, so a real pop — scrim, focus
-		# restoration, MKRoot's suspend edge — is exactly right here, synchronously. The orphan route
-		# (_resolve_orphaned_countdown) may be running mid-teardown and must not pop synchronously at
-		# all, so it does not come through here: it hands the dialog to MKModalLayer.reap_modal
-		# deferred, and that reaches remove_modal only if the layer is still alive next flush.
+		# This is the only remove_modal this file calls DIRECTLY: a Keep, a Revert or a cancel is a real
+		# resolution with the shell alive, so a real pop — scrim, focus restoration, MKRoot's suspend
+		# edge — is right here, synchronously. The orphan route (_resolve_orphaned_countdown) may be
+		# running mid-teardown and must not pop synchronously at all, so it hands the dialog to
+		# MKModalLayer.reap_modal deferred instead.
 		layer.remove_modal(countdown)
 	countdown.queue_free()
 
@@ -1287,11 +1230,9 @@ func _find_modal_layer() -> MKModalLayer:
 ## [method _build_custom] registers the host scene's ROOT in [member _controls] (that is how a custom
 ## row gets a revert and a visible_condition lookup at all), and a custom root is legally any Control —
 ## including a [LineEdit], a [CheckBox] or an [HSlider]. The dispatch below is by widget CLASS, so such
-## a root fell into a branch written for a row this panel had built: it received an assignment of the
-## RAW store value, uncoerced (a CUSTOM row has no [method _display_value] arm and cannot have one —
-## the panel does not know what the scene reads), and [code]LineEdit.text = 7[/code] is a script error,
-## not a coercion. Even where the type happened to line up, the panel was overwriting a display it
-## does not own, from a value the row may not even be showing.
+## a root would fall into a branch written for a row this panel built and be assigned the RAW store
+## value, uncoerced ([code]LineEdit.text = 7[/code] is a script error, not a coercion) — and even where
+## the type lines up, the panel would be overwriting a display it does not own.
 ##
 ## So the rule the class doc on [method _on_setting_changed] states is enforced here rather than
 ## assumed: a CUSTOM row owns its backend relationship end to end. It subscribes to
@@ -1300,16 +1241,12 @@ func _find_modal_layer() -> MKModalLayer:
 func _sync_control(def: MKSettingDef) -> void:
 	if def.type == MKSettingDef.RowType.CUSTOM:
 		return
-	# KEYBIND rows are excluded for the same structural reason, arrived at from the other side: a
-	# rebind row's state does not live in the value store at all. It lives in the INPUT store
-	# (get_action_events / set_action_events), keyed by action rather than by setting id, so
-	# _display_value has nothing to return for it — the value store holds no entry for its id and never
-	# will, and the def's own default_value is a bool/float field that means nothing to a binding.
-	# Worse, the dispatch below is by widget CLASS and _register_control stores the row's ROOT: an
-	# MKRebindRow is an HBoxContainer today, but nothing stops a future one from being (or containing,
-	# as its root) a Button, at which point it would fall into a branch written for a control this
-	# panel built and be assigned a value from a store that does not describe it. The row redraws
-	# itself through refresh_display() instead, which reads the store that actually holds its state.
+	# KEYBIND rows are excluded for the same structural reason: a rebind row's state lives in the INPUT
+	# store (get_action_events / set_action_events), keyed by action rather than by setting id, so
+	# _display_value has nothing to return for it. And the dispatch below is by widget CLASS while
+	# _register_control stores the row's ROOT — an MKRebindRow is an HBoxContainer today, but a future
+	# one rooted on a Button would fall into a branch written for a control this panel built. The row
+	# redraws itself through refresh_display() instead.
 	if def.type == MKSettingDef.RowType.KEYBIND:
 		return
 	var control: Variant = _controls.get(def.id, null)
@@ -1347,11 +1284,10 @@ func _sync_control(def: MKSettingDef) -> void:
 
 ## The index of [param value] among an enum row's [code]option_values[/code], or -1.
 ##
-## [b]Type-gated, and that is not defensive tidiness.[/b] GDScript's [code]==[/code] does not return
-## false across unrelated types — [code]Vector2i == String[/code] raises "Invalid operands", a SCRIPT
-## ERROR mid-build. The resolution row's values are [Vector2i] and its stored value can be anything a
-## hand-edited JSON file holds, so a bare comparison loop takes the whole page down for a store the
-## backend itself was careful to tolerate.
+## [b]Type-gated, and it must be.[/b] GDScript's [code]==[/code] does not return false across unrelated
+## types — [code]Vector2i == String[/code] raises "Invalid operands", a SCRIPT ERROR mid-build. The
+## resolution row's values are [Vector2i] and its stored value can be anything a hand-edited JSON file
+## holds, so a bare comparison loop takes the whole page down.
 ##
 ## The numeric branch is the one cross-type comparison that means something: JSON has a single number
 ## type, so an int authored as an [code]option_value[/code] can arrive back as a float (and the
@@ -1375,16 +1311,13 @@ func _index_of_value(values: Array, value: Variant) -> int:
 ## Every write to the store — this panel's own rows, a host writing directly, a load — lands here.
 ##
 ## The changed row's CONTROL is re-synced, because the store is the truth and a widget that disagrees
-## with it is the bug users report as "the setting didn't take": a host brightening the image through
-## the backend used to leave the brightness slider sitting where the player left it.
+## with it is the bug users report as "the setting didn't take".
 ##
-## [b]This covers the row types this panel BUILDS — not [constant MKSettingDef.RowType.CUSTOM].[/b]
-## A custom row is a host scene the panel knows nothing about beyond
+## [b]This covers the row types this panel BUILDS — not [constant MKSettingDef.RowType.CUSTOM].[/b] A
+## custom row is a host scene the panel knows nothing about beyond
 ## [code]_mk_bind(backend, def)[/code]; there is no widget here to write, so it owns its backend
 ## relationship end to end. A custom row that wants liveness subscribes to
-## [signal MKSettingsBackend.setting_changed] itself and updates its own display — which is exactly
-## what the shipped [MKExampleCustomRow] does, so the pattern is demonstrated by the example rather
-## than only described here.
+## [signal MKSettingsBackend.setting_changed] itself, as the shipped [MKExampleCustomRow] does.
 ##
 ## Guarded by [member _syncing] so a sync cannot re-enter itself. A row's own write also arrives here
 ## and re-syncs the control it came from: that is a write of the value the control already holds, and
@@ -1407,11 +1340,10 @@ func _on_setting_changed(id: StringName, _value: Variant) -> void:
 ## reads as a bug.
 ##
 ## [b]The fallback is the CONTROLLING row's own default_value, never a hardcoded false.[/b] An
-## untouched setting is absent from the store (seeding a control writes nothing), so on a fresh
-## install every condition resolves to its default — and a hardcoded false made a default-TRUE
-## controller disagree with its own dependent row. The shipped Gameplay page is exactly that shape:
-## Subtitles defaults on, so a first-run player saw the box CHECKED with the Subtitle Size row
-## missing, and the only gesture that revealed it was toggling Subtitles off and back on.
+## untouched setting is absent from the store (seeding a control writes nothing), so on a fresh install
+## every condition resolves to its default — and a hardcoded false makes a default-TRUE controller
+## disagree with its own dependent row. The shipped Gameplay page is that shape: Subtitles defaults on,
+## so a first-run player would see the box CHECKED with the Subtitle Size row missing.
 ##
 ## Null-safe by construction: an unknown condition id (a typo, or a controller built on a page this
 ## panel does not carry) and a def that authored no default both fall back to false, which is the
@@ -1437,7 +1369,7 @@ func _condition_default(condition: StringName) -> Variant:
 	return def.default_value if def != null else null
 
 
-## The resolution row is DISABLED outside windowed mode (plan §4.3): [method
+## The resolution row is DISABLED outside windowed mode: [method
 ## DisplayServer.window_set_size] is a no-op in fullscreen and borderless, so an enabled row there
 ## would appear to work and change nothing — the worst of the three possible behaviours.
 ##
@@ -1459,34 +1391,31 @@ func _update_resolution_enabled() -> void:
 ## [b]The WINDOW is the source of truth, not the store.[/b]
 ##
 ## The store only knows about mode changes that went through this panel. Alt+Enter, a host calling
-## [method DisplayServer.window_set_mode] itself, and a window manager forcing a mode all move the
-## real window without writing anything — and against a stored "windowed" the resolution row would
-## then render ENABLED while [method DisplayServer.window_set_size] silently did nothing. That is the
-## worst of the three possible behaviours and the exact one this row exists to avoid, so a divergence
-## must be decided in favour of the window.
+## [method DisplayServer.window_set_mode] itself, and a window manager forcing a mode all move the real
+## window without writing anything — and against a stored "windowed" the resolution row would render
+## ENABLED while [method DisplayServer.window_set_size] silently did nothing. So a divergence is always
+## decided in favour of the window.
 ##
 ## The stored value is consulted [b]only under the headless driver[/b], where there is no window for
 ## the query to be about: [method DisplayServer.window_get_mode] answers for a dummy, so trusting it
 ## would disable the row for the whole test suite and make every assertion about enablement a
 ## statement about the stub. Absent a stored mode, headless reports windowed.
 ##
-## [b]The remaining gap, stated rather than papered over.[/b] Nothing polls. Enablement is
-## re-evaluated at build, on a [code]video/window_mode[/code] [signal
-## MKSettingsBackend.setting_changed] (deferred — see [method _on_setting_changed]), and on this
-## panel's own [signal CanvasItem.visibility_changed]. A mode change that happens while the settings
-## page is open and untouched is therefore NOT noticed until one of those edges comes round; the
-## re-show edge is there because leaving the page for gameplay and coming back is when that
-## divergence actually bites.
+## [b]The remaining gap.[/b] Nothing polls. Enablement is re-evaluated at build, on a
+## [code]video/window_mode[/code] [signal MKSettingsBackend.setting_changed] (deferred — see
+## [method _on_setting_changed]), and on this panel's own [signal CanvasItem.visibility_changed]. A
+## mode change while the settings page is open and untouched is therefore NOT noticed until one of
+## those edges comes round; the re-show edge exists because leaving for gameplay and coming back is
+## when that divergence bites.
+##
 ## [b]The probe.[/b] [member window_mode_probe], when a test installs one, both ANSWERS the window
-## query and puts this method on its real-display branch — see that member for why the rule below is
-## otherwise unobservable. Nothing installs one in production.
+## query and puts this method on its real-display branch. Nothing installs one in production.
 func _is_windowed() -> bool:
 	if window_mode_probe.is_valid():
 		# VALIDATED, not coerced. int() on a String parses it ("fullscreen" -> 0, which IS
-		# WINDOW_MODE_WINDOWED) and on a Dictionary or an Object is a script error, so a probe wired to
-		# the wrong signature would either invert this row's enablement silently or take the page down.
-		# A bad probe falls through to the real query below and says so, naming the seam — the seam is a
-		# testing hook, and a testing hook that lies about the window is worse than no hook.
+		# WINDOW_MODE_WINDOWED) and on a Dictionary or an Object is a script error, so a probe wired to the
+		# wrong signature would either invert this row's enablement silently or take the page down. A bad
+		# probe falls through to the real query below and says so, naming the seam.
 		var probed: Variant = window_mode_probe.call()
 		if typeof(probed) == TYPE_INT:
 			return int(probed) == DisplayServer.WINDOW_MODE_WINDOWED

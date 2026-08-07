@@ -1,12 +1,11 @@
 @tool
 class_name MKThemeGenerator
 extends RefCounted
-## Builds the whole [Theme] from one [MKPalette] (plan §1.2).
+## Builds the whole [Theme] from one [MKPalette].
 ##
-## This is the replacement for the reference project's imperative styling API. That API applied
-## StyleBoxes per control at call sites, which meant a re-skin was impossible: an
-## [code]add_theme_*_override[/code] beats the [Theme]. Here, the palette is the only input and the
-## Theme is the only output, so swapping palettes restyles everything (D4, ship gate 3).
+## The palette is the only input and the Theme is the only output, so swapping palettes restyles
+## everything. Styling controls imperatively at call sites would make that impossible: an
+## [code]add_theme_*_override[/code] beats the [Theme].
 ##
 ## Two responsibilities that are easy to under-serve, called out because both are shipped bugs when
 ## missed:
@@ -14,12 +13,10 @@ extends RefCounted
 ##   whichever panel uses it unstyled, and an unstyled control in a screenshot reads as a layout
 ##   mistake rather than a theming one.
 ## [br]- Every Button-derived variation defines all five StyleBoxes, [b]focus included[/b]. Focus is
-##   the only feedback a gamepad or keyboard player gets (D12); a missing focus box ships blind
-##   traversal.
+##   the only feedback a gamepad or keyboard player gets; a missing focus box ships blind traversal.
 ##
-## [b]The focus audit (plan row 8), recorded so the next reader does not have to redo it.[/b] Every
-## focusable control type MenuKit instantiates was walked against the question "does the theme make
-## focus visible here":
+## [b]The focus audit, recorded so the next reader does not have to redo it.[/b] Every focusable
+## control type MenuKit instantiates was walked against "does the theme make focus visible here":
 ## [br]- [Button] and its four variations, [OptionButton], [LineEdit], the [TabContainer] tab strip —
 ##   all carry a [code]focus[/code] StyleBox from [method focus_box], all now with the same content
 ##   margins as their own [code]normal[/code] box ([CheckBox]/[CheckButton] were the exception and are
@@ -33,7 +30,7 @@ extends RefCounted
 ##
 ## The result is generated at runtime by [code]MKRoot[/code] and, for editor preview only, baked to
 ## [code]themes/generated_theme.tres[/code]. The bake is a convenience artifact, never the source of
-## truth (plan §1.2, F6).
+## truth.
 
 
 ## Builds a Theme from [param palette]. Falls back to a default-constructed palette when passed
@@ -80,7 +77,7 @@ static func flat(pal: MKPalette, bg: Color, border: Color, border_width: int,
 
 
 ## The focus StyleBox for a control with the given content margins. Centralised so every focusable
-## control in the package reads as focused the same way — the D12 traversal is only followable if
+## control in the package reads as focused the same way — traversal is only followable if
 ## the ring never changes shape between control kinds.
 static func focus_box(pal: MKPalette, margin_h: int, margin_v: int) -> StyleBoxFlat:
 	var box := flat(pal, Color(pal.border_focus, 0.10), pal.border_focus, pal.focus_width,
@@ -156,9 +153,9 @@ static func _style_panels(theme: Theme, pal: MKPalette) -> void:
 	theme.set_constant(&"separation", &"HBoxContainer", pal.spacing_sm)
 	# MarginContainer's padding is the ONLY way a themed layout can inset content — the constants
 	# have no StyleBox equivalent, and an add_theme_*_override is forbidden in the addon (spelled with
-	# a wildcard because the isolation scan does not exempt comments). With
-	# these unset every panel's content renders flush against the viewport edge, which the Phase 1
-	# capture showed and which no compile or unit assertion can see.
+	# a wildcard because the isolation scan does not exempt comments). With these unset every panel's
+	# content renders flush against the viewport edge — visible only in a capture, never in a compile
+	# or unit assertion.
 	for side in [&"margin_left", &"margin_right", &"margin_top", &"margin_bottom"]:
 		theme.set_constant(side, &"MarginContainer", pal.spacing_lg)
 
@@ -184,13 +181,12 @@ static func _style_line_edit(theme: Theme, pal: MKPalette) -> void:
 
 
 ## Sliders get the track/fill treatment only; the grabber stays the engine texture because MenuKit
-## bundles no art (plan §2.1) and a drawn-in-code grabber would be the one control that cannot be
-## re-skinned from the palette.
+## bundles no art, and a drawn-in-code grabber would be the one control that cannot be re-skinned
+## from the palette.
 static func _style_slider(theme: Theme, pal: MKPalette) -> void:
 	# The groove's on-screen thickness IS the stylebox's content margins — a zero-margin StyleBoxFlat
-	# renders a 0px-tall track, leaving the grabber floating in space (caught by eyeball on the first
-	# Phase 3 capture; every headless assertion passed). spacing_xs per side gives a visible track
-	# that still scales with the palette.
+	# renders a 0px-tall track, leaving the grabber floating in space. spacing_xs per side gives a
+	# visible track that still scales with the palette.
 	var groove := pal.spacing_xs
 	for type in [&"HSlider", &"VSlider"]:
 		theme.set_stylebox(&"slider", type,
@@ -214,14 +210,10 @@ static func _style_checks(theme: Theme, pal: MKPalette) -> void:
 		theme.set_stylebox(&"normal", type,
 			flat(pal, Color(pal.surface, 0.0), Color(pal.border, 0.0), 0,
 				pal.spacing_sm, pal.spacing_xs))
-		# The focus box is re-written with the margins the line above just gave `normal`, replacing the
-		# BUTTON margins _style_button_type wrote. Two reasons, and the second is the D12 one: a Button's
-		# minimum size is the largest of its styleboxes' minimum sizes, so a focus box with roomier
-		# margins silently pads every checkbox on the page; and the focus ring is meant to trace the
-		# control the player is looking at — on a check row, a ring inset differently from the control's
-		# own box reads as a ring around nothing. Every other focusable type this generator styles
-		# (Button, LineEdit, OptionButton, the nav tabs) already matches its normal box's margins; this
-		# was the one that did not.
+		# Re-write the focus box with the margins the line above gave `normal`, replacing the BUTTON
+		# margins _style_button_type wrote. A Button's minimum size is the largest of its styleboxes'
+		# minimum sizes, so a roomier focus box silently pads every checkbox on the page; and a ring inset
+		# differently from the control's own box reads as a ring around nothing.
 		theme.set_stylebox(&"focus", type, focus_box(pal, pal.spacing_sm, pal.spacing_xs))
 		theme.set_constant(&"h_separation", type, pal.spacing_sm)
 
@@ -230,21 +222,20 @@ static func _style_checks(theme: Theme, pal: MKPalette) -> void:
 
 ## [b]The check glyph is generated from the palette, because the engine's is not ours to re-skin.[/b]
 ##
-## An unchecked [CheckBox] rendered near-invisible on the shipped dark panel (recorded as a Phase 3
-## visual defect, seen on the Controls page's Invert Vertical Look): the glyph is an ICON, and icons
-## are the one part of a control that a StyleBox cannot reach — so no amount of palette editing moved
-## it, and the row read as a label with nothing beside it. A per-control theme-item override call is
-## forbidden (plan §1.2, ship gate 1 — the scan matches the call name even in prose, which is why
-## this sentence does not spell it) and would break the alt skin anyway, so the fix belongs here, in
+## An unchecked [CheckBox] renders near-invisible on a dark panel: the glyph is an ICON, and icons
+## are the one part of a control that a StyleBox cannot reach — so no amount of palette editing moves
+## it, and the row reads as a label with nothing beside it. A per-control theme-item override call is
+## forbidden in this addon (the isolation scan matches the call name even in prose, which is why this
+## sentence does not spell it) and would break the alt skin anyway, so the fix belongs here, in
 ## the Theme, keyed off [MKPalette] like everything else.
 ##
 ## [b]Drawn, not bundled.[/b] Two flat boxes and a tick, rasterised at generation time from palette
-## colours — no image file, so ship gate 1's isolation scan and the no-third-party-art rule (plan
-## §2.1) are both untouched, and a host swapping palettes gets a re-coloured glyph for free.
+## colours — no image file, so the addon's isolation scan and the no-third-party-art rule are both
+## untouched, and a host swapping palettes gets a re-coloured glyph for free.
 ##
 ## [b][CheckButton] is deliberately left on the engine's art.[/b] Its icon is a SWITCH, a different
 ## shape with different states; substituting a box there would make the two controls read as the same
-## widget. It was not the reported defect either.
+## widget.
 ##
 ## The [code]radio_*[/code] icons are likewise untouched: a [CheckBox] only draws them when it carries
 ## a [ButtonGroup], and no MenuKit row assigns one.
@@ -269,10 +260,10 @@ static func _style_check_box_icons(theme: Theme, pal: MKPalette) -> void:
 ##
 ## Contrast is the whole job, so the border is the palette's [member MKPalette.border] (its accent
 ## when checked) over the SUNKEN fill rather than the panel fill — the same figure/ground pair the
-## LineEdit and slider groove use, which are the two controls nobody reported as invisible.
+## LineEdit and the slider groove use.
 ##
-## The border is at least 2px wide regardless of [member MKPalette.border_width]. A panel-scale
-## hairline on a 20px glyph is precisely the thing that vanished; the palette still scales it upward.
+## The border is at least 2px wide regardless of [member MKPalette.border_width]: a panel-scale
+## hairline on a 20px glyph vanishes. The palette still scales it upward.
 static func _check_icon(pal: MKPalette, checked: bool, enabled: bool) -> ImageTexture:
 	var size := CHECK_ICON_SIZE
 	# No initial fill: the loop below writes EVERY pixel of the box, so a pre-fill would be overwritten

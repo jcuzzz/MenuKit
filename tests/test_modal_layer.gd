@@ -1,10 +1,9 @@
 extends MKTest
-## [MKModalLayer]'s hostile-input paths (plan §1.3).
+## [MKModalLayer]'s hostile-input paths — freed entries, teardown mid-drain, focus traps that cannot
+## collect anything.
 ##
-## Every case here was a real defect that shipped green, because the navigation suite exercises only
-## the happy path. A mutation audit found five fixes with no test that failed without them; these are
-## those cases. The rule this file exists to enforce: a fix is not done until something fails when it
-## is reverted.
+## The navigation suite exercises only the happy path; every case in this file is one that a
+## happy-path suite passes whether or not the rule is implemented.
 
 var _layer: MKModalLayer
 var _host: Control
@@ -43,9 +42,9 @@ func _test_freed_entry_pops_cleanly() -> void:
 	check(_layer.is_empty(), "and the layer reports empty afterwards")
 
 
-## handle_cancel used to return false and pop nothing when the top entry had been freed, so
-## is_empty() reported false forever: the scrim stayed up over nothing and every later cancel was
-## swallowed. MKRoot has a fallback; a host driving the public API directly does not.
+## handle_cancel must pop a FREED top entry rather than returning false: leaving it makes is_empty()
+## report false forever, so the scrim stays up over nothing and every later cancel is swallowed.
+## MKRoot has a fallback; a host driving the public API directly does not.
 func _test_handle_cancel_unwedges_freed_top() -> void:
 	var panel := _make_panel()
 	_layer.push_modal(panel)
@@ -91,9 +90,9 @@ func _test_remove_modal_releases_focus_trap() -> void:
 	upper.free()
 
 
-## Teardown must DISCARD the stack, not pop it. A real pop reaches MKRoot's 1→0 suspend edge and
-## calls exit_menu on a policy already out of the tree — the crash the plan spent a revision
-## correcting — and restores a gameplay cursor onto the main menu.
+## Teardown must DISCARD the stack, not pop it. A real pop reaches MKRoot's 1→0 suspend edge, which
+## calls exit_menu on a policy already out of the tree (a crash) and restores a gameplay cursor onto
+## the main menu.
 func _test_clear_for_teardown_is_silent() -> void:
 	var popped: Array[String] = []
 	var on_popped := func(_c: Control) -> void: popped.append("pop")
@@ -135,9 +134,8 @@ func _test_clear_for_teardown_returns_ownership() -> void:
 
 
 ## A host calling pop_all() from its own teardown pops a layer that is already out of the tree, where
-## get_viewport() is null. Unguarded, the focus-release path printed a script error — which every
-## assertion in the suite passed straight through, because assertions cannot see engine output.
-## The engine-noise gate in check.ps1 is what turns that into a failure.
+## get_viewport() is null — unguarded, the focus-release path emits a script error. Assertions cannot
+## see engine output; the engine-noise gate in check.ps1 is what turns that into a failure.
 func _test_pop_on_detached_layer_is_quiet() -> void:
 	var host := Control.new()
 	get_root().add_child(host)
@@ -169,9 +167,8 @@ func _test_pop_on_detached_layer_is_quiet() -> void:
 ## is skipped entirely — never untrapped, never unparented, never told the layer is going away, and
 ## then destroyed by the root's own free along with the layer.
 ##
-## The shape is not invented for the test. Removing itself from the layer on [signal Node.tree_exited]
-## is precisely what [MKSettingsPanel]'s revert countdown did until this round, and any host modal that
-## keeps the layer's bookkeeping straight from its own teardown does the same thing.
+## The shape is not invented for the test: any host modal that keeps the layer's bookkeeping straight
+## from its own teardown removes itself on [signal Node.tree_exited].
 func _test_teardown_survives_a_re_entrant_removal() -> void:
 	var layer := MKModalLayer.new()
 	layer.name = "ReentrantLayer"
@@ -214,13 +211,11 @@ func _test_teardown_survives_a_re_entrant_removal() -> void:
 	await step_frame()
 
 
-## [b][method MKFocus.release] must undo what [method MKFocus.trap] wired, and the two were reading
-## different sets.[/b] trap wires every focusable it can see; release walked
-## [method MKFocus.collect_focusables], which SKIPS disabled buttons — so a control disabled while the
-## modal was open (a Confirm greying out as its form goes invalid, a Delete disabled by an arriving
-## roster change) kept its whole wrap-around neighbour ring after the pop. Those are exactly the stale
-## NodePaths release's own documentation calls a silent traversal bug: the control is reused as page
-## content and focus walks into a ring pointing at a subtree that no longer exists.
+## [b][method MKFocus.release] must undo what [method MKFocus.trap] wired, over the SAME set.[/b] trap
+## wires every focusable it can see; a release walking [method MKFocus.collect_focusables] skips
+## disabled buttons — so a control disabled while the modal was open (a Confirm greying out as its
+## form goes invalid, a Delete disabled by an arriving roster change) keeps its whole wrap-around
+## neighbour ring after the pop, and focus later walks into a ring pointing at a freed subtree.
 ##
 ## Asserted on the DISABLED control specifically, and its still-enabled sibling checked alongside, so
 ## the case cannot pass on a release that cleared nothing at all.
@@ -253,18 +248,17 @@ func _test_release_clears_a_control_disabled_after_the_trap() -> void:
 	await step_frame()
 
 
-## [b]§1.3's actual property: while a modal is up, input cannot reach the page underneath.[/b] A modal
+## [b]The actual property: while a modal is up, input cannot reach the page underneath.[/b] A modal
 ## whose every control is disabled — a confirm dialog waiting on an async result, a modal built before
-## its data arrived — collected nothing, so trap returned null and left focus wherever it was: on the
-## PAGE, one arrow key away from driving it. No shipped MenuKit modal reaches that state today, which
-## is precisely why nothing was holding the line.
+## its data arrived — collects nothing, and a trap that returns null there leaves focus on the PAGE,
+## one arrow key away from driving it. No shipped MenuKit modal reaches that state, so nothing else
+## holds this line.
 ##
 ## The trade this pins is deliberate: focus lands on a control that cannot be activated (a disabled
 ## button swallows the press, as it should), but every key and stick direction stays inside the modal.
 ## Trapped-and-inert beats untrapped-and-live on the page beneath.
 func _test_a_wholly_disabled_modal_still_traps_input_inside_itself() -> void:
-	# A page control OUTSIDE the modal, holding focus at the moment the modal opens — the state the
-	# null return used to leave untouched.
+	# A page control OUTSIDE the modal, holding focus at the moment the modal opens.
 	var page_button := Button.new()
 	page_button.text = "Page"
 	_host.add_child(page_button)

@@ -1,33 +1,29 @@
 extends Node3D
-## The demo's grey-box first-person "game" (plan §5 row 6): the world an [MKRoot] pause menu is
-## supposed to sit on top of, and the only place in this repo where the two §4.2a contracts —
-## process mode and mouse capture — are observable rather than asserted.
+## The demo's grey-box first-person "game": the world an [MKRoot] pause menu sits on top of, and
+## the place where the process-mode and mouse-capture contracts are observable rather than asserted.
 ##
 ## [b]Everything here is host code.[/b] The addon knows nothing about this scene; it is reached
 ## through [code]MKSceneMenuBackend[/code]'s [code]game_scene[/code] param, so the whole ESC flow
 ## below is what an integrator writes, and it is deliberately short: forward the gesture, show the
-## shell, gate the camera. Anything longer than that would mean MenuKit had failed to own the
-## atomicity §4.2a says it owns.
+## shell, gate the camera.
 ##
 ## [b]Why this scene runs PAUSABLE and the MKRoot child does not.[/b] This node drives the spinner,
 ## the mouselook and the walk, so leaving it at the inherited default is what makes
-## [code]MKTreePausePolicy[/code] visible at all: with [member SceneTree.paused] true this script
+## [code]MKTreePausePolicy[/code] observable: with [member SceneTree.paused] true this script
 ## stops receiving [method Node._process], [method Node._physics_process] and
 ## [method Node._unhandled_input], while the [MKRoot] subtree keeps ticking on its own
-## [constant Node.PROCESS_MODE_ALWAYS]. Under [code]MKNoPausePolicy[/code] nothing here stops, which
-## is the ~20-minute multiplayer-seam test in the row-6 exit criteria — and the reason the camera
-## gate below exists.
+## [constant Node.PROCESS_MODE_ALWAYS]. Under [code]MKNoPausePolicy[/code] nothing here stops —
+## which is why the camera gate below exists.
 
-## Walk speed in m/s. Chosen for the capture, not for feel: fast enough to cross the 40m floor
-## without waiting, slow enough that a mouse-captured tester can stop on a box.
+## Walk speed in m/s. Sized for the capture, not for feel.
 const SPEED := 5.0
 
 ## Jump impulse in m/s. Paired with [constant GRAVITY]; ~1.1m of clearance.
 const JUMP_VELOCITY := 4.6
 
 ## Local gravity rather than a ProjectSettings read: this scene is the ONLY 3D content in the
-## repo, so the project's physics defaults are unexercised elsewhere and a silent dependency on
-## them would be a worse trade than one named number.
+## repo, so a silent dependency on the project's physics defaults would cost more than one named
+## number.
 const GRAVITY := 9.8
 
 ## Radians of yaw/pitch per pixel of relative mouse motion.
@@ -37,10 +33,8 @@ const MOUSE_SENSITIVITY := 0.0025
 ## basis where yaw and roll coincide.
 const PITCH_LIMIT := deg_to_rad(89.0)
 
-## Degrees per second for the one continuously animating object. It is the row-6 evidence that
-## pause actually froze the world: a screenshot cannot show that a static box is static, but a
-## tester watching this box can tell paused from not-paused in one second, and so can the
-## MKNoPausePolicy swap (the box keeps turning with the menu open).
+## Degrees per second for the one continuously animating object — the visible evidence that pause
+## froze the world (and, under MKNoPausePolicy, that it did not).
 const SPINNER_DEGREES_PER_SECOND := 45.0
 
 @onready var _player: CharacterBody3D = $Player
@@ -50,16 +44,12 @@ const SPINNER_DEGREES_PER_SECOND := 45.0
 
 
 func _ready() -> void:
-	# Guarded because the dummy DisplayServer has no cursor to capture — the same
-	# `get_name() != "headless"` idiom the rebind row and the JSON settings backend use for their
-	# display-dependent calls. A headless run of this scene (a smoke instancing it) should not spend
-	# a driver call on a mouse that does not exist.
+	# Guarded: the dummy DisplayServer has no cursor to capture.
 	if DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# The shell boots hidden: mk_root.tscn is a full-rect Control and would otherwise cover the world
-	# with the backdrop and the nav bar from frame one. Set in the scene as well as here — this
-	# assignment is what makes the state explicit to a reader of the script, the scene value is what
-	# makes it true before the first draw.
+	# with the backdrop and the nav bar from frame one. Set in the scene as well as here — the scene
+	# value is what makes it true before the first draw, this line is what makes it explicit.
 	_menu.visible = false
 	_menu.pause_menu_toggled.connect(_on_pause_menu_toggled)
 
@@ -77,34 +67,28 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed(&"ui_cancel"):
 		return
 	if _menu.is_pause_menu_open():
-		# Closing is MKRoot's job, not ours: with the menu open its _unhandled_input consumes
-		# ui_cancel before this node can see it (the shell is the LAST child, and unhandled input
-		# walks the tree in reverse order), and under a tree pause policy this node is not receiving
-		# input at all. Both routes mean this branch is unreachable in the shipped configuration; it
-		# exists so a host that reorders the children or swaps in MKNoPausePolicy does not get a
-		# second open_pause_menu call, which MKRoot would refuse anyway (its _pause_menu_open guard).
+		# Closing is MKRoot's job: with the menu open its _unhandled_input consumes ui_cancel first
+		# (the shell is the LAST child, and unhandled input walks the tree in reverse), and under a
+		# tree pause policy this node receives no input at all. Unreachable in the shipped
+		# configuration; it guards a host that reorders the children or swaps in MKNoPausePolicy.
 		return
 	# Visible BEFORE open. MKRoot._show_page defers _focus_page_content, and MKFocus.collect_focusables
 	# skips every control failing is_visible_in_tree() — so opening the page while this shell is still
-	# hidden focuses nothing and the pause menu is dead to a gamepad (D12). The pause_menu_toggled
-	# handler below sets the same flag; it is the general contract (any other caller of
-	# open_pause_menu gets the shell shown for free), not a duplicate of this line's job, which is
-	# ordering.
+	# hidden focuses nothing and the pause menu is dead to a gamepad. The pause_menu_toggled handler
+	# below sets the same flag for any other caller; this line's job is the ordering.
 	_menu.visible = true
 	if not _menu.open_pause_menu():
 		# A refused open touched NOTHING: MKRoot pre-checks the page def and its scene before it
-		# suspends anything, so there is no suspension, no page change and no policy edge to undo —
-		# which makes this line the only cleanup there is, and what it undoes is the visibility the
-		# line above set. Without it, a config without a "pause" page leaves a fully opaque shell over
-		# the world with no way back.
+		# suspends anything, so the visibility set above is the only thing to undo. Without this, a
+		# config without a "pause" page leaves an opaque shell over the world with no way back.
 		_menu.visible = false
 	get_viewport().set_input_as_handled()
 
 
-## The host half of the §4.2a footgun. MenuKit frees the cursor whenever a surface is up, INCLUDING
-## under MKNoPausePolicy where the world keeps running — so relative motion keeps arriving here and
-## the camera would spin while the player aims at a menu button. Gating the camera on menu state is
-## explicitly the host's job, and this is the host.
+## The host half of the mouse-capture contract. MenuKit frees the cursor whenever a surface is up,
+## INCLUDING under MKNoPausePolicy where the world keeps running — so relative motion keeps arriving
+## here and the camera would spin while the player aims at a menu button. Gating the camera on menu
+## state is explicitly the host's job, and this is the host.
 ##
 ## Note what this handler does NOT do: it never writes [member Input.mouse_mode]. That is
 ## depth-counted inside MKRoot (a modal over the pause menu must not restore capture on dismiss),

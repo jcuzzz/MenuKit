@@ -9,8 +9,7 @@ extends Node
 ## passes with the checks in either order — the panel skips it either way — so the probe RECORDS
 ## whether it was bound.
 ##
-## Lives in [code]tests/[/code], never in the addon: it is a counter-example, and the isolation gate
-## (ship gate 1) is about what ships.
+## Lives in [code]tests/[/code], never in the addon — the addon ships no probes.
 ##
 ## The counter is [code]static[/code] so a test can read it off the SCRIPT without a surviving
 ## instance — the panel frees this node during the build, which is the whole point.

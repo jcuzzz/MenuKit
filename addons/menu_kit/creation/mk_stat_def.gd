@@ -1,19 +1,16 @@
 @tool
 class_name MKStatDef
 extends Resource
-## One point-buy stat row (plan §4.5, D17).
+## One point-buy stat row (D17).
 ##
 ## [b]MenuKit never interprets a stat.[/b] It does not know that Strength raises melee damage, it does
 ## not compute a derived value, and it does not validate a combination — it renders a labelled counter
-## with a pool, and hands the resulting numbers to the host verbatim through
-## [method MKProfileBackend.create_profile]. That boundary is the same one [MKProfileBackend]'s opaque
-## payload draws, and it is what keeps this a menu package rather than a character system: the moment
-## the addon knew what "Strength" meant it would have to know every host's formula.
+## with a pool and hands the resulting numbers to the host verbatim through
+## [method MKProfileBackend.create_profile]. Same boundary [MKProfileBackend]'s opaque payload draws.
 ##
-## The consequence, and it is deliberate: [member effect_hint] is AUTHORED TEXT. There is no
-## expression language and no callback that computes "+3 melee damage" from the current value; a host
-## that wants a live derived readout owns that widget itself (a [constant MKSettingDef.RowType.CUSTOM]
-## row is the same escape hatch one layer down).
+## The consequence: [member effect_hint] is AUTHORED TEXT. There is no expression language and no
+## callback that computes "+3 melee damage" from the current value; a host that wants a live derived
+## readout owns that widget itself.
 ##
 ## This resource is inert: no node reference, no backend read, no application. Safe to author in the
 ## inspector, duplicate, and load headlessly.
@@ -47,16 +44,16 @@ extends Resource
 
 @export_group("Presentation")
 ## Flavour text under the row — "Raises melee damage and carry weight". AUTHORED, never computed: see
-## the class doc for why MenuKit cannot derive this and will not pretend to.
+## the class doc.
 @export var effect_hint: String = ""
 
 
 ## True when this def can be built into a row at all. A def failing this is skipped with one named
 ## warning rather than rendering a counter that writes to an empty key.
 ##
-## The range check is part of validity rather than something silently clamped: an inverted range
+## The range check is part of validity rather than silently clamped: an inverted range
 ## ([member max_value] below [member min_value]) produces a row whose [code]+[/code] and [code]-[/code]
-## are BOTH disabled at every value, which on screen is indistinguishable from a bug in the step.
+## are BOTH disabled at every value, which on screen looks like a bug in the step.
 func is_valid() -> bool:
 	if id == &"":
 		return false

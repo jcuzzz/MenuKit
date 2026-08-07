@@ -1,6 +1,6 @@
 extends MKTest
 ## The point-buy step: the pool arithmetic, the disabled-not-clamped rule, the payload shape and the
-## restore path (plan §4.5, D17).
+## restore path.
 ##
 ## [b]The buttons are the contract.[/b] "Disabled, not clamped" is the step's stated rule, so every
 ## legality assertion here is made twice — the button's [code]disabled[/code] flag AND the value after
@@ -12,10 +12,10 @@ extends MKTest
 ## idiom), so the engine's own [BaseButton] path — including its disabled check — is what runs. The
 ## mouse route to the same signal is dead under the dummy display driver.
 ##
-## Two things are asserted through a real [MKCreationHost] rather than on the step alone: the
+## One thing is asserted through a real [MKCreationHost] rather than on the step alone: the
 ## [member MKStatSchema.require_full_spend] gate, because "Next stays disabled" is the HOST's
-## behaviour polled off the step's validity, and the D17 drop, which belongs to test_creation_host.gd
-## and is not repeated here.
+## behaviour polled off the step's validity. The schema-requirement drop belongs to
+## test_creation_host.gd and is not repeated here.
 
 const STEP_SCENE := "res://addons/menu_kit/creation/steps/mk_step_pointbuy.tscn"
 
@@ -196,15 +196,15 @@ func _test_a_restore_ignores_a_value_the_current_schema_cannot_honour() -> void:
 	await _drop(step)
 
 
-## [b]The range guard inside [code]_adjust[/code] is the second line of defence, and this is the case
-## that can see it.[/b] Every other assertion in this file goes through a button the step has already
-## disabled, so the engine's own BaseButton check stops the activation before [code]_adjust[/code]
-## runs — which means deleting the guard changes nothing any of them observe.
+## [b]The range guard inside [code]_adjust[/code] is the second line of defence, and this is the only
+## case that can see it.[/b] Every other assertion in this file goes through a button the step has
+## already disabled, so the engine's own BaseButton check stops the activation before
+## [code]_adjust[/code] runs.
 ##
-## The race the guard's comment names is a button that is enabled when it should not be: a keyboard
-## activation dispatched between the value changing and [method _refresh] re-computing the disabled
-## flags. That state is reproduced here directly — the step is walked to its ceiling and floor, then
-## the button is re-enabled BY HAND to stand in for the refresh that has not run yet — and the button's
+## The race the guard defends is a button that is enabled when it should not be: a keyboard activation
+## dispatched between the value changing and [method _refresh] re-computing the disabled flags. That
+## state is reproduced directly — the step is walked to its ceiling and floor, then the button is
+## re-enabled BY HAND to stand in for the refresh that has not run yet — and the button's
 ## own [signal BaseButton.pressed] is emitted, which is exactly what the engine emits at the end of an
 ## activation it allowed. The value must not move, and the committed payload must not carry an
 ## out-of-range number.
@@ -230,8 +230,8 @@ func _test_the_range_guard_holds_when_the_button_is_wrongly_enabled() -> void:
 	check_eq((payload.get("stats") as Dictionary).get("might"), 3,
 		"and the committed payload carries a value the current schema can honour — an over-max number here is what a host would then have to defend against forever")
 
-	# The mirror at the floor: one `if` covers both bounds, so the minimum needs the same case or half
-	# the guard can be deleted while the suite stays green.
+	# The mirror at the floor: one `if` covers both bounds, so without this case half the guard is
+	# unheld.
 	await _press(step._minus_buttons[0])
 	await _press(step._minus_buttons[0])
 	check_eq(step._values[0], 1, "precondition: walked back down to the floor")
@@ -285,15 +285,13 @@ func _test_require_full_spend_gates_next() -> void:
 
 
 ## [b]The demo's own schema, asserted as CONTRACT rather than as tuning.[/b] The two cases above build
-## their schemas in memory, so both sides of the flag are covered no matter what the shipped resource
-## says — which left the resource itself pinned by nothing: flipped to false, the whole gate stayed
-## green while the demo silently stopped demonstrating anything.
+## their schemas in memory, so both sides of the flag stay covered no matter what the shipped resource
+## says — which leaves the resource itself pinned by nothing.
 ##
-## §5 lists the full-spend flag gating Confirm as an exit criterion, and the demo IS the deliverable
-## that criterion names: a criterion only reachable by editing a resource is not demonstrated. So the
-## value of this one bool in this one file is a contract, and the schema's own header says as much
-## ("with the flag on, the shipped demo shows ... a greyed Confirm"). A host wanting the lenient flow
-## flips it in THEIR schema; flipping it here retires the demonstration.
+## The demo is the deliverable that DEMONSTRATES the full-spend gate, so the value of this one bool in
+## this one file is a contract, and the schema's own header says as much ("with the flag on, the
+## shipped demo shows ... a greyed Confirm"). A host wanting the lenient flow flips it in THEIR
+## schema; flipping it here retires the demonstration.
 func _test_the_demo_schema_ships_the_full_spend_gate_switched_on() -> void:
 	var schema := ResourceLoader.load(DEMO_SCHEMA_PATH) as MKStatSchema
 	check(schema != null, "the demo's point-buy schema loads as an MKStatSchema")

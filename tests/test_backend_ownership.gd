@@ -1,13 +1,12 @@
 extends MKTest
-## Who owns the settings backend (plan §4.2).
+## Who owns the settings backend.
 ##
 ## The failure this guards against is one of the nastiest in the package: two [MKSettingsBackend]
 ## instances over one JSON file means the D14 revert countdown snapshots one while the panel writes
 ## the other, and last-[code]save()[/code] silently wins. Nothing crashes; settings just quietly
 ## revert, and a bug report reading "my resolution doesn't stick" contains no evidence of the cause.
 ##
-## Three paths, all real (§4.2 is explicit that the no-autoload route is the D3 escape hatch and that
-## shipping it unverified is backwards):
+## Three paths, all real (the no-autoload route is a supported escape hatch, not a curiosity):
 ## [br]1. [b]Adopt[/b] — the service exists, so MKRoot borrows its instance and builds none.
 ## [br]2. [b]Standalone[/b] — no service, so MKRoot instantiates from its own config and owns it.
 ## [br]3. [b]Mismatch[/b] — the scene's config names a different backend script than the service
@@ -41,10 +40,9 @@ func run_tests() -> void:
 ##
 ## Every other test here supplies `override_backend_slot`, which skips `_resolve_slot_from_config`
 ## entirely — the ProjectSettings read, the loadable-path guard, the is-it-an-MKConfig check. That is
-## the half a real host actually uses, and it went unexercised while a fatal defect sat in the same
-## file: the script declared `class_name MKSettingsService`, which Godot forbids for a script
-## registered under that autoload name, so the autoload never instantiated in any real project while
-## these tests stayed green.
+## the half a real host actually uses, and nothing else in the suite reaches it. It also pins that
+## the service script carries NO `class_name`: Godot forbids one matching an autoload singleton name,
+## and a script that has one never instantiates in a real project.
 func _test_service_resolves_from_project_setting() -> void:
 	const KEY := "menu_kit/config_path"
 	var previous: Variant = ProjectSettings.get_setting(KEY) if ProjectSettings.has_setting(KEY) else null
@@ -75,11 +73,9 @@ func _test_service_resolves_from_project_setting() -> void:
 
 ## No autoload: MKRoot builds its own backend from the config slot, owns its lifetime, AND boots it.
 ##
-## The boot half is asserted by seeding a store on disk first. Checking only that a backend exists —
-## or that it answers queries — cannot catch the defect this covers, because a cold backend answers
-## too, with the caller's defaults. MKRoot used to instantiate the backend and never call
-## load/apply_all, so with no autoload present nothing in a shipped configuration ever read the
-## store, and the symptom looked like a bug in whatever panel the user happened to be on.
+## The boot half is asserted by seeding a store on disk first: checking only that a backend exists —
+## or that it answers queries — cannot catch a backend that was instantiated but never told to
+## load/apply_all, because a cold backend answers too, with the caller's defaults.
 func _test_standalone() -> void:
 	BootSpy.reset()
 	var config := _make_config(BootSpy)
@@ -107,10 +103,9 @@ func _test_standalone() -> void:
 
 # --- Persistence: the file is written by SOMEBODY ------------------------------
 
-## [method MKSettingsBackend.save] had NO production caller. Every write reached
-## [method MKSettingsBackend.set_value], applied immediately, lived in memory — and the process then
-## ended without writing the file, so nothing a player changed survived a relaunch. Both owners of a
-## booted backend now flush on exit; this is the autoload half, which is the supported configuration.
+## [method MKSettingsBackend.set_value] applies immediately and lives in MEMORY — without a flush on
+## exit nothing a player changed survives a relaunch. Both owners of a booted backend flush; this is
+## the autoload half, the supported configuration.
 ##
 ## The relaunch is simulated the only honest way: a SECOND backend instance over the same path, loaded
 ## from scratch. Reading the value back off the original handle would pass against a save that never
@@ -130,7 +125,7 @@ func _test_the_service_saves_its_backend_on_exit() -> void:
 		"save/service: precondition — set_value alone writes nothing to disk, which is the whole defect")
 
 	# Freed immediately rather than queue_free'd: a queued node's deferred work can be dropped in a
-	# delete cascade (the handoff's §4 trap), and this test must observe _exit_tree, not race it.
+	# delete cascade, and this test must observe _exit_tree, not race it.
 	_remove_service(service)
 	check(FileAccess.file_exists(PATH),
 		"save/service: exiting the tree wrote the store — the file existing is the proof _exit_tree ran at all")
@@ -143,7 +138,7 @@ func _test_the_service_saves_its_backend_on_exit() -> void:
 	await step_frame()
 
 
-## The standalone tier's half of the same rule (D3: no autoload). [MKRoot] saves ONLY a backend it
+## The standalone (no-autoload) tier's half of the same rule. [MKRoot] saves ONLY a backend it
 ## built itself — an ADOPTED one belongs to the service, which outlives every scene change, and saving
 ## it from here would be a write per scene transition made by the wrong owner.
 func _test_a_standalone_root_saves_the_backend_it_built() -> void:
@@ -176,15 +171,13 @@ func _test_a_standalone_root_saves_the_backend_it_built() -> void:
 	await step_frame()
 
 
-## The OTHER half of the save-on-exit rule, and the one nothing measured: [MKRoot] saves only what it
-## OWNS. The guard is the [code]not _adopted_settings[/code] clause in [method MKRoot._exit_tree], and
-## deleting it passed the entire suite — every existing save test builds its own backend, so an
-## adopted one had no test in either direction.
+## The OTHER half of the save-on-exit rule: [MKRoot] saves only what it OWNS. The guard is the
+## [code]not _adopted_settings[/code] clause in [method MKRoot._exit_tree], and every other save test
+## builds its own backend, so this is the only assertion holding it.
 ##
-## Deleting it is not cosmetic. [MKRoot] dies on every scene change while the service outlives them
-## all, so an unguarded root flushes the service's store from a node that is halfway through teardown,
-## once per transition — and it is the wrong owner's decision about a file the service will write
-## again anyway.
+## [MKRoot] dies on every scene change while the service outlives them all, so an unguarded root
+## flushes the service's store from a node halfway through teardown, once per transition — the wrong
+## owner's decision about a file the service will write again anyway.
 ##
 ## The file's EXISTENCE is the whole assertion, which is why it is deleted first and why the value is
 ## written but never read back: a save from the wrong owner produces a file at a moment no file should
@@ -224,12 +217,11 @@ func _test_an_adopted_backend_is_saved_by_the_service_and_not_by_the_root() -> v
 	await step_frame()
 
 
-## The adopt path ignores the scene slot's PARAMS, and used to do it in silence.
+## The adopt path ignores the scene slot's PARAMS, and must say so.
 ##
-## Probed: a config naming its own [code]file_path[/code] adopted the service's store with no
-## diagnostic anywhere, and since save-on-exit exists the service then persisted those values into a
-## file the scene's config never mentions — "my settings are in the wrong file" with nothing in the
-## log to start from.
+## A config naming its own [code]file_path[/code] adopts the service's store instead, and save-on-exit
+## then persists those values into a file the scene's config never mentions — "my settings are in the
+## wrong file", with nothing in the log to start from unless this line is emitted.
 ##
 ## [b]Debug rather than warn, deliberately.[/b] The shipped demo adopts AND assigns
 ## [code]file_path[/code]: [code]menu_kit/config_path[/code] points the service at
@@ -416,8 +408,8 @@ func _make_config(backend_script: Script) -> MKConfig:
 ##
 ## Loaded by path, not by class name: the service script deliberately has no [code]class_name[/code],
 ## because Godot forbids one that matches an autoload singleton name. It had one, and the collision
-## meant the real autoload never instantiated in any host while this test — which mounts the node
-## directly — stayed green.
+## and this test mounts the node directly, so it cannot observe that collision itself — the
+## config-route test above is what pins it.
 const SERVICE_SCRIPT := preload("res://addons/menu_kit/core/mk_settings_service.gd")
 
 

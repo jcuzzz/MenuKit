@@ -1,11 +1,10 @@
 extends MKTest
-## The name step's inline reason label (plan §4.5).
+## The name step's inline reason label.
 ##
-## [b]The rule under test is the one this step exists for:[/b] every invalid state says WHY, in place.
-## A greyed-out Next with no explanation is the most common way a creation screen dead-ends a player,
-## and the case that broke it is the one input the player does not drive — AVAILABILITY. A name that
-## becomes taken while the step sits open disables Next, and the label underneath went on reading
-## "Looks good.", which is the exact unexplained dead end the class doc promises not to produce.
+## [b]The rule under test:[/b] every invalid state says WHY, in place. A greyed-out Next with no
+## explanation is the most common way a creation screen dead-ends a player, and the hard case is the
+## one input the player does not drive — AVAILABILITY: a name that becomes taken while the step sits
+## open disables Next with no keystroke to trigger a re-render.
 ##
 ## [b]Why polling is the whole mechanism.[/b] [MKProfileBackend] has no "availability changed" signal
 ## to subscribe to; the host's [code]_mk_step_is_valid[/code] poll on every navigation and state change
@@ -21,8 +20,8 @@ func run_tests() -> void:
 	await _test_the_reason_still_tracks_ordinary_typing()
 
 
-## The finding: text unchanged, answer flipped. Nothing the player did causes a re-render, so the only
-## place the label can be repaired is the validity poll itself.
+## Text unchanged, answer flipped. Nothing the player did causes a re-render, so the only place the
+## label can be repaired is the validity poll itself.
 func _test_the_reason_follows_an_availability_flip_under_unchanged_text() -> void:
 	var backend := FlipBackend.new()
 	get_root().add_child(backend)
@@ -48,8 +47,8 @@ func _test_the_reason_follows_an_availability_flip_under_unchanged_text() -> voi
 
 
 ## The ordinary path must keep working: the poll-side repair is an ADDITION to the text_changed
-## refresh, and a step that only updated its label on a validity FLIP would go silent while the player
-## typed through two different invalid reasons.
+## refresh — a step that only updated its label on a validity FLIP goes silent while the player types
+## through two different invalid reasons.
 func _test_the_reason_still_tracks_ordinary_typing() -> void:
 	var backend := FlipBackend.new()
 	get_root().add_child(backend)

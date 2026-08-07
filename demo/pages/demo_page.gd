@@ -70,7 +70,7 @@ func _ready() -> void:
 				MKLog.warn("demo: no menu backend assigned, cannot open '%s'" % url)
 		))
 
-	# Keyboard-only traversal is a per-phase exit criterion, not Phase 8 work.
+	# Every page wires its own focus chain — nothing does it for host content.
 	MKFocus.chain_container(column)
 	MKFocus.focus_first(column)
 

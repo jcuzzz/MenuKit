@@ -2,64 +2,53 @@
 class_name MKCreationHost
 extends Control
 ## The character creation flow: an ordered [MKCreationStepDef] array, one shared payload, and the
-## navigation around them (plan §4.5).
+## navigation around them.
 ##
 ## [b]This is not a page.[/b] It is a Control a panel embeds, and it emits [signal creation_confirmed]
-## / [signal creation_cancelled] instead of navigating anywhere itself. Creation is reached from a
-## character SELECT screen in some hosts, from a "New Game" button in others, and from a modal in a
-## third; a host that owns navigation can put this anywhere, whereas a host that had to accept
-## MenuKit's idea of "where you go after Confirm" would fork it on the first disagreement.
+## / [signal creation_cancelled] instead of navigating anywhere itself, so a host that owns navigation
+## can put it anywhere — behind a select screen, a "New Game" button, or a modal.
 ##
 ## [b]The payload is opaque and the host never interprets it.[/b] Steps write their declared keys into
 ## one [Dictionary], an archetype seeds defaults into it, and on Confirm it goes VERBATIM to
-## [method MKProfileBackend.create_profile]. MenuKit does not know what "class" or "stats" mean — the
-## same boundary [MKProfileBackend] draws, and the reason the same flow can produce an ARPG character
-## or an FPS loadout.
+## [method MKProfileBackend.create_profile]. Same boundary [MKProfileBackend] draws.
 ##
 ## [b]Key ownership is asserted, loudly.[/b] Every step declares the payload keys it writes, and two
 ## ENABLED steps claiming one key is a contract violation rather than a precedence question: whichever
-## ran last would silently erase the other's field, and the symptom is a profile missing data with
-## nothing in the log. The collision is an [method MKLog.error] naming both defs and the key, and the
-## LATER step is dropped. Dropping is the loud outcome — a visibly missing step sends the author to the
-## error; a silently overwritten field sends them to their save format.
+## ran last would silently erase the other's field. The collision is an [method MKLog.error] naming
+## both defs and the key, and the LATER step is dropped — a visibly missing step sends the author to
+## the error, while a silently overwritten field sends them to their save format.
 ##
-## [b]Merge order, always:[/b] archetype defaults are seeded FIRST, step commits overwrite (the plan's
-## sentence). A default is a starting point that the player's own choices win over, which is the only
-## order in which "the Knight starts with 50 gold" and "the player typed a name" can both be true.
+## [b]Merge order, always:[/b] archetype defaults are seeded FIRST, step commits overwrite. A default
+## is a starting point the player's own choices win over, which is the only order in which "the Knight
+## starts with 50 gold" and "the player typed a name" can both be true.
 ##
-## [b]It is enforced by EXCLUSION, and an overwrite therefore never actually happens.[/b] Finding F8's
-## check ([method _validate_archetype_defaults]) refuses, at configure and with an error naming both
-## sides, any archetype default whose key a step OWNS — the default is never seeded, and
-## [method notify_archetype_chosen] skips it again on every choice. So the two authors of a payload key
-## are disjoint by DECLARATION: every key the host knows about was claimed either by a seed or by a
-## step's [code]_mk_step_owned_keys[/code], never by both, and "steps win" is a statement about who is
-## ALLOWED to write a key rather than about the order two writes landed in.
+## [b]It is enforced by EXCLUSION, so an overwrite never actually happens.[/b]
+## [method _validate_archetype_defaults] refuses, at configure and with an error naming both sides, any
+## archetype default whose key a step OWNS — the default is never seeded, and
+## [method notify_archetype_chosen] skips it again on every choice. The two authors of a payload key
+## are therefore disjoint by DECLARATION, and "steps win" is a statement about who is ALLOWED to write
+## a key rather than about the order two writes landed in.
 ##
-## [b]Declaration, not construction, and the gap is worth naming.[/b] Nothing here checks what a step's
-## [code]_mk_step_commit[/code] actually writes — it is handed the live payload and could write a key
-## it never declared, over a seeded default, and no assertion would fire. Policing that would mean
-## diffing the payload around every commit and deciding what to do about a step that is simply wrong,
-## which is a heavier contract than the flow needs. Every step this addon ships honours its own
-## declaration; a host step that does not is outside the guarantee rather than caught by it.
+## [b]Declaration, not construction — the gap is worth naming.[/b] Nothing here checks what a step's
+## [code]_mk_step_commit[/code] actually writes: it is handed the live payload and could write a key it
+## never declared, over a seeded default, and no assertion would fire. Every step this addon ships
+## honours its own declaration; a host step that does not is outside the guarantee rather than caught
+## by it.
 ##
 ## [b]The exclusion holds whatever order the steps are authored in, and that takes an explicit
 ## mechanism.[/b] [method configure] runs in THREE passes: every surviving step's owned keys are
 ## claimed first (collisions resolved), THEN the archetype defaults are validated against the complete
-## ownership map, and only THEN is any step scene bound. The order matters because binding is not inert
-## — [MKStepArchetype] auto-selects its first card at bind and calls
-## [method notify_archetype_chosen] from there, so a seed can happen DURING the build. Claiming every
-## key before the first bind runs is what makes that seed consult a finished map rather than a
-## half-built one; with the passes interleaved, an archetype step declared before the step that owns
-## [code]name[/code] seeded that key while the F8 error line said it had not been.
+## ownership map, and only THEN is any step scene bound. Binding is not inert — [MKStepArchetype]
+## auto-selects its first card at bind and calls [method notify_archetype_chosen] from there, so a seed
+## can happen DURING the build. Claiming every key before the first bind is what makes that seed
+## consult a finished map rather than a half-built one.
 ##
-## What IS ordered — and is a real invariant — is that a seed for an UNOWNED key survives
-## from [method notify_archetype_chosen] through to [method _confirm] unless the player changes
-## archetype, at which point exactly that choice's own keys are cleared and no others.
+## What IS ordered — and is a real invariant — is that a seed for an UNOWNED key survives from
+## [method notify_archetype_chosen] through to [method _confirm] unless the player changes archetype,
+## at which point exactly that choice's own keys are cleared and no others.
 ##
 ## [b]A null backend is not an error[/b] — the same policy [MKSettingsPanel] applies to a null settings
-## backend. The flow builds, warns ONCE, and renders its navigation disabled. A creation screen that
-## refused to appear because a slot was unassigned is indistinguishable from a crashed page, and the
-## host's actual mistake goes unnamed.
+## backend. The flow builds, warns ONCE, and renders its navigation disabled.
 
 ## The stored profile [method MKProfileBackend.create_profile] returned — never the raw payload, since
 ## the backend assigns the id and may normalise fields.
@@ -79,11 +68,9 @@ signal built()
 ## hides the field behind a scrim.
 ##
 ## The text names NO cause on purpose. Refusals are silent by the backend contract — a taken name, a
-## full roster and the read-only newer-store latch all answer the same empty dictionary — and a
-## message enumerating specific causes is wrong whenever the real one is not on its list (measured,
-## round 8: under the latch the roster is empty and the name irrelevant, so the old two-cause text was
-## wrong twice in one sentence). "Cannot say WHICH and does not guess" applies to the player's message
-## no less than to the host's logic; the log carries the specific warn where one exists.
+## full roster and the read-only newer-store latch all answer the same empty dictionary — so a message
+## enumerating causes is wrong whenever the real one is not on its list. The log carries the specific
+## warn where one exists.
 const REFUSAL_MESSAGE := "Could not create the character. Adjust it and try again, or cancel."
 
 const NO_BACKEND_MESSAGE := "No profile backend is assigned, so nothing can be saved."
@@ -91,8 +78,8 @@ const NO_BACKEND_MESSAGE := "No profile backend is assigned, so nothing can be s
 var _steps: Array[MKCreationStepDef] = []
 ## The instantiated step scene root for each entry of [member _steps], same order, same size. Built
 ## eagerly at [method configure] because the ownership assertion needs every step's declared keys
-## BEFORE the first one is shown — a check deferred to "when you reach step 4" is a check that fires in
-## front of the player rather than in front of the author.
+## BEFORE the first one is shown — a check deferred to "when you reach step 4" fires in front of the
+## player rather than the author.
 var _step_nodes: Array[Control] = []
 var _archetypes: Array[MKArchetype] = []
 var _backend: MKProfileBackend
@@ -137,10 +124,9 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 
-## Builds (or rebuilds) the entire flow. This is the ONE entry point: there is no incremental
-## "add_step", because the duplicate-key assertion and the F8 archetype check are both statements about
-## the whole set, and a set that can be mutated afterwards can be mutated back into the state the
-## assertion refused.
+## Builds (or rebuilds) the entire flow. The ONE entry point: there is no incremental "add_step",
+## because the duplicate-key assertion and the archetype-default check are both statements about the
+## whole set, and a mutable set can be mutated back into the state the assertion refused.
 ##
 ## [param profile_backend] may be null — see the class doc for why that builds disabled rather than
 ## refusing. [param stat_schema] may be null, which DROPS a point-buy step from [param steps] with a
@@ -172,9 +158,8 @@ func _ready() -> void:
 func configure(steps: Array[MKCreationStepDef], archetypes: Array[MKArchetype],
 		profile_backend: MKProfileBackend, stat_schema: MKStatSchema) -> void:
 	_teardown()
-	# assign() rather than `= archetypes.duplicate()`: Array.duplicate() is declared as returning an
-	# untyped Array, so the assignment is an unsafe narrowing the compiler is entitled to reject.
-	# assign() copies element-wise into the typed array and is the sanctioned form.
+	# assign() rather than `= archetypes.duplicate()`: Array.duplicate() returns an UNTYPED Array, so the
+	# assignment is an unsafe narrowing. assign() copies element-wise into the typed array.
 	_archetypes.assign(archetypes)
 	_backend = profile_backend
 	_schema = stat_schema
@@ -186,9 +171,8 @@ func configure(steps: Array[MKCreationStepDef], archetypes: Array[MKArchetype],
 	_refusal_pending = false
 
 	if _backend == null:
-		# ONE warning for the whole flow, not one per step — the settings panel's rule, for the same
-		# reason: a four-step flow would otherwise print the same diagnosis four times for one unassigned
-		# slot and bury everything else.
+		# ONE warning for the whole flow, not one per step — the settings panel's rule: a four-step flow
+		# would otherwise print the same diagnosis four times for one unassigned slot.
 		MKLog.warn("%s: no MKProfileBackend supplied — the flow builds with navigation disabled and nothing can be created"
 			% _context("configure"))
 
@@ -247,9 +231,8 @@ func is_built() -> bool:
 ## step; a host step that offers its own picker calls the same method.
 ##
 ## [b]Seeding lives here and not in the step[/b] because it is a statement about the whole payload: the
-## host is the only thing that knows the merge order, the only thing holding every step's owned keys,
-## and the only thing that can clear the PREVIOUS choice's defaults without also clearing the player's
-## typed name. A step that seeded its own would re-derive all three and get one wrong.
+## host is the only thing that knows the merge order, holds every step's owned keys, and can clear the
+## PREVIOUS choice's defaults without also clearing the player's typed name.
 ##
 ## Changing choice clears exactly the keys the last choice seeded, then seeds the new ones. Step
 ## commits are untouched by both halves — they overwrite defaults on the way forward, which is the
@@ -266,10 +249,8 @@ func notify_archetype_chosen(archetype: MKArchetype) -> void:
 	for key_variant in archetype.payload_defaults.keys():
 		var key := String(key_variant)
 		if _owned_by.has(key):
-			# Already reported ONCE, by name, in _validate_archetype_defaults at configure time. Repeating
-			# the error on every card click would turn one authoring mistake into a log flood driven by the
-			# player's mouse, so the skip is restated at debug level and the loud line stays where it can be
-			# acted on.
+			# Already reported ONCE, by name, in _validate_archetype_defaults at configure time. Repeating the
+			# error on every card click would turn one authoring mistake into a mouse-driven log flood.
 			MKLog.debug("%s: skipping archetype default '%s' — a step owns that key (already reported)"
 				% [MKLog.context(archetype, "payload_defaults"), key])
 			continue
@@ -424,9 +405,9 @@ func _instantiate_step(def: MKCreationStepDef) -> Control:
 			control.free()
 			return null
 		# An UNUSABLE schema is the other half of the same drop, at WARN rather than debug: declining
-		# point-buy is a choice, but authoring a schema with no stats or a non-positive pool is a mistake
-		# — the step would render a budget readout over an empty list, or one where every + is dead from
-		# the first frame. Both look like the step is broken, so the resource is named instead.
+		# point-buy is a choice, but a schema with no stats or a non-positive pool is a mistake — the step
+		# would render a budget readout over an empty list, or one where every + is dead from the first
+		# frame. Both look broken, so the resource is named instead.
 		if not _schema.is_valid():
 			MKLog.warn("%s: step '%s' needs a usable MKStatSchema — this one has no valid stat or a non-positive total_points, so the step is dropped rather than rendered dead"
 				% [MKLog.context(_schema, "total_points"), def.id])
@@ -450,8 +431,8 @@ func _instantiate_step(def: MKCreationStepDef) -> Control:
 ## Pass 3: binds every accepted step, in order. Split from the claim pass because binding is where a
 ## step wires signals and may call back into this host — [MKStepArchetype] auto-selects its first card
 ## at bind and seeds the payload through [method notify_archetype_chosen] from there. Running that
-## while the ownership map was still half-built let an archetype declared BEFORE a claiming step seed
-## that step's key, and the F8 error printed at the same configure said the opposite.
+## against a half-built ownership map would let an archetype declared BEFORE a claiming step seed that
+## step's key.
 func _bind_steps() -> void:
 	for i in _step_nodes.size():
 		var control := _step_nodes[i]
@@ -462,12 +443,9 @@ func _bind_steps() -> void:
 		if control.has_signal("step_state_changed"):
 			control.connect("step_state_changed", _on_step_state_changed)
 		else:
-			# Not fatal: a step with no mutable input has nothing to announce, and its validity is polled
-			# once at every _show_step anyway. (No shipped step is in this state — the appearance
-			# placeholder declares the signal even though it never changes validity — so the branch exists
-			# for host steps.) Said at debug
-			# level so a step that DOES have inputs and forgot the signal — the "Next stays greyed out while
-			# I type" report — has a line to find.
+			# Not fatal: a step with no mutable input has nothing to announce, and its validity is polled at
+			# every _show_step anyway. Reported at debug so a step that DOES have inputs and forgot the signal
+			# — the "Next stays greyed out while I type" report — has a line to find.
 			MKLog.debug("%s: step '%s' declares no step_state_changed signal — validity is polled on navigation only"
 				% [MKLog.context(def, "scene"), def.id])
 
@@ -515,14 +493,14 @@ func _claim_keys(def: MKCreationStepDef, keys: Array[String]) -> bool:
 	return true
 
 
-## Finding F8: an archetype default whose key a step owns is an authoring error, checked ONCE at
-## configure against the union of every accepted step's keys.
+## An archetype default whose key a step owns is an authoring error, checked ONCE at configure against
+## the union of every accepted step's keys.
 ##
-## It is an error rather than a precedence rule because the two answers are both wrong. Letting the
-## default win discards what the player typed; letting the step win — which is the documented merge
-## order and what actually happens — means the authored default has no effect at all and never says so.
-## The archetype and the key are both named, because "an archetype default was ignored" with neither is
-## a message you cannot act on.
+## An error rather than a precedence rule, because both answers are wrong: letting the default win
+## discards what the player typed, and letting the step win (the documented merge order, and what
+## actually happens) means the authored default has no effect at all and never says so. The archetype
+## and the key are both named, because "an archetype default was ignored" is not actionable without
+## them.
 ##
 ## The default is refused (never seeded); the step keeps the key.
 func _validate_archetype_defaults() -> void:
@@ -563,8 +541,8 @@ func _show_step(index: int) -> void:
 			node.visible = i == _index
 	var def := _steps[_index]
 	_title_label.text = def.title if not def.title.is_empty() else String(def.id)
-	# One-based and spelled out: "Step 2 of 4" is what a player reads; a progress BAR alone cannot say
-	# how many steps are left in a flow whose length the host chose.
+	# One-based and spelled out: a progress BAR alone cannot say how many steps are left in a flow whose
+	# length the host chose.
 	_progress_label.text = "Step %d of %d" % [_index + 1, _step_nodes.size()]
 	_set_message("")
 	_refresh_buttons()
@@ -572,7 +550,7 @@ func _show_step(index: int) -> void:
 	# only what is visible in the tree — a chain built over hidden steps would walk into them.
 	MKFocus.chain_container(self)
 	# Focus lands in the step's CONTENT rather than on Next, so a gamepad player starts on the thing the
-	# step is asking them to do. A menu that opens with nothing focused is dead to a gamepad (D12).
+	# step is asking them to do. A menu that opens with nothing focused is dead to a gamepad.
 	var current := _step_nodes[_index]
 	if current != null and is_instance_valid(current) and MKFocus.focus_first(current) == null:
 		# Nothing focusable in the step itself (the appearance placeholder). Put focus on the footer so
@@ -594,16 +572,12 @@ func _refresh_buttons() -> void:
 	_back_button.disabled = _index == 0 or _backend == null
 	# required beats skippable, and the def's doc says why the two flags are not one.
 	_skip_button.visible = def.skippable and not def.required
-	# [b]The refusal gate, and it covers BOTH ways out of the last step.[/b] After a refused create,
-	# pressing Confirm again over an unchanged payload can only produce the identical refusal — and so
-	# can SKIPPING a last step, which reaches _confirm by the other door. Gating only Confirm left the
-	# Skip button visible and enabled beside it, and one press fired a second identical attempt at the
-	# backend (measured: two create_profile calls for one refused payload). Skip is gated only where it
-	# would confirm; on any earlier step it is ordinary forward navigation and stays live.
-	# Gated where the press would REACH _confirm — which on the last step is both buttons, and on every
-	# earlier step is neither. Gating Next everywhere would close the recovery it exists to leave open:
-	# the way out of a refusal is Back to a step the player can answer and forward again, and a Next
-	# disabled behind them is the dead end in a different place.
+	# The refusal gate covers BOTH ways out of the last step: after a refused create, pressing Confirm
+	# again over an unchanged payload produces the identical refusal, and so does SKIPPING a last step,
+	# which reaches _confirm by the other door. So the gate applies where the press would REACH _confirm
+	# — both buttons on the last step, neither on any earlier one. Gating Next everywhere would close the
+	# recovery it exists to leave open: the way out of a refusal is Back to a step the player can answer,
+	# then forward again.
 	var would_confirm := _refusal_pending and is_last
 	_skip_button.disabled = _backend == null or would_confirm
 	_next_button.disabled = _backend == null or not _step_is_valid(_index) or would_confirm
@@ -628,14 +602,12 @@ func _step_is_valid(index: int) -> bool:
 ## [b]The scoped lift: a flow whose refused step has no earlier step to walk back to.[/b] The general
 ## rule is that forward MOVEMENT lifts the gate (see [method _advance]), and every lift site is behind
 ## Next or Skip. On a SINGLE-step flow the last step is also the first: [code]is_last[/code] is true at
-## index 0, so the gate disables both Next and Skip, and Back is disabled at index 0 for having nowhere
-## to go — leaving Cancel as the only exit, permanently, after one refusal (measured: retyping the name
-## changed nothing). So on index 0 the step announcing a state change IS the fresh-attempt signal, and
-## it is the only one that flow can produce. [b]"Announcing", not "changing": the signal cannot tell an
-## edit from a re-affirmation[/b] — Enter on unchanged text and re-clicking the selected card both ping
-## it (measured, round 6) — and the lift accepts both, because either is a distinct deliberate gesture
-## aimed at the step, which is all the gate prices anywhere: a plain Confirm double-press stays
-## blocked.
+## index 0, so the gate disables both Next and Skip, and Back is disabled for having nowhere to go —
+## leaving Cancel as the only exit, permanently, after one refusal. So on index 0 the step announcing a
+## state change IS the fresh-attempt signal, and it is the only one that flow can produce.
+## [b]"Announcing", not "changing": the signal cannot tell an edit from a re-affirmation[/b] — Enter on
+## unchanged text and re-clicking the selected card both ping it — and the lift accepts both, because
+## either is a deliberate gesture aimed at the step. A plain Confirm double-press stays blocked.
 ##
 ## [b]Scoped to index 0 deliberately.[/b] Anywhere the player HAS a Back — including the last step of a
 ## multi-step flow, where a state ping is the "step re-polling valid" the movement rule explicitly does
@@ -670,11 +642,10 @@ func _on_skip_pressed() -> void:
 
 
 ## The one forward path. [param commit] is false for Skip, and the commit is the only thing the two
-## gestures differ by. Either gesture lifts a pending refusal when it MOVES the player forward (the
-## in-body comment says why); a last-step Skip is the one forward gesture that lifts nothing, because
-## it is the door the refusal gate exists to keep shut. A skipped last step still confirms, because
-## the flow has to be finishable from wherever its last skippable step leaves the player; it is only
-## a PENDING refusal that closes that door.
+## gestures differ by. Either gesture lifts a pending refusal when it MOVES the player forward; a
+## last-step Skip is the one forward gesture that lifts nothing, because it is the door the refusal
+## gate exists to keep shut. A skipped last step still confirms — the flow has to be finishable from
+## wherever its last skippable step leaves the player — and only a PENDING refusal closes that door.
 func _advance(commit: bool) -> void:
 	if _backend == null or _step_nodes.is_empty():
 		return
@@ -684,24 +655,20 @@ func _advance(commit: bool) -> void:
 		_refresh_buttons()
 		return
 	if _refusal_pending and not commit and _index == _step_nodes.size() - 1:
-		# The same defensiveness for the OTHER door into _confirm. A commit clears the refusal three lines
-		# below, so this can only be a Skip on the last step — the gesture _refresh_buttons disables the
-		# Skip button for. Stated here as well because the button state is not the contract: the contract
-		# is that a refused payload cannot produce a second attempt on the same gesture that produced the
-		# first. An identical retry is still reachable — the gate PRICES it at a deliberate walk (Back,
-		# then forward again), which the recovery tests exercise; what it removes is the second press of
-		# the button the player is already standing on.
+		# The same defensiveness for the OTHER door into _confirm: a Skip on the last step. Stated here as
+		# well as on the button, because the button state is not the contract — the contract is that a
+		# refused payload cannot produce a second attempt on the same gesture that produced the first. An
+		# identical retry stays reachable; the gate PRICES it at a deliberate walk (Back, then forward).
 		_refresh_buttons()
 		return
 	if commit:
 		_commit_current()
 	if _index < _step_nodes.size() - 1:
 		# Any forward MOVEMENT lifts a refusal — a commit (the player changed or re-affirmed the step's
-		# keys) and equally a non-last Skip (a deliberate fresh walk toward Confirm). The rule was
-		# briefly commit-only, which left one degenerate flow unliftable: nothing but invalid OPTIONAL
-		# steps before a valid last step has no forward commit anywhere, and Cancel became the only
-		# exit (measured). A LAST-step Skip never reaches this line — it falls through to _confirm and
-		# is the exact gesture the refusal gate exists to stop, so the double-create door stays shut.
+		# keys) and equally a non-last Skip (a deliberate fresh walk toward Confirm). Commit-only would
+		# leave a flow of invalid OPTIONAL steps before a valid last step unliftable, with Cancel as its
+		# only exit. A LAST-step Skip never reaches this line — it falls through to _confirm, which is the
+		# exact gesture the gate exists to stop.
 		_refusal_pending = false
 		_show_step(_index + 1)
 		return
@@ -727,27 +694,18 @@ func _confirm() -> void:
 		MKLog.warn("%s: create_profile refused the payload — staying on the last step" % _context("_confirm"))
 		_set_message(REFUSAL_MESSAGE)
 		# Close BOTH doors back into this method until the player has moved forward over a step again.
-		# Re-polling only the current step left Confirm enabled on a payload the backend had just
-		# rejected — the refusal is usually a name that went stale, and the name step is almost never the
-		# last one — so a second press produced the identical message with nothing pointing at the field.
 		#
-		# [b]The gate is "has the player committed anything since?", NOT "does every step answer
-		# valid?".[/b] Polling the whole flow looked stricter and was a dead end: a step the player
-		# legitimately SKIPPED (an optional point-buy under require_full_spend answers invalid until it is
-		# spent) held the gate down forever, with Cancel as the only way off the screen — and it also had
-		# nothing to say about a refusal that was never a validity problem at all (a roster cap that the
-		# server has since freed), where every step already answered valid and the gate lifted without the
-		# player doing anything. So forward MOVEMENT is what lifts it (_advance): a commit, or a non-last
-		# Skip — the player walked toward Confirm again, which makes the next press a fresh attempt.
-		# Back alone deliberately does NOT lift it — Back commits nothing and is how the player reaches
-		# the field to fix, so lifting there would re-enable Confirm over the very payload that was
-		# refused. It is the forward half of that walk that lifts it.
+		# The gate is "has the player MOVED FORWARD since?", NOT "does every step answer valid?". Polling
+		# the whole flow is a dead end in both directions: a legitimately SKIPPED step (an optional
+		# point-buy under require_full_spend answers invalid until spent) would hold the gate down forever,
+		# and a refusal that was never a validity problem (a roster cap the server has since freed) would
+		# lift it without the player doing anything. So _advance lifts it on a commit or a non-last Skip.
+		# Back alone deliberately does NOT: Back commits nothing and is how the player reaches the field to
+		# fix, so lifting there would re-enable Confirm over the very payload that was refused.
 		#
-		# [b]One exception, and it is a shape with no walk to price.[/b] On index 0 the player has no
-		# Back and no non-last Skip, so a single-step flow could reach no lift site at all and Cancel was
-		# its only exit after one refusal. There, a step_state_changed lifts it — see
-		# _on_step_state_changed for why that is the fresh-attempt signal in exactly that case and
-		# nowhere else.
+		# One exception, for the shape with no walk to price: on index 0 there is no Back and no non-last
+		# Skip, so a single-step flow could reach no lift site at all. There, a step_state_changed lifts it
+		# — see _on_step_state_changed.
 		_refusal_pending = true
 		_refresh_buttons()
 		return
@@ -763,7 +721,7 @@ func _on_back_pressed() -> void:
 func _on_cancel_pressed() -> void:
 	# No confirmation dialog, and no payload teardown: this host does not own the screen it is on, so
 	# whoever embedded it decides whether cancelling costs a confirm and whether this instance is reused
-	# or freed. Emitting and doing nothing else is the only behaviour that cannot be wrong for both.
+	# or freed.
 	creation_cancelled.emit()
 
 

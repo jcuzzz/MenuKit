@@ -1,7 +1,7 @@
 @tool
 class_name MKConfig
 extends Resource
-## Everything MenuKit needs to run, in one resource (plan §3, §4.1).
+## Everything MenuKit needs to run, in one resource.
 ##
 ## The promise is "swap the whole integration by swapping one resource". Backends are [MKBackendSlot]
 ## entries rather than instances because they need scene-tree access and must not serialize runtime
@@ -13,15 +13,15 @@ extends Resource
 ## setting". [MKRoot] runs it at [method Node._ready].
 
 ## Where the optional [code]MKSettingsService[/code] autoload lives once [code]plugin.gd[/code] has
-## registered it (plan §4.2), and the ONE place that name is written down.
+## registered it, and the ONE place that name is written down.
 ##
 ## [b]Shared because a rename must break loudly, in one edit.[/b] Three runtime sites resolve this
 ## node — [code]MKRoot[/code] adopting the service's backend and brightness controller,
-## [MKSettingsPanel] resolving its backend, and [code]plugin.gd[/code] registering the autoload — and
-## the name was spelled out at each. Change one and nothing fails: the lookups simply find nothing and
-## fall back to their no-autoload paths, so the host silently ends up with a SECOND settings backend
-## over the same JSON file and a SECOND brightness controller stacked over the first. That is the
-## exact double-instance failure the service exists to prevent, arriving with no diagnostic anywhere.
+## [MKSettingsPanel] resolving its backend, and [code]plugin.gd[/code] registering the autoload. If
+## they spelled it separately, changing one would fail silently: the lookups find nothing and fall
+## back to their no-autoload paths, so the host ends up with a SECOND settings backend over the same
+## JSON file and a SECOND brightness controller stacked over the first — the exact double-instance
+## failure the service exists to prevent, with no diagnostic anywhere.
 ##
 ## It lives on [MKConfig] because this is the runtime class every user already reaches; the service
 ## script itself cannot host it (it deliberately has no [code]class_name[/code] — see its class doc),
@@ -47,8 +47,8 @@ const SETTINGS_SERVICE_PATH := "/root/" + SETTINGS_SERVICE_NAME
 @export var settings_backend: MKBackendSlot
 
 ## Server discovery. [b]Ships empty[/b] in the default config: an unassigned network slot hides the
-## server browser entirely, which is the correct first impression for a single-player game and is
-## what lets the shipped defaults pass the zero-warning cold-drop gate.
+## server browser entirely, which is the correct first impression for a single-player game and keeps
+## a cold drop warning-free.
 @export var network_backend: MKBackendSlot
 
 ## What "pause" means to this game. Unassigned means menus never pause anything — safe, and exactly
@@ -60,9 +60,7 @@ const SETTINGS_SERVICE_PATH := "/root/" + SETTINGS_SERVICE_NAME
 ## cold drop is styled with no manual step; the editor bake is only a preview convenience.
 ##
 ## Assigning a different palette emits [signal Resource.changed], which is how a live [MKRoot] learns
-## to regenerate. Without that, swapping the palette — the headline re-skin gesture — changed nothing
-## at runtime: the root stayed subscribed to the palette it no longer displayed, and only edits to
-## the [i]old[/i] palette had any effect.
+## to regenerate — without it the root would stay subscribed to the palette it no longer displays.
 @export var palette: MKPalette:
 	set(value):
 		if palette == value:
@@ -88,10 +86,9 @@ const SETTINGS_SERVICE_PATH := "/root/" + SETTINGS_SERVICE_NAME
 ## Archetypes the Archetype creation step offers. Data, not code: a host adds a class by appending
 ## here, exactly as it adds a nav page to [member pages].
 ##
-## The shipped default config carries ONE neutral entry rather than shipping empty (plan §3.1): an
-## archetype step with nothing to pick is a dead end on the very flow a cold drop is most likely to
-## open, and a genre-flavoured placeholder would be worse — it would state a genre the host has not
-## chosen.
+## The shipped default config carries ONE neutral entry rather than shipping empty: an archetype step
+## with nothing to pick is a dead end on the flow a cold drop is most likely to open, and a
+## genre-flavoured placeholder would state a genre the host has not chosen.
 @export var archetypes: Array[MKArchetype] = []
 
 ## The creation flow's steps, in order. [b]Empty means "not authored", never "no steps"[/b] —
@@ -102,10 +99,10 @@ const SETTINGS_SERVICE_PATH := "/root/" + SETTINGS_SERVICE_NAME
 
 ## Point-buy stats for the Point Buy step, or null.
 ##
-## [b]Null — the default — disables point-buy entirely[/b] (D17). A game with no stat concept must
-## not be handed a stat screen it has to work out how to remove, so the feature ships off and any
-## point-buy step def is dropped when this is unset. The demo assigns a three-stat schema so the
-## enabled path is visible and testable out of the box.
+## [b]Null — the default — disables point-buy entirely.[/b] A game with no stat concept must not be
+## handed a stat screen it has to work out how to remove, so the feature ships off and any point-buy
+## step def is dropped when this is unset. The demo assigns a three-stat schema so the enabled path
+## is visible out of the box.
 @export var point_buy_schema: MKStatSchema = null
 
 @export_group("Behaviour")
@@ -115,8 +112,8 @@ const SETTINGS_SERVICE_PATH := "/root/" + SETTINGS_SERVICE_NAME
 ## if the host owns cursor state itself.
 @export var manage_mouse_mode: bool = true
 
-## Whether a brightness controller is created (Phase 3). Off leaves the setting a plain value the
-## host consumes, which stays the documented floor.
+## Whether a brightness controller is created. Off leaves the setting a plain value the host
+## consumes, which stays the documented floor.
 @export var manage_brightness: bool = true
 
 ## Verbose logging. The [code]--mk-verbose[/code] command-line switch forces it on regardless.
@@ -124,14 +121,13 @@ const SETTINGS_SERVICE_PATH := "/root/" + SETTINGS_SERVICE_NAME
 
 
 ## Collects every problem with this config. Empty means valid. Messages are ready to log verbatim
-## and each names its resource and field, because "invalid setting" in a bug report costs a
-## round-trip that a path and a field name do not.
+## and each names its resource and field.
 ##
 ## Slot [i]absence[/i] is never a problem — an unassigned slot is a supported configuration. What is
 ## reported: a slot whose script does not extend the base it was handed to, duplicate or empty page
-## ids, an [member initial_page] naming nothing, a palette that fails its own validation, and a
-## [member backdrop_id] the catalog does not know. Phase 5 adds the Character Creation group's
-## equivalents — see [method _creation_problems].
+## ids, an [member initial_page] naming nothing, a palette that fails its own validation, a
+## [member backdrop_id] the catalog does not know, and the Character Creation group's equivalents
+## (see [method _creation_problems]).
 func validate() -> PackedStringArray:
 	var problems := PackedStringArray()
 
@@ -185,11 +181,10 @@ func validate() -> PackedStringArray:
 	return problems
 
 
-## The Character Creation group's half of [method validate], split out only for readability. It
-## RETURNS its findings rather than appending to a passed-in array, for the reason
-## [method _validate_slot] records: [PackedStringArray] is copy-on-write, so an out-parameter would be
-## a value copy and every append would vanish. The caller folds these into the one list, so the
-## single-pass "report everything at once" contract is unchanged.
+## The Character Creation group's half of [method validate], split out for readability. It RETURNS
+## its findings rather than appending to a passed-in array: [PackedStringArray] is copy-on-write, so
+## an out-parameter would be a value copy and every append would vanish. The caller folds these into
+## the one list, so the "report everything at once" contract is unchanged.
 func _creation_problems() -> PackedStringArray:
 	var problems := PackedStringArray()
 
@@ -284,15 +279,12 @@ func get_visible_pages() -> Array[MKMenuPageDef]:
 	return sorted
 
 
-## One line for the §4.8 diagnostics dump: what the creation flow actually loaded.
+## One line for the diagnostics dump: what the creation flow actually loaded.
 ##
 ## "The archetype list is empty" and "point-buy is off" are the two facts every creation-flow bug
-## report turns out to hinge on, and neither is visible from a screenshot — an empty archetype step
-## and a step whose defs were dropped look identical. [code]MKRoot.dump_diagnostics[/code] appends
-## this alongside its page count.
-##
-## It lives here rather than in [MKRoot] because these are config facts, and the root already reads
-## the config for its own [code]pages:[/code] line.
+## report hinges on, and neither is visible from a screenshot — an empty archetype step and a step
+## whose defs were dropped look identical. [code]MKRoot.dump_diagnostics[/code] appends this
+## alongside its page count.
 func creation_diagnostics() -> String:
 	return "archetypes: %d  creation_steps: %d (empty = built-in order)  point_buy: %s" % [
 		archetypes.size(),

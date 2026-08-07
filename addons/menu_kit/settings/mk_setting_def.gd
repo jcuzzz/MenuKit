@@ -1,25 +1,23 @@
 @tool
 class_name MKSettingDef
 extends Resource
-## One row of a settings page (plan §4.3, D5).
+## One row of a settings page (D5).
 ##
 ## Everything about a settings row is data: [MKSettingsPanel] builds tabs and controls entirely at
 ## runtime from an [code]Array[MKSettingsPageDef][/code], so "add Mouse Sensitivity" is authoring one
-## [code].tres[/code] sub-resource and never an addon edit. That is the whole point of D5, and it is
-## what keeps a host on the pin-a-tag upgrade path instead of a fork.
+## [code].tres[/code] sub-resource and never an addon edit — which is what keeps a host on the
+## pin-a-tag upgrade path instead of a fork.
 ##
 ## This resource is inert: it holds no node reference, reads no backend, and performs no application.
 ## Safe to author in the inspector, duplicate, and load headlessly.
 ##
-## [b]The type enum is CLOSED[/b] (plan §4.3). Extending it is out of scope; [constant RowType.CUSTOM]
+## [b]The type enum is CLOSED[/b]. Extending it is out of scope; [constant RowType.CUSTOM]
 ## is the escape hatch, and its [member custom_scene] contract is documented on that member.
 
 ## The row kinds the panel knows how to build.
 ##
-## [constant RowType.KEYBIND] is present even though the shipped addon pages contain no keybind row
-## and the Phase 3 panel skips it: the enum is a persisted, published contract (plan §4.8), and
-## inserting a value later would renumber every enum written into an existing [code].tres[/code].
-## Reserving it now costs a warning; adding it later is a Breaking change.
+## The enum is a persisted, published contract: inserting a value later renumbers every enum already
+## written into an existing [code].tres[/code], which is a Breaking change. Reserve, never insert.
 enum RowType {
 	## Section title. Label only — no control, no value, no backend traffic.
 	HEADER,
@@ -29,7 +27,7 @@ enum RowType {
 	SLIDER,
 	## Choice from [member options] / [member option_values]. Rendered as an [OptionButton].
 	ENUM,
-	## Input rebinding. Phase 4 (plan §4.4); the Phase 3 panel warns and skips the row.
+	## Input rebinding. Rendered as an [MKRebindRow].
 	KEYBIND,
 	## Free text. Rendered as a [LineEdit] that commits on submit and on focus loss.
 	TEXT,
@@ -44,8 +42,7 @@ enum RowType {
 ## [code]video/max_fps[/code] and [code]audio/bus/<BusName>[/code] to the engine, and the panel gives
 ## [code]video/window_mode[/code], [code]video/resolution[/code] and [code]video/brightness[/code]
 ## behaviour of its own (its ID_ constants — the window-mode row drives the resolution row's
-## enablement, which is why it belongs on this list). Every other id is
-## a plain value the host consumes — which is normal operation, not a misconfiguration.
+## enablement). Every other id is a plain value the host consumes, which is normal operation.
 @export var id: StringName = &""
 
 ## Human-readable row label. Separate from [member id] so localisation or a rename never changes the
@@ -71,8 +68,8 @@ enum RowType {
 ## Display strings, in order.
 ##
 ## [b]Never [PackedStringArray].[/b] Godot wipes a populated [PackedStringArray] export when it
-## re-saves the owning [code].tres[/code] — a whole project's authored lists vanished to this once,
-## with no error. [code]Array[String][/code] round-trips safely.
+## re-saves the owning [code].tres[/code], with no error. [code]Array[String][/code] round-trips
+## safely.
 @export var options: Array[String] = []
 
 ## The value written for each entry of [member options], positionally.
@@ -88,7 +85,7 @@ enum RowType {
 ## it disables for a reason the user cannot otherwise see (the resolution row outside windowed mode).
 @export var tooltip: String = ""
 
-## [InputMap] action this row rebinds. [constant RowType.KEYBIND] only; Phase 4 (plan §4.4).
+## [InputMap] action this row rebinds. [constant RowType.KEYBIND] only.
 @export var action_name: StringName = &""
 
 ## Applies the change immediately, then asks "keep these settings?" with a countdown that reverts on
@@ -109,7 +106,7 @@ enum RowType {
 
 ## [constant RowType.CUSTOM] only: the scene the panel instantiates in place of a built-in control.
 ##
-## [b]Binding contract[/b] (plan §4.3, finding M7). The scene's ROOT must implement
+## [b]Binding contract[/b]. The scene's ROOT must implement
 ## [code]_mk_bind(backend: MKSettingsBackend, def: MKSettingDef) -> void[/code] and is expected to
 ## read and write through the backend by [code]def.id[/code]. The panel calls it immediately after
 ## instantiation. A root without that method gets a named warning and the row is skipped — never a

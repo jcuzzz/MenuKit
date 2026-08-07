@@ -2,7 +2,7 @@
 class_name MKRebindRow
 extends HBoxContainer
 ## One [constant MKSettingDef.RowType.KEYBIND] row: it shows an action's current binding, captures a
-## new one, and commits it through [MKSettingsBackend] (plan §4.4).
+## new one, and commits it through [MKSettingsBackend].
 ##
 ## [b]Every event this row PRINTS is spelled by [MKInputGlyphs][/b] — the binding text, the conflict
 ## dialog's body, the abort hint. The row owns the capture rules; it does not own a second opinion
@@ -13,8 +13,8 @@ extends HBoxContainer
 ## constructs one, names it, and calls [method setup]; nothing else is required of the host.
 ##
 ## [b]Styling is type variations only.[/b] Not one [code]add_theme_*_override[/code] anywhere in this
-## file (plan §1.2, ship gate 1): an override beats the [Theme], so a row using one could never be
-## re-skinned by swapping an [MKPalette].
+## file: an override beats the [Theme], so a row using one could never be re-skinned by swapping an
+## [MKPalette].
 ##
 ## [b]The priority rule.[/b] While this row is listening it reads input in [method Node._input] and
 ## marks EVERY event class it inspects handled, via
@@ -27,8 +27,8 @@ extends HBoxContainer
 ## [br]- GUI dispatch does not run for consumed events, so the Cancel button cannot be clicked
 ##   normally while listening — the mouse abort is a manual hit-test against its rect instead.
 ##
-## [b]The abort table (plan §4.4), reproduced because getting it wrong is silent.[/b] Abort is
-## decided PER DEVICE and never through the [code]ui_cancel[/code] action:
+## [b]The abort table.[/b] Abort is decided PER DEVICE and never through the [code]ui_cancel[/code]
+## action:
 ## [codeblock]
 ## Keyboard   physical Escape (keycode Escape only when physical_keycode is 0)
 ##            -> aborts, consumed, binding unchanged
@@ -39,10 +39,10 @@ extends HBoxContainer
 ##            RECORDED as a mouse binding.
 ## Any        the listen timeout (see listen_timeout) lapses -> abort.
 ## [/codeblock]
-## An action-level abort was rejected in review for exactly one reason: [code]ui_cancel[/code]
-## normally carries joypad B as well as Escape, so testing the ACTION would have swallowed the pad's
-## B press before the reserved check could refuse and explain it — the row would look dead to a
-## controller player pressing the one button that is not bindable.
+## An action-level abort is wrong for one reason: [code]ui_cancel[/code] normally carries joypad B as
+## well as Escape, so testing the ACTION swallows the pad's B press before the reserved check can
+## refuse and explain it — the row looks dead to a controller player pressing the one button that is
+## not bindable.
 ##
 ## [b]A capture REPLACES the row's whole event list (single-slot).[/b]
 ## [method MKSettingsBackend.set_action_events] is called with exactly the captured event, so an
@@ -65,8 +65,7 @@ signal binding_changed(action: StringName)
 
 ## Width reserved for the row label, matching [constant MKSettingsPanel.LABEL_COLUMN_WIDTH] so a
 ## keybind row lines up with the toggle and slider rows above it. Duplicated as a literal rather than
-## referenced, because a rebind row must build correctly when a host uses it outside the shipped
-## panel — and the value is a layout rhythm, not a palette constant (plan §1.2).
+## referenced, so the row still builds correctly outside the shipped panel.
 const LABEL_COLUMN_WIDTH := 260.0
 
 ## How far the focus ring is grown beyond the binding button's rect. Same rhythm as
@@ -76,27 +75,23 @@ const FOCUS_RING_GROW := 4.0
 
 ## Width reserved for the binding button, so the seven binding buttons on a controls page share one
 ## left edge AND one right edge instead of each sizing to its own text ("W" beside "Mouse Middle").
-## A floor, not a cap: a long binding still grows the button rather than clipping, which is the right
-## failure — an unreadable binding is worse than a ragged column.
-##
-## Same discipline (and the same "layout rhythm, not a palette constant" rationale) as
-## [constant LABEL_COLUMN_WIDTH]; sized smaller because a binding is a keycap name, not a sentence.
+## A floor, not a cap: a long binding grows the button rather than clipping — an unreadable binding is
+## worse than a ragged column. Same discipline as [constant LABEL_COLUMN_WIDTH], sized smaller because
+## a binding is a keycap name, not a sentence.
 const BINDING_COLUMN_WIDTH := 200.0
 
 ## Deadzone for [InputEventJoypadMotion]. Below this a stick is resting or drifting, and binding a
 ## drifting axis would produce an action that fires forever with nothing touching the pad.
 ##
-## Aliased from [constant MKInputGlyphs.AXIS_DEADZONE] rather than restated: "the magnitude below
-## which a stick is not being used" is one fact, shared with the device tracker, and two spellings of
-## it would drift apart the first time either was tuned.
+## Aliased from [constant MKInputGlyphs.AXIS_DEADZONE] rather than restated: one fact, shared with the
+## device tracker, and two spellings of it would drift apart the first time either was tuned.
 const AXIS_DEADZONE := MKInputGlyphs.AXIS_DEADZONE
 
 ## Shown while a capture is live.
 const LISTEN_TEXT := "Press any key…"
 
-## The keyboard abort hint, and the base default: a row with no [MKInputGlyphs] tracker shows this
-## and nothing else, so a host embedding the row outside [MKSettingsPanel] sees Phase 4's behaviour
-## unchanged. See [method _cancel_hint_text] for what a pad-active session shows instead.
+## The keyboard abort hint, and the base default: a row with no [MKInputGlyphs] tracker shows this and
+## nothing else. See [method _cancel_hint_text] for what a pad-active session shows instead.
 const HINT_KEYBOARD := "Esc to cancel"
 
 ## Shown when an action has no events at all. Not an error: an unbound action is a legitimate state
@@ -111,11 +106,9 @@ const CAPTION_UI_OVERLAP := "Also used by menu navigation"
 ## player who walked away (or who started a capture by accident and cannot guess that Escape gets
 ## out) must not be stuck in it.
 ##
-## It is [b]the backstop, not the primary path[/b] (plan §4.4): Escape, the Cancel button and the pad's
-## reserved refusal are how a capture is meant to end, and this only catches the player who left. Ten
-## seconds rather than five because the real gesture is "click, then decide" — a user reading the row
-## to work out which key they want is doing the intended thing, and having the prompt expire under
-## them reads as the menu dropping their input.
+## It is [b]the backstop, not the primary path[/b]: Escape, the Cancel button and the pad's reserved
+## refusal are how a capture is meant to end. Ten seconds rather than five because the real gesture is
+## "click, then decide", and a prompt expiring under a deciding user reads as dropped input.
 @export var listen_timeout := 10.0
 
 var _def: MKSettingDef
@@ -153,13 +146,11 @@ var _built := false
 
 # --- Build --------------------------------------------------------------------
 
-## Godot re-enables input processing at NOTIFICATION_READY for any script that overrides _input —
-## measured, not read: the set_process_input(false) in _build lands before the row enters the tree,
-## and without this override the engine's ready-time re-enable silently wins and every idle row is
-## dispatched every event for the row's whole life (harmless, because _input guards on _listening,
-## but it falsifies both the "idle rows cost nothing" claim and any test asserting
-## is_processing_input()). _listening rather than false, for the one legitimate reordering: a row
-## whose capture began before it entered the tree must not have that capture's input taken away.
+## Godot re-enables input processing at NOTIFICATION_READY for any script that overrides _input. The
+## set_process_input(false) in _build lands before the row enters the tree, so without this override
+## the engine's ready-time re-enable wins and every idle row is dispatched every event for its whole
+## life. _listening rather than false, for the one legitimate reordering: a row whose capture began
+## before it entered the tree must not have that capture's input taken away.
 func _ready() -> void:
 	set_process_input(_listening)
 
@@ -172,14 +163,13 @@ func _ready() -> void:
 ## forgot one argument reads as a missing resource.
 ##
 ## [b]An action this project does not define still gets a row.[/b] The binding button is disabled and
-## ONE warning names the def. Dropping the row instead would hide the mistake: the symptom would be a
-## controls page that is simply missing a line, with nothing anywhere to say which resource named a
-## dead action. The backend keeps overrides for unknown actions for the same reason — renaming an
-## action back restores the user's binding rather than losing it.
-## [param input_glyphs] is OPTIONAL and defaults to null, which is the Phase 4 behaviour verbatim:
-## the abort hint reads [constant HINT_KEYBOARD] and nothing about this row is device-aware. Passing
-## one — [MKSettingsPanel] passes its single per-panel tracker — makes the hint follow the device in
-## use. See [method set_input_glyphs].
+## ONE warning names the def. Dropping the row instead would hide the mistake behind a controls page
+## that is simply missing a line. The backend keeps overrides for unknown actions for the same reason
+## — renaming an action back restores the user's binding rather than losing it.
+##
+## [param input_glyphs] is OPTIONAL: null means the abort hint reads [constant HINT_KEYBOARD] and
+## nothing about this row is device-aware. Passing one — [MKSettingsPanel] passes its single
+## per-panel tracker — makes the hint follow the device in use. See [method set_input_glyphs].
 func setup(def: MKSettingDef, backend: MKSettingsBackend, modal_layer: MKModalLayer,
 		managed_actions_provider: Callable, reserved_events: Array[InputEvent],
 		input_glyphs: MKInputGlyphs = null) -> void:
@@ -205,10 +195,8 @@ func setup(def: MKSettingDef, backend: MKSettingsBackend, modal_layer: MKModalLa
 	# narrow button is one most users never find.
 	#
 	# Assigned UNCONDITIONALLY, so an empty tooltip CLEARS. setup() is public API a HOST may call again
-	# to re-point a row at a new def (the shipped panel never does — rebuild() frees its rows and
-	# constructs fresh ones), and skipping the write for an empty string left the PREVIOUS def's
-	# tooltip hovering over a row that is now about something else — the one state where a tooltip is
-	# worse than none.
+	# to re-point a row at a new def, and skipping the write for an empty string leaves the PREVIOUS
+	# def's tooltip hovering over a row that is now about something else.
 	var tooltip := _def.tooltip if _def != null else ""
 	tooltip_text = tooltip
 	_binding_button.tooltip_text = tooltip
@@ -233,12 +221,10 @@ func _build() -> void:
 	_label = Label.new()
 	_label.name = "RowLabel"
 	_label.custom_minimum_size = Vector2(LABEL_COLUMN_WIDTH, 0.0)
-	# FILL, never EXPAND_FILL — the same correction [MKSettingsPanel._wrap] carries, for the same
-	# reason. An expanding label is not a column: the HBox hands it a share of the row's LEFTOVER
-	# space, so its final width (and therefore where the control column starts) moves with the total
-	# minimum width of everything else on the line. A keybind row carries three more children than a
-	# toggle row does, so with EXPAND its label column came out narrower and its buttons started left
-	# of the toggles above them.
+	# FILL, never EXPAND_FILL — the same correction [MKSettingsPanel._wrap] carries. An expanding label
+	# is not a column: the HBox hands it a share of the row's LEFTOVER space, so its width (and where
+	# the control column starts) moves with the total minimum width of everything else on the line. A
+	# keybind row carries three more children than a toggle row, so EXPAND misaligns the two.
 	_label.size_flags_horizontal = Control.SIZE_FILL
 	MKTheme.set_variation(_label, MKTheme.ROW_LABEL)
 	add_child(_label)
@@ -251,9 +237,9 @@ func _build() -> void:
 	_binding_button.custom_minimum_size = Vector2(BINDING_COLUMN_WIDTH, 0.0)
 	_binding_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	MKTheme.set_variation(_binding_button, MKTheme.PANEL_BUTTON)
-	# Godot's own button activation covers BOTH gestures the plan requires to start a capture: a mouse
-	# click and ui_accept on the focused button both emit `pressed`. No input handling of our own is
-	# needed to start listening — only to conduct it.
+	# Godot's own button activation covers both gestures that start a capture: a mouse click and
+	# ui_accept on the focused button both emit `pressed`. No input handling of our own is needed to
+	# start listening — only to conduct it.
 	_binding_button.pressed.connect(begin_listen)
 	add_child(_binding_button)
 
@@ -270,10 +256,9 @@ func _build() -> void:
 	_cancel_button.name = "Cancel"
 	_cancel_button.text = "Cancel"
 	MKTheme.set_variation(_cancel_button, MKTheme.PANEL_BUTTON)
-	# Genuinely connected, and genuinely reachable: while listening this row consumes mouse presses
-	# before GUI dispatch, so the click route is the rect hit-test in _input — but the button is a real
-	# button and stays clickable through this signal on any path where input is NOT being consumed
-	# (a host that pauses the capture, a test pressing it directly). One handler serves both.
+	# While listening this row consumes mouse presses before GUI dispatch, so the click route is the
+	# rect hit-test in _input — but the button stays clickable through this signal on any path where
+	# input is NOT being consumed. One handler serves both.
 	_cancel_button.pressed.connect(_abort_listen)
 	_cancel_button.visible = false
 	add_child(_cancel_button)
@@ -295,17 +280,16 @@ func _build() -> void:
 
 	# A Timer child rather than a `_process` accumulator: the abort paths must be able to STOP the
 	# countdown, and a stopped Timer is one call and no residual state. It inherits this row's process
-	# mode, which inside an MKRoot is PROCESS_MODE_ALWAYS (plan §4.2a) — so a capture started from the
-	# pause menu still times out instead of hanging forever under SceneTree.paused.
+	# mode, which inside an MKRoot is PROCESS_MODE_ALWAYS — so a capture started from the pause menu
+	# still times out instead of hanging under SceneTree.paused.
 	_timeout_timer = Timer.new()
 	_timeout_timer.name = "ListenTimeout"
 	_timeout_timer.one_shot = true
 	_timeout_timer.timeout.connect(_on_listen_timeout)
 	add_child(_timeout_timer)
 
-	# Idle rows cost nothing: _input is enabled only for the duration of a capture (and a test can
-	# assert is_processing_input() to tell the two states apart without reading widget text). This
-	# call alone is NOT enough — see _ready for the half the engine undoes.
+	# Idle rows cost nothing: _input is enabled only for the duration of a capture. This call alone is
+	# NOT enough — see _ready for the half the engine undoes.
 	set_process_input(false)
 
 	if not visibility_changed.is_connected(_on_visibility_changed):
@@ -313,9 +297,9 @@ func _build() -> void:
 
 
 ## Gives the binding button a visible focus indicator, the same way [MKSettingsPanel] does for its
-## sliders: a [Panel] child carrying [constant MKTheme.FOCUS_RING], toggled on focus. Buttons DO have
-## a focus StyleBox, but this row's button is the thing a keyboard player is about to hand the whole
-## keyboard to, so it gets the loudest indicator the vocabulary has.
+## sliders: a [Panel] child carrying [constant MKTheme.FOCUS_RING], toggled on focus. Buttons do have
+## a focus StyleBox, but this button is what a keyboard player is about to hand the whole keyboard to,
+## so it gets the loudest indicator the vocabulary has.
 ##
 ## Parented to the button so the ring tracks the CONTROL's rect rather than the whole labelled line,
 ## and [constant Control.MOUSE_FILTER_IGNORE] so it never eats the click that starts a capture.
@@ -350,15 +334,11 @@ func refresh_display() -> void:
 		_binding_button.text = _binding_text()
 	_binding_button.disabled = _backend == null or not _action_known
 	# Disabled unless there is something to undo. The backend is the only thing that knows whether an
-	# override exists, so this is asked rather than tracked — a row rebuilt over a store loaded from
-	# disk gets the right answer without replaying how it got there.
+	# override exists, so this is asked rather than tracked.
 	#
-	# _action_known is part of the condition, and reachable: the backend KEEPS overrides for actions
-	# the project does not define (on purpose — renaming an action back restores the user's binding
-	# rather than losing it), so an unknown action can carry an override, and gating on the override
-	# alone lit an enabled Reset on a row whose reset_to_default() early-returns on exactly that
-	# check. The override surviving is the feature; a button that pretends to work while the action is
-	# missing is not.
+	# _action_known is part of the condition, and reachable: the backend KEEPS overrides for actions the
+	# project does not define, so an unknown action can carry an override, and gating on the override
+	# alone lights an enabled Reset on a row whose reset_to_default() early-returns on that same check.
 	_reset_button.disabled = _backend == null or not _action_known \
 		or not _backend.has_action_override(_action)
 
@@ -397,9 +377,9 @@ func _binding_text() -> String:
 ## and safe to call with the tracker it already has.
 ##
 ## [b]The row never creates one.[/b] An [MKInputGlyphs] runs [method Node._input] for its whole life,
-## and a controls page has seven of these rows — seven trackers would be seven dispatches per event
-## to answer the one question they all ask. The PANEL owns exactly one and hands it to every row it
-## builds; a host driving [method setup] directly may pass its own, or nothing.
+## so one tracker per row would be one dispatch per row per event to answer the same question. The
+## PANEL owns exactly one and hands it to every row it builds; a host driving [method setup] directly
+## may pass its own, or nothing.
 ##
 ## The connection is to [signal MKInputGlyphs.device_class_changed], which only fires on a real flip,
 ## so an idle row costs nothing while a player holds a stick.
@@ -424,12 +404,10 @@ func _on_device_class_changed(_pad: bool) -> void:
 ## between captures rather than rebuilt, so writing it eagerly is what makes it correct on the frame
 ## [method begin_listen] shows it.
 ##
-## It also repaints DURING a live capture, and that half is only true because of the tracker's
+## It also repaints DURING a live capture, and that half holds only because of the tracker's
 ## dispatch-order contract ([MKInputGlyphs]' class doc): this row consumes every event class it
-## inspects while listening, so the flip that a mid-capture device change represents — the player
-## putting the keyboard down, or reaching for the pad's reserved B — reaches the tracker only when
-## its owner placed it ahead of this row in dispatch. It does; the hint therefore names the device in
-## hand on the very press that changed it.
+## inspects while listening, so a mid-capture device change reaches the tracker only because its owner
+## places it ahead of this row in dispatch.
 func _refresh_hint() -> void:
 	if _hint_label == null or not is_instance_valid(_hint_label):
 		return
@@ -440,7 +418,7 @@ func _refresh_hint() -> void:
 ## gesture per device (see the abort table in the class doc) — so a controller player was being told
 ## to press a key their hands are not on, and the pad's own way out went unnamed.
 ##
-## Keyboard (and every row with no tracker): [constant HINT_KEYBOARD], Phase 4's string unchanged.
+## Keyboard (and every row with no tracker): [constant HINT_KEYBOARD].
 ##
 ## Pad: the reserved event's own name, through [method MKInputGlyphs.event_label] — "B to cancel".
 ## Derived from [member _reserved_events] rather than hardcoding B, because that list IS what the
@@ -471,10 +449,8 @@ func is_listening() -> bool:
 
 
 ## Ends a live capture without changing the binding; a no-op when none is live. Public because the
-## one-listener-at-a-time rule belongs to the PANEL — two rows cannot see each other, so the shell
-## that built them is what ends row A's capture when row B starts one. Everything the private abort
-## guarantees (timer stopped, display restored, nothing written) holds here too: this is the same
-## funnel.
+## one-listener-at-a-time rule belongs to the PANEL — two rows cannot see each other. Same funnel as
+## the private abort, so timer stopped, display restored, nothing written.
 func abort_listen() -> void:
 	_abort_listen()
 
@@ -635,16 +611,15 @@ func _is_escape(key: InputEventKey) -> bool:
 
 # --- Fresh events -------------------------------------------------------------
 
-## [b]Every fresh event sets [code]device = -1[/code], and each builder below says so again.[/b] -1
-## is Godot's "all devices", which is what [code]project.godot[/code]-AUTHORED entries carry and what
-## a rebind made by the local user MEANS: "this control", not "this control on the controller index
-## that happened to deliver the press". (The engine's own builtin [code]ui_*[/code] defaults are the
-## exception: their key/mouse events ship device 16/32 — a device-CLASS namespacing, not an index —
-## so a faithful snapshot legitimately carries those values; they are not corruption.) [InputMap]
-## matching is device-aware, so keeping the captured index would give a pad player a binding that
-## stops working the moment their controller re-enumerates as joypad 1. It has to be explicit because
-## the class defaults are NOT -1 (measured on 4.7: [InputEventJoypadButton] 0, [InputEventKey] 16,
-## [InputEventMouseButton] 32).
+## [b]Every fresh event sets [code]device = -1[/code], and each builder below says so again.[/b] -1 is
+## Godot's "all devices", which is what [code]project.godot[/code]-AUTHORED entries carry and what a
+## local rebind MEANS: "this control", not "this control on the controller index that happened to
+## deliver the press". (The engine's builtin [code]ui_*[/code] defaults are the exception: their
+## key/mouse events ship device 16/32 — a device-CLASS namespacing, not an index — so a faithful
+## snapshot legitimately carries those values.) [InputMap] matching is device-aware, so keeping the
+## captured index gives a pad player a binding that stops working the moment their controller
+## re-enumerates as joypad 1. It must be explicit because the class defaults are NOT -1
+## ([InputEventJoypadButton] 0, [InputEventKey] 16, [InputEventMouseButton] 32).
 const BIND_ALL_DEVICES := -1
 
 ## A captured key is rebuilt rather than stored, and the MODIFIERS ARE CLEARED. Godot stamps the
@@ -670,9 +645,8 @@ func _fresh_key(key: InputEventKey) -> InputEventKey:
 	# device 16, which would bind this key to one keyboard index.
 	out.device = BIND_ALL_DEVICES
 	# `pressed` is left false, matching the shape the backend's deserializer produces for a stored
-	# binding. InputMap matches an action event on its button/key identity, not on this flag, so the
-	# two shapes behave identically — keeping them identical is what stops a captured binding and a
-	# reloaded one from comparing differently.
+	# binding. InputMap matches on button/key identity, not on this flag; keeping the two shapes
+	# identical is what stops a captured binding and a reloaded one from comparing differently.
 	return out
 
 
@@ -715,22 +689,19 @@ func _fresh_joypad_motion(motion: InputEventJoypadMotion) -> InputEventJoypadMot
 ##
 ## [b]Not [method InputEvent.is_match], and not [code]==[/code].[/b] [code]==[/code] on two
 ## [InputEvent] instances compares REFERENCES, and every event compared here was built or
-## deserialised separately, so it is false for identical bindings. [method InputEvent.is_match]
-## brings modifier semantics and an exact-match flag whose behaviour differs per event class — and
-## since [method _fresh_key] deliberately strips modifiers while a stored binding may carry them,
-## delegating to it would make a plain-S capture and a stored Shift+S compare as different bindings
-## and then silently double-bind the key.
+## deserialised separately, so it is false for identical bindings. [method InputEvent.is_match] brings
+## modifier semantics and an exact-match flag whose behaviour differs per event class — and since
+## [method _fresh_key] strips modifiers while a stored binding may carry them, delegating to it makes
+## a plain-S capture and a stored Shift+S compare as different bindings and silently double-bind.
 ##
 ## [b]Keys compare LIKE AGAINST LIKE, never a physical code against a plain keycode.[/b] Both
-## physicals nonzero -> compare physicals (the format's own key). Otherwise compare KEYCODES, and
-## only when both of those are nonzero. The earlier rule substituted one side's physical for the
-## other side's keycode when either physical was 0, which is reachable and wrong rather than
-## theoretical: stock [code]ui_*[/code] bindings are authored in keycode form (physical 0) while a
-## captured event carries both codes, and on AZERTY a stored keycode-A vs a captured physical-A /
-## keycode-Q compared EQUAL — the overlap warning and the conflict scan both fired on the wrong key.
-## The cost of the honest rule is stated too: a stored physical-only binding and a stored
-## keycode-only binding for the same key now do NOT match, because with one code each there is no
-## layout-independent way to tell whether they are the same key at all.
+## physicals nonzero -> compare physicals (the format's own key). Otherwise compare KEYCODES, and only
+## when both of those are nonzero. Substituting one side's physical for the other's keycode is
+## reachable and wrong: stock [code]ui_*[/code] bindings are authored in keycode form (physical 0)
+## while a captured event carries both codes, so on AZERTY a stored keycode-A and a captured
+## physical-A / keycode-Q would compare EQUAL. The cost of the honest rule: a stored physical-only
+## binding and a stored keycode-only binding for the same key do NOT match, because with one code each
+## there is no layout-independent way to tell whether they are the same key.
 ##
 ## Buttons compare by index. Motion compares axis AND direction, because the two ends of one stick
 ## axis are two different bindings.
@@ -771,8 +742,8 @@ func _events_match(a: InputEvent, b: InputEvent) -> bool:
 
 # --- Record -------------------------------------------------------------------
 
-## The captured-event pipeline, in the order plan §4.4 fixes: reserved, then [code]ui_*[/code] (warn,
-## do not refuse), then managed conflicts (ask), then commit.
+## The captured-event pipeline, in fixed order: reserved, then [code]ui_*[/code] (warn, do not
+## refuse), then managed conflicts (ask), then commit.
 ##
 ## The order is the whole design. Reserved comes first because a reserved event must never reach a
 ## dialog — the pad's B is how a controller player expects to back OUT of a capture, so it has to end
@@ -786,9 +757,8 @@ func _record(event: InputEvent) -> void:
 		_stop_listening()
 		return
 
-	# WARN, never refuse (plan §4.4). A player who genuinely wants Enter on an in-game action is
-	# entitled to it; what they are not entitled to is being surprised when the menu also reacts. The
-	# caption says so and the capture continues.
+	# WARN, never refuse: a player who genuinely wants Enter on an in-game action is entitled to it, but
+	# not to being surprised when the menu also reacts. The caption says so and the capture continues.
 	if _collides_with_ui_action(event):
 		_set_caption(CAPTION_UI_OVERLAP)
 
@@ -855,9 +825,8 @@ func _find_conflicting_action(event: InputEvent) -> StringName:
 	return &""
 
 
-## The conflict modal. [MKConfirmDialog] rather than a dialog of this row's own: a second,
-## near-identical confirm script is exactly the parallel-code duplication that class exists to
-## prevent, and it already carries no settings vocabulary.
+## The conflict modal. [MKConfirmDialog] rather than a dialog of this row's own — it already carries
+## no settings vocabulary, so a second near-identical confirm script would be pure duplication.
 ##
 ## Three outcomes, all connected, because two of them are silent if left out:
 ## [br]- [b]Replace[/b] — the matching event(s) leave the OTHER action first, then the capture
@@ -866,9 +835,8 @@ func _find_conflicting_action(event: InputEvent) -> StringName:
 ## [br]- [b]Keep both[/b] — commits here and leaves the other action alone. A legitimate choice: two
 ##   actions sharing a key in different contexts (a map screen and a gameplay screen) is a normal
 ##   design, and refusing it would be the addon overruling the game.
-## [br]- [b]Cancel[/b] — nothing changes. Connected rather than left to the default, because the
-##   capture has already ended by the time the dialog opens; the connection is what documents that
-##   "nothing changes" is a decision and not a missing branch.
+## [br]- [b]Cancel[/b] — nothing changes. Connected rather than left to the default, so that "nothing
+##   changes" reads as a decision and not a missing branch.
 ##
 ## The dialog frees itself ([method MKConfirmDialog.open]'s contract), so nothing here owns cleanup.
 ## A null return means there was no modal layer to show it on — the capture is then abandoned rather

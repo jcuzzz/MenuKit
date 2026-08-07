@@ -1,16 +1,5 @@
 [gd_scene load_steps=6 format=3]
 
-; The settings page as an MKMenuPageDef target. Script AND scene live in settings/ (plan §3, rev 7)
-; rather than splitting the pair across panels/, so the schema, the builder and the shipped pages are
-; one folder.
-;
-; The node tree is deliberately just the root: every tab and every row is built at runtime from
-; `pages` (D5). A hand-placed control here would be a row a host could not remove without forking the
-; scene, which is the exact trap this design exists to avoid.
-;
-; `pages` names the four shipped defaults. Each is self-contained and needs no host provisioning —
-; the Audio page is Master-only and the Controls page carries no KEYBIND rows, so a cold drop into an
-; empty project stays warning-free (plan §3.1, gate 2).
 
 [ext_resource type="Script" path="res://addons/menu_kit/settings/mk_settings_panel.gd" id="1_panel"]
 [ext_resource type="Resource" path="res://addons/menu_kit/settings/defaults/video_page.tres" id="2_video"]

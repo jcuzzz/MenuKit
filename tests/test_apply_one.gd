@@ -1,6 +1,6 @@
 extends MKTest
 ## [method MKSettingsBackend.apply_one] — the instant-apply path a settings panel calls on every
-## change (plan §4.3, D14).
+## change.
 ##
 ## Its whole reason to exist is that a slider drag emits a write per pixel, so it must push exactly
 ## ONE value and dispatch to the same helpers [method MKSettingsBackend.apply_all] walks. Two
@@ -13,9 +13,9 @@ extends MKTest
 ##   majority of ids and are the host's to consume, so an unrecognised id must be silent. A warning
 ##   there would make correct usage noisy and train hosts to ignore the log.
 ##
-## [b]Headless boundary[/b] (plan §4.8). Window mode, resolution and vsync are [DisplayServer] calls
-## that are inert under the headless driver, so "the window resized" is not assertable here and
-## belongs to the phase criteria. What IS asserted is the guard that makes them inert: reaching a
+## [b]Headless boundary.[/b] Window mode, resolution and vsync are [DisplayServer] calls that are
+## inert under the headless driver, so "the window resized" is not assertable here and is a human
+## check. What IS asserted is the guard that makes them inert: reaching a
 ## display id headless must produce no error AND no warning, including for a value the non-headless
 ## branch would have complained about — which pins the order of the guard rather than its absence.
 ## Audio and [member Engine.max_fps] are real headless, so those are asserted for effect.
@@ -60,7 +60,7 @@ func _test_plain_id_is_a_silent_no_op() -> void:
 ## Targeted, not a disguised apply_all: applying id A must not push id B.
 ##
 ## Engine.max_fps is the one reserved id that is real headless, which makes it the only honest probe
-## for this in this suite.
+## for this.
 func _test_dispatch_is_targeted() -> void:
 	var backend := _make_backend()
 	var restore := Engine.max_fps
@@ -90,8 +90,8 @@ func _test_dispatch_is_targeted() -> void:
 	await step_frame()
 
 
-## A volume slider that moves nothing is otherwise diagnosed by reading source. The bus NAME is the
-## part that has to be in the message — "a bus is missing" does not tell a host which one to add.
+## A volume slider that moves nothing is otherwise diagnosed by reading source. The bus NAME has to
+## be in the message — "a bus is missing" does not tell a host which one to add.
 func _test_missing_bus_is_named() -> void:
 	var backend := _make_backend()
 	backend.set_value(&"audio/bus/Missing", 0.5)

@@ -1,17 +1,16 @@
 class_name MKTest
 extends SceneTree
-## Base for every MenuKit headless test (plan §4.8).
+## Base for every MenuKit headless test.
 ##
 ## Subclasses override [method run_tests] and call the assertion helpers; exit code is 0 only when
-## every assertion passed and at least one ran. The "at least one" clause is deliberate: a test file
-## that silently executes nothing would otherwise report green and count toward ship gate 8, which
-## is worse than having no test at all.
+## every assertion passed and AT LEAST ONE RAN — a test file that silently executes nothing would
+## otherwise report green, which is worse than having no test at all.
 ##
 ## [b]Headless-safety is a hard boundary here.[/b] [code]DisplayServer[/code] window calls, audio bus
 ## application, and the brightness overlay are stubbed or inert under [code]--headless[/code], so
-## assertions about engine-visible effects do not belong in this suite — they are phase exit criteria
-## or ship gates instead. What belongs here: value round-trips, schema construction, conflict
-## detection, payload and counter logic.
+## assertions about engine-visible effects do not belong in this suite — they are human checks
+## instead. What belongs here: value round-trips, schema construction, conflict detection, payload
+## and counter logic.
 
 var _passed := 0
 var _failed: Array[String] = []
@@ -51,10 +50,9 @@ func run_tests() -> void:
 ## [param substring], so the gate does not count it as a defect.
 ##
 ## [code]check.ps1[/code] fails any test whose output carries a script error, an [code]ERROR:[/code]
-## line, or leaked nodes — that gate is what caught a freed-object cast four review rounds missed.
-## But some tests must trigger a real error to prove it is reported: the settings-backend mismatch
-## rule, a backend not extending its base. Without a way to say so, the only options are to weaken
-## the gate for everyone or to leave those contracts untested, and both are worse.
+## line, or leaked nodes. But some tests must trigger a real error to prove it is reported (the
+## settings-backend mismatch rule; a backend not extending its base), and the alternatives are
+## weakening the gate for everyone or leaving those contracts untested.
 ##
 ## Declare the NARROWEST substring that identifies the specific error. A broad one ("ERROR")
 ## re-opens the hole this mechanism exists to keep shut.

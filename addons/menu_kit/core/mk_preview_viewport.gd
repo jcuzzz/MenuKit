@@ -3,7 +3,7 @@ class_name MKPreviewViewport
 extends SubViewportContainer
 ## A self-contained 3D preview slot: a [SubViewport] with its own camera and neutral three-point
 ## lighting that displays any [PackedScene] a host hands it, with drag-to-spin, inertia, an idle
-## turntable, and clamped zoom/pitch (plan §4.6, D13).
+## turntable, and clamped zoom/pitch.
 ##
 ## [b]It assumes nothing about what it is shown.[/b] No rig, no skeleton, no scale convention, no
 ## genre. A [MeshInstance3D] cube frames and spins exactly as happily as an authored character, which
@@ -19,29 +19,28 @@ extends SubViewportContainer
 ## then be tempted to fork the moment it wanted a different clear colour. The stable names are also
 ## the handle tests index by; renaming one is a public-surface change.
 ##
-## [b]The [SubViewport] owns its own [World3D] by default[/b] ([member use_own_world], F10). Shared
-## worlds leak in BOTH directions: this node's key/fill/rim lights would light the running game, and
-## the game's [WorldEnvironment] and sun would light the preview — so the same preview looks different
-## in a menu over a night map than over a day map, and the game visibly brightens while a character
+## [b]The [SubViewport] owns its own [World3D] by default[/b] ([member use_own_world]). Shared worlds
+## leak in BOTH directions: this node's key/fill/rim lights would light the running game, and the
+## game's [WorldEnvironment] and sun would light the preview — so the same preview looks different in
+## a menu over a night map than over a day map, and the game visibly brightens while a character
 ## sheet is open. A host that genuinely wants the shared world (previewing an item in situ under the
 ## level's own lighting) opts out; it is an opt-out precisely because the leak is invisible until
 ## somebody notices the game got brighter.
 ##
 ## [b]This node deliberately sets no [member Node.process_mode].[/b] It inherits, and under an
-## [MKRoot] page the §4.2a rule forces host content PAUSABLE — so a preview sitting inside a paused
-## page stops spinning, which is exactly what the Phase 6 exit criteria require ("a host preview scene
-## does not animate during pause"). Setting [code]PROCESS_MODE_ALWAYS[/code] here would look like a
-## bug fix ("the preview freezes when I open the pause menu!") and would silently break that gate.
-## If a host wants an always-spinning preview it sets the mode on ITS instance, where the decision is
-## visible in that host's scene rather than baked into the addon.
+## [MKRoot] page host content is PAUSABLE — so a preview inside a paused page stops spinning, which
+## is the required behaviour, not a bug. Setting [code]PROCESS_MODE_ALWAYS[/code] here would look
+## like a fix ("the preview freezes when I open the pause menu!") and would silently break it. A host
+## that wants an always-spinning preview sets the mode on ITS instance, where the decision is visible
+## in that host's scene rather than baked into the addon.
 
 ## Emitted after the content instance has been swapped and re-framed — including on a swap to null,
 ## where it reports "the slot is now empty". Hosts drive dependent UI (a name label, a stat panel) off
 ## this rather than guessing at a frame boundary after calling [method set_preview_scene].
 signal preview_changed()
 
-## Stable child names. Public so a test can index them without re-spelling string literals that would
-## then drift out of sync with the builder.
+## Stable child names. Public so callers can index children without re-spelling string literals that
+## would drift out of sync with the builder.
 const PIVOT_NAME := "ContentPivot"
 const CAMERA_NAME := "PreviewCamera"
 const KEY_LIGHT_NAME := "KeyLight"
@@ -66,8 +65,8 @@ const _INERTIA_EPSILON := 0.02
 ## the slot.
 @export var preview_scene: PackedScene: set = set_preview_scene
 
-## When true the [SubViewport] renders into its own [World3D]. See the class doc (F10) for why this
-## is the default and what sharing actually costs.
+## When true the [SubViewport] renders into its own [World3D]. See the class doc for why this is the
+## default and what sharing actually costs.
 @export var use_own_world := true:
 	set = _set_use_own_world
 
@@ -132,25 +131,19 @@ var _readied := false
 
 
 func _ready() -> void:
-	# Build in the editor too, unlike the shipped pages' @tool guard: the entire point of this node is
-	# that a host designing a character-select screen SEES the preview while laying it out. The guard
-	# those pages need is against unowned children being serialised into the instancing scene, and it
-	# does not apply here — every child below is created with owner left null, so Godot excludes it
-	# from the saved scene exactly as it excludes any runtime child. _built guards the other hazard:
-	# a second _build within one instance's life would stack a duplicate camera and a second set of
-	# lights (visibly doubling the exposure).
-	# [b]Caveat, stated because the guard looks stronger than it is:[/b] _built is ordinary script
-	# state, so an editor script RELOAD that re-runs _ready on a re-created script instance starts it
-	# back at false and the children ARE rebuilt on top of the previous set. What _built actually
-	# covers is a second _ready/_build on the SAME instance (a re-add to the tree, set_preview_scene's
-	# own _build call). The reload case is left to the editor's own node rebuild rather than defended
-	# here with a name-scan that would then have to stay in sync with the builder.
+	# Build in the editor too, unlike the shipped pages' @tool guard: the point of this node is that a
+	# host designing a character-select screen SEES the preview while laying it out. Every child below
+	# is created with owner left null, so Godot excludes it from the saved scene as it does any runtime
+	# child. _built guards the other hazard: a second _build within one instance's life would stack a
+	# duplicate camera and a second set of lights (visibly doubling the exposure).
+	# Caveat: _built is ordinary script state, so an editor script RELOAD re-runs _ready on a
+	# re-created instance and the children ARE rebuilt on top of the previous set. What _built covers
+	# is a second _ready/_build on the SAME instance.
 	_build()
 	# stretch alone is the whole resolution story: a SubViewportContainer with stretch enabled OWNS its
 	# SubViewport's size and drives it to the container's pixel rect every layout pass — the engine
-	# actively refuses a manual size write in that configuration (a WARNING per attempt, measured by
-	# the Phase 5 test leg). So there is deliberately no resized hook and no size sync here; writing
-	# one back would be inert noise pretending to be load-bearing.
+	# actively refuses a manual size write in that configuration (a WARNING per attempt). So there is
+	# deliberately no resized hook and no size sync here.
 	stretch = true
 	visibility_changed.connect(_sync_render_mode)
 	_sync_render_mode()
@@ -162,8 +155,8 @@ func _ready() -> void:
 		# The export was deserialised — or assigned by a host — before this node was in the tree, where
 		# the framing pass cannot measure or point anything. The INSTANCE is already there (the setter
 		# builds and parents it off-tree quite happily); only the framing was skipped, so only the framing
-		# is redone. Re-applying the whole export instead freed and re-instantiated identical content and
-		# emitted a second preview_changed, which a host connected before add_child saw as two swaps.
+		# is redone. Re-applying the whole export would free and re-instantiate identical content and emit
+		# a second preview_changed, which a host connected before add_child sees as two swaps.
 		_queue_reframe(_content_gen, true)
 	elif preview_scene != null:
 		# A scene that produced no content (a non-Node3D root, reported at assignment) or a setter that
@@ -172,30 +165,25 @@ func _ready() -> void:
 	_readied = true
 
 
-## [b]Every tree entry after the first re-frames, not just the first one.[/b] [method Node._ready] runs
-## ONCE per node lifetime, so it cannot cover a preview that LEAVES the tree and comes back — a pooled
-## slot, a panel reparented into a different container, a character sheet moved between layers. Off-tree
-## the framing is skipped entirely (see [method _frame]), so a swap performed while detached leaves the
-## pivot at the origin with the new content unshifted; without this hook the node came back displaying
-## content centred on nothing, at the previous subject's distance, and said nothing about it. The pass
-## is generation-tagged like every other, so an entry followed by an immediate swap does not measure the
-## outgoing content.
+## [b]Every tree entry after the first re-frames, not just the first one.[/b] [method Node._ready]
+## runs ONCE per node lifetime, so it cannot cover a preview that LEAVES the tree and comes back — a
+## pooled slot, a panel reparented into a different container. Off-tree the framing is skipped
+## entirely (see [method _frame]), so a swap performed while detached leaves the pivot at the origin
+## with the new content unshifted; without this hook the node comes back displaying content centred
+## on nothing, at the previous subject's distance. The pass is generation-tagged like every other, so
+## an entry followed by an immediate swap does not measure the outgoing content.
 ##
-## The first entry is deliberately skipped: NOTIFICATION_ENTER_TREE arrives BEFORE [method _ready], and
-## _ready runs the entry pass itself. Letting both fire was measured as a double pass on the first
-## entry — harmless in value (the framing writes are relative and the second reads a centre of ~zero)
-## but two passes where one is documented, and the shift is only idempotent while nothing else moves the
-## content between them.
+## The first entry is deliberately skipped: NOTIFICATION_ENTER_TREE arrives BEFORE [method _ready],
+## and _ready runs the entry pass itself. Letting both fire is a double pass on the first entry.
 func _notification(what: int) -> void:
 	if what != NOTIFICATION_ENTER_TREE or not _readied:
 		return
 	if get_content() == null:
 		return
-	# Queued, not immediate: this notification arrives before the CONTENT's own tree entry (children are
-	# notified after their parent), so an immediate measurement would read global transforms of a subtree
-	# that is not registered yet. One deferred hop is enough — measured with the shipped CSG shape, whose
-	# mesh IS built by the time the pass runs. Silent about zero bounds: a re-entry is not the moment to
-	# accuse content of having none.
+	# Queued, not immediate: this notification arrives before the CONTENT's own tree entry (children
+	# are notified after their parent), so an immediate measurement would read global transforms of a
+	# subtree that is not registered yet. One deferred hop is enough. Silent about zero bounds: a
+	# re-entry is not the moment to accuse content of having none.
 	_queue_reframe(_content_gen, false)
 
 
@@ -213,16 +201,14 @@ func _notification(what: int) -> void:
 ##
 ## [b]The framing runs TWICE: immediately, and again deferred.[/b] CSG meshes (and anything else that
 ## builds its geometry on a deferred call, which is most procedural content) report a ZERO
-## [method VisualInstance3D.get_aabb] on the frame they are added — measured on all three shipped demo
-## previews, every one of which is a CSG primitive. A single immediate pass therefore measures nothing,
-## takes the no-bounds fallback, and the demo's previews never frame at all. The immediate pass is kept
-## because content that IS built (an imported mesh) frames on the same frame it appears, with no
-## visible pop; the deferred pass is what catches everything else.
+## [method VisualInstance3D.get_aabb] on the frame they are added, so a single immediate pass
+## measures nothing and takes the no-bounds fallback. The immediate pass is kept because content that
+## IS built (an imported mesh) frames on the same frame it appears with no visible pop; the deferred
+## pass catches everything else.
 func set_preview_scene(scene: PackedScene) -> void:
-	# Writing the backing property from inside its own setter does NOT re-enter it — GDScript's
-	# setter/getter dispatch is suppressed for self-assignment within the accessor. So the guard flag
-	# this method used to carry was inert, and the "emits exactly once, not twice through its own
-	# setter" assertion in test_preview_viewport.gd is what holds the line if that ever changes.
+	# Writing the backing property from inside its own setter does NOT re-enter it — GDScript
+	# suppresses setter dispatch for self-assignment within the accessor, so no re-entry guard is
+	# needed here.
 	preview_scene = scene
 	# Every swap is a new generation, so any deferred pass still queued for the OUTGOING content
 	# recognises itself as stale and returns without measuring. See _queue_reframe.
@@ -256,10 +242,10 @@ func set_preview_scene(scene: PackedScene) -> void:
 	_pivot.position = Vector3.ZERO
 	if _content == null:
 		# The cleared-slot STATE is written here, not in _frame's null branch: that branch sits behind
-		# the is_inside_tree guard, so a clear performed while DETACHED used to keep the previous
-		# subject's _fitted_once and distance forever — the next content re-entered at an 8-unit
-		# character's zoom instead of a fresh fit (measured, round 6). "Reset when the slot is cleared"
-		# is a statement about the SLOT, and the slot does not care whether the node is in a tree.
+		# the is_inside_tree guard, so a clear performed while DETACHED would keep the previous subject's
+		# _fitted_once and distance forever and the next content would re-enter at the old zoom instead
+		# of a fresh fit. "Reset when the slot is cleared" is a statement about the SLOT, and the slot
+		# does not care whether the node is in a tree.
 		_fitted_once = false
 		_distance = _clamp_zoom(_FALLBACK_DISTANCE)
 	# Immediate pass: silent about zero bounds, because for deferred-built content zero IS the expected
@@ -274,14 +260,14 @@ func set_preview_scene(scene: PackedScene) -> void:
 ## anything renders — so the re-frame is invisible rather than a one-frame jump.
 ##
 ## [b]Every call queues a pass; staleness is decided by GENERATION, not by de-duplication.[/b] A
-## boolean "one queued at a time" flag looks like the same saving and is not, because Godot's deferred
-## queue is FIFO and a swap's CSG build enqueues its own deferred work when the content is ADDED —
-## i.e. AFTER a pass queued by an earlier swap in the same frame. Measured: with the flag, two swaps in
-## one frame ran the pending pass BEFORE the second content's mesh existed, read zero bounds, consumed
-## the flag, and nothing re-queued — pivot at the origin and the fallback distance, permanently.
-## Queuing per swap puts the live content's pass after its own build in the same FIFO order, and the
-## generation check is what keeps the earlier, now-meaningless passes from measuring the new content
-## before it is built.
+## boolean "one queued at a time" flag looks like the same saving and is not, because Godot's
+## deferred queue is FIFO and a swap's CSG build enqueues its own deferred work when the content is
+## ADDED — i.e. AFTER a pass queued by an earlier swap in the same frame. With such a flag, two swaps
+## in one frame run the pending pass BEFORE the second content's mesh exists, read zero bounds,
+## consume the flag, and nothing re-queues — pivot at the origin and the fallback distance,
+## permanently. Queuing per swap puts the live content's pass after its own build in the same FIFO
+## order, and the generation check keeps the earlier, now-meaningless passes from measuring the new
+## content before it is built.
 func _queue_reframe(gen: int, report_no_bounds: bool, fit_distance := false) -> void:
 	call_deferred("_deferred_reframe", gen, report_no_bounds, fit_distance)
 
@@ -323,11 +309,9 @@ func get_content() -> Node3D:
 ## authored with its feet at y=0 otherwise orbits around its ankles.
 ##
 ## [b]It refits immediately and again, deferred — and the immediate half is SILENT.[/b] A host that
-## calls this in the same frame as a swap (a perfectly ordinary "show this and refit it" pair) is
-## asking about content whose mesh may not be built yet, so the immediate reading of zero is the
-## expected state rather than news, exactly as it is for the swap's own immediate pass. Reporting it
-## printed "no VisualInstance3D bounds" for content that plainly had them a frame later. The queued
-## pass is the definitive answer and is the one that speaks.
+## calls this in the same frame as a swap (an ordinary "show this and refit it" pair) is asking about
+## content whose mesh may not be built yet, so the immediate reading of zero is the expected state
+## rather than news. The queued pass is the definitive answer and is the one that speaks.
 func frame_content() -> void:
 	_frame(false, true)
 	_queue_reframe(_content_gen, true, true)
@@ -345,8 +329,7 @@ func frame_content() -> void:
 ## so it must not print four engine errors; the node's tree ENTRY is where the framing this skipped
 ## actually happens — [method _ready] for the first entry, [method _notification]'s
 ## NOTIFICATION_ENTER_TREE for every one after it, so a swap performed while detached (a pooled or
-## reparented preview) is framed on the way back in rather than never. The clean run IS the assertion —
-## the test gate fails on any ERROR: line, so re-introducing the off-tree pass fails the suite.
+## reparented preview) is framed on the way back in rather than never.
 func _frame(report_no_bounds: bool, fit_distance := false) -> void:
 	_build()
 	if not is_inside_tree():
@@ -425,10 +408,10 @@ func _process(delta: float) -> void:
 		_apply_transforms()
 
 
-## Input arrives through _gui_input, NOT _input. This is an ordinary Control that only ever wants
-## events landing on its own rect, and _gui_input already delivers exactly those, respects
-## mouse_filter, and lets a modal above it take priority for free. (The rebind row's _input usage is a
-## documented exception for capturing a key press anywhere on screen — do not generalise from it.)
+## Input arrives through _gui_input, NOT _input. This is an ordinary Control that only wants events
+## landing on its own rect, and _gui_input delivers exactly those, respects mouse_filter, and lets a
+## modal above it take priority for free. ([code]MKRebindRow[/code]'s _input usage is a documented
+## exception for capturing a key press anywhere on screen — do not generalise from it.)
 ##
 ## Every event this node acts on is consumed with accept_event(): a preview inside a scrolling
 ## character sheet must not let a zoom gesture ALSO scroll the page under it, and a spin drag must not
@@ -476,18 +459,13 @@ func _zoom_by(amount: float) -> void:
 ## The ONE place [member zoom_min] and [member zoom_max] become a range. Every distance write in this
 ## class goes through it — the wheel, the fit, the swap re-clamp and both fallback-distance parks.
 ##
-## [b]It orders the pair rather than trusting it.[/b] The two are independent exports and nothing stops
-## a host (or an editor drag) from leaving zoom_min above zoom_max. A plain
+## [b]It orders the pair rather than trusting it.[/b] The two are independent exports and nothing
+## stops a host (or an editor drag) from leaving zoom_min above zoom_max. A plain
 ## [code]clampf(value, zoom_min, zoom_max)[/code] on an inverted pair collapses every input onto one
 ## of the two ends — clampf raises to its minimum FIRST, then lowers to its maximum, so an inverted
 ## pair answers zoom_min for inputs below zoom_min and zoom_max for everything at or above it
-## (measured on 4.7: clampf(3, 5, 1) is 5; clampf(8, 5, 1) is 1). That is not merely an odd number:
-## three of the sites used the plain form and three used this one, so the same gesture landed at two
-## different distances depending on which branch ran (measured with zoom_min 5 / zoom_max 1: a
-## DETACHED clear parked at the fallback 3, inside the ordered range, while an IN-TREE clear ran
-## _frame's null branch and the plain form pushed it out to 5). Ordering here makes the inverted pair
-## merely a range spelled backwards, and makes all six sites agree by construction rather than by six
-## copies of the same two calls.
+## (clampf(3, 5, 1) is 5; clampf(8, 5, 1) is 1). Ordering here makes an inverted pair merely a range
+## spelled backwards, and makes every distance write agree by construction.
 func _clamp_zoom(value: float) -> float:
 	return clampf(value, minf(zoom_min, zoom_max), maxf(zoom_min, zoom_max))
 
@@ -527,11 +505,10 @@ func _set_use_own_world(value: bool) -> void:
 	if _viewport == null:
 		return
 	# Flipping own_world_3d on a SubViewport whose 3D instances are already registered with a World3D
-	# nulls their scenario mid-flight — the renderer errors ("Parameter \"scenario\" is null", measured
-	# by the Phase 5 test leg) because the instances are torn between worlds while live. Detaching the
-	# viewport first unregisters everything cleanly, the flip then happens on an offline viewport, and
-	# re-adding re-registers the whole subtree with whichever world now applies. One frame of the
-	# preview texture is skipped; nothing else observes the bounce.
+	# nulls their scenario mid-flight — the renderer errors ("Parameter \"scenario\" is null") because
+	# the instances are torn between worlds while live. Detaching the viewport first unregisters
+	# everything cleanly, the flip then happens on an offline viewport, and re-adding re-registers the
+	# whole subtree with whichever world now applies. One frame of the preview texture is skipped.
 	var parent := _viewport.get_parent()
 	if parent != null and _viewport.is_inside_tree():
 		parent.remove_child(_viewport)

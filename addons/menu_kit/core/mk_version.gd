@@ -1,10 +1,10 @@
 @tool
 class_name MKVersion
 extends RefCounted
-## Single source of truth for the MenuKit version (plan §4.8).
+## Single source of truth for the MenuKit version.
 ##
-## Mirrored by hand into [code]plugin.cfg[/code]; ship gate 10 asserts the two agree along with
-## the CHANGELOG entry and the git tag. Surfaced by [code]MKRoot.dump_diagnostics()[/code].
+## Mirrored by hand into [code]plugin.cfg[/code] — the two must agree with the CHANGELOG entry and
+## the release tag. Surfaced by [code]MKRoot.dump_diagnostics()[/code].
 
 const VERSION := "0.1.0-dev"
 

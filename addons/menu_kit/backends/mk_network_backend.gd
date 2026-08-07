@@ -1,14 +1,12 @@
 @abstract
 class_name MKNetworkBackend
 extends Node
-## Server discovery and connection (plan §4.1, D7).
+## Server discovery and connection (D7).
 ##
 ## Optional by design: the shipped [code]default_config.tres[/code] leaves this slot [b]empty[/b],
-## so a cold drop has no server browser at all — the right first impression for a single-player
-## Doom-like, and what keeps the cold-drop gate honest. Assigning a slot is what makes the panel
-## appear.
+## so a cold drop has no server browser at all. Assigning the slot is what makes the panel appear.
 ##
-## MenuKit ships no actual networking (plan §8). The stub exists so the panel and its states are
+## MenuKit ships no actual networking. [MKStubNetworkBackend] exists so the panel and its states are
 ## real and testable; the host supplies the transport.
 
 ## Connection lifecycle, kept as an enum rather than free strings so the panel can render each state
@@ -42,6 +40,6 @@ func refresh() -> void:
 	pass
 
 
-## Optional parameterization hook (plan §4.1). Returns the keys consumed from [param params].
+## Optional parameterization hook. Returns the keys consumed from [param params].
 func _mk_configure(params: Dictionary) -> Array[String]:
 	return []
