@@ -27,6 +27,7 @@
 [ext_resource type="PackedScene" path="res://addons/menu_kit/creation/steps/mk_step_appearance.tscn" id="24_step_appearance"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/creation/steps/mk_step_pointbuy.tscn" id="25_step_pointbuy"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/panels/mk_pause_menu.tscn" id="26_pause_menu"]
+[ext_resource type="PackedScene" path="res://addons/menu_kit/panels/mk_server_browser.tscn" id="27_servers"]
 
 [sub_resource type="Resource" id="step_name"]
 script = ExtResource("17_stepdef")
@@ -89,6 +90,13 @@ title = "Settings"
 scene = ExtResource("6_settings")
 order = 10
 
+[sub_resource type="Resource" id="page_servers"]
+script = ExtResource("2_pagedef")
+id = &"servers"
+title = "Servers"
+scene = ExtResource("27_servers")
+order = 15
+
 [sub_resource type="Resource" id="page_credits"]
 script = ExtResource("2_pagedef")
 id = &"credits"
@@ -147,7 +155,7 @@ network_backend = SubResource("slot_network")
 pause_policy = SubResource("slot_pause")
 palette = ExtResource("3_palette")
 backdrop_catalog = ExtResource("4_backdrops")
-pages = Array[ExtResource("2_pagedef")]([SubResource("page_play"), SubResource("page_characters"), SubResource("page_settings"), SubResource("page_credits"), SubResource("page_sub"), SubResource("page_character_create"), SubResource("page_pause")])
+pages = Array[ExtResource("2_pagedef")]([SubResource("page_play"), SubResource("page_characters"), SubResource("page_settings"), SubResource("page_servers"), SubResource("page_credits"), SubResource("page_sub"), SubResource("page_character_create"), SubResource("page_pause")])
 initial_page = &"play"
 archetypes = Array[ExtResource("1_mdj5m")]([ExtResource("18_vanguard"), ExtResource("19_arcanist"), ExtResource("20_scout")])
 creation_steps = Array[ExtResource("17_stepdef")]([SubResource("step_name"), SubResource("step_archetype"), SubResource("step_appearance"), SubResource("step_pointbuy")])
