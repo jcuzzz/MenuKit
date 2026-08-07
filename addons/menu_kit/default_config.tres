@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="MKConfig" load_steps=24 format=3]
+[gd_resource type="Resource" script_class="MKConfig" load_steps=26 format=3]
 
 ; The host's copy-me starting point. Every value here is chosen so that copying addons/menu_kit/
 ; alone into an empty Godot project boots with zero errors and zero warnings (ship gate 2) —
@@ -61,6 +61,7 @@
 [ext_resource type="PackedScene" path="res://addons/menu_kit/panels/mk_character_select.tscn" id="12_select"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/panels/mk_character_create.tscn" id="13_create"]
 [ext_resource type="Script" path="res://addons/menu_kit/creation/mk_archetype.gd" id="14_archetype"]
+[ext_resource type="PackedScene" path="res://addons/menu_kit/panels/mk_pause_menu.tscn" id="15_pause_menu"]
 
 [sub_resource type="Resource" id="slot_menu"]
 script = ExtResource("3_slot")
@@ -118,6 +119,15 @@ scene = ExtResource("13_create")
 visible = false
 order = 100
 
+[sub_resource type="Resource" id="page_pause"]
+script = ExtResource("2_pagedef")
+id = &"pause"
+title = "Paused"
+icon = null
+scene = ExtResource("15_pause_menu")
+visible = false
+order = 200
+
 [sub_resource type="Resource" id="archetype_traveler"]
 script = ExtResource("14_archetype")
 id = &"traveler"
@@ -137,7 +147,7 @@ pause_policy = SubResource("slot_pause")
 palette = ExtResource("4_palette")
 backdrop_catalog = ExtResource("5_backdrops")
 backdrop_id = &""
-pages = Array[Resource]([SubResource("page_welcome"), SubResource("page_settings"), SubResource("page_characters"), SubResource("page_character_create")])
+pages = Array[Resource]([SubResource("page_welcome"), SubResource("page_settings"), SubResource("page_characters"), SubResource("page_character_create"), SubResource("page_pause")])
 initial_page = &"welcome"
 archetypes = Array[Resource]([SubResource("archetype_traveler")])
 creation_steps = Array[Resource]([])

@@ -45,6 +45,16 @@ const SETTINGS_SERVICE_PATH := MKConfig.SETTINGS_SERVICE_PATH
 ## [MKRoot] hosting the pause page sets this to [constant Node.PROCESS_MODE_ALWAYS].
 @export var host_content_process_mode: Node.ProcessMode = Node.PROCESS_MODE_PAUSABLE
 
+## Whether this shell draws the config's backdrop behind its pages.
+##
+## The backdrop is main-menu scenery. The in-game pause configuration (plan §4.2a) parks a second
+## [MKRoot] inside the game scene, and an opaque backdrop there hides the very world the pause menu
+## is supposed to sit on top of — the paused game behind the panel is what tells a player this is a
+## pause and not a scene change. The backdrop node still exists when this is off (the shell layout
+## does not fork); it just displays nothing, which [MKBackdrop] treats as a supported state rather
+## than a missing texture.
+@export var show_backdrop := true
+
 @export_group("Audio hooks")
 ## Optional; no audio files ship (licensing). All four play through one internal player.
 @export var hover_sfx: AudioStream
@@ -131,14 +141,25 @@ func _exit_tree() -> void:
 
 
 ## Cancel is consumed by the innermost open thing. Precedence is
-## rebind capture → modal stack top → page back stack → root quit-confirm.
+## rebind capture → modal stack top → page back stack → pause resume → root quit-confirm.
 ##
 ## Rebind capture does not appear here by name because it is handled by mechanism: a listening row
 ## consumes input in [method Node._input] and calls
 ## [method Viewport.set_input_as_handled], so a live capture never reaches
 ## [method Node._unhandled_input] at all. That is what makes Escape unbindable without a blacklist,
 ## and what stops one Escape from both aborting a capture and popping the Controls page.
+##
+## [b]A shell that is not visible in the tree consumes nothing.[/b] The in-game configuration
+## (plan §4.2a) parks an [MKRoot] hidden inside the game scene and shows it on the host's ESC
+## gesture. A hidden shell still runs — the whole subtree is
+## [constant Node.PROCESS_MODE_ALWAYS] and [method Node._unhandled_input] does not care about
+## visibility — so without the check below it would swallow the very gesture the host's own ESC
+## handler needs in order to open it, and, with both stacks empty, answer it by opening a
+## quit-confirm dialog nobody can see. Visibility is the right test rather than a flag because it is
+## the same condition that decides whether anything this method could act on is on screen.
 func _unhandled_input(event: InputEvent) -> void:
+	if not is_visible_in_tree():
+		return
 	if not event.is_action_pressed(&"ui_cancel"):
 		return
 	if _modal_layer != null and not _modal_layer.is_empty():
@@ -157,6 +178,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 	if not _back_stack.is_empty():
 		pop_page()
+		return
+	# The pause rung sits between the back stack and the quit-confirm, and the order is the contract:
+	# with Settings pushed over the pause page the back stack is non-empty, so Escape returns to the
+	# pause page (handled above) rather than resuming the game out from under the player. Only at the
+	# pause page itself — both stacks empty — does Escape resume, which is the gesture symmetry a
+	# player expects from the key that opened the menu. Without this rung that same press opened a
+	# "Quit to desktop?" dialog over a paused game.
+	if _pause_menu_open:
+		close_pause_menu()
 		return
 	request_quit_confirm()
 
@@ -493,7 +523,7 @@ func _build_shell() -> void:
 	_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_backdrop)
-	if config != null and config.backdrop_catalog != null:
+	if show_backdrop and config != null and config.backdrop_catalog != null:
 		_backdrop.apply_from_catalog(config.backdrop_catalog, config.backdrop_id)
 
 	var column := VBoxContainer.new()

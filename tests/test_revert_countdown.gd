@@ -489,10 +489,15 @@ func _test_freeing_the_panel_reverts_an_unconfirmed_countdown(hard_free: bool) -
 	check_eq(root.get_suspend_depth(), base_depth,
 		"the suspension the push raised came back down — leaving it stacked held the world suspended under a dead dialog (%s)" % how)
 
+	# What "consumed by the page, not a corpse" looks like changed in Phase 6: the cancel ladder
+	# gained the pause-resume rung, so with the pause menu open and both stacks empty the root
+	# answers Escape by CLOSING the pause menu rather than by raising the quit-confirm. The corpse
+	# claim is unchanged — a swallowed gesture would leave the pause menu open and the stack empty,
+	# which is exactly what the two assertions below refuse.
 	check(_cancel(root), "and the next Escape is consumed (%s)" % how)
-	check_eq(layer.depth(), 1, "by the ROOT's own quit-confirm — the gesture reached the page, not a corpse (%s)" % how)
-	var top := layer.top()
-	check(top != null and top is MKConfirmDialog, "which is the confirm dialog, not the countdown")
+	check(not root.is_pause_menu_open(),
+		"by the ROOT's pause-resume rung — the gesture reached the page, not a corpse (%s)" % how)
+	check_eq(layer.depth(), 0, "and no stray modal appeared — the ladder stopped at the pause rung")
 
 	await _drop_fixture(fixture)
 

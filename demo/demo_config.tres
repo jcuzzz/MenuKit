@@ -26,6 +26,7 @@
 [ext_resource type="PackedScene" path="res://addons/menu_kit/creation/steps/mk_step_archetype.tscn" id="23_step_archetype"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/creation/steps/mk_step_appearance.tscn" id="24_step_appearance"]
 [ext_resource type="PackedScene" path="res://addons/menu_kit/creation/steps/mk_step_pointbuy.tscn" id="25_step_pointbuy"]
+[ext_resource type="PackedScene" path="res://addons/menu_kit/panels/mk_pause_menu.tscn" id="26_pause_menu"]
 
 [sub_resource type="Resource" id="step_name"]
 script = ExtResource("17_stepdef")
@@ -57,6 +58,7 @@ scene = ExtResource("25_step_pointbuy")
 script = ExtResource("9_slot")
 backend_script = ExtResource("10_menu")
 params = {
+"game_scene": "res://demo/demo_game.tscn",
 "menu_scene": "res://demo/demo_main.tscn"
 }
 
@@ -110,6 +112,14 @@ scene = ExtResource("16_create")
 visible = false
 order = 110
 
+[sub_resource type="Resource" id="page_pause"]
+script = ExtResource("2_pagedef")
+id = &"pause"
+title = "Paused"
+scene = ExtResource("26_pause_menu")
+visible = false
+order = 200
+
 [sub_resource type="Resource" id="slot_pause"]
 script = ExtResource("9_slot")
 backend_script = ExtResource("13_pause")
@@ -137,7 +147,7 @@ network_backend = SubResource("slot_network")
 pause_policy = SubResource("slot_pause")
 palette = ExtResource("3_palette")
 backdrop_catalog = ExtResource("4_backdrops")
-pages = Array[ExtResource("2_pagedef")]([SubResource("page_play"), SubResource("page_characters"), SubResource("page_settings"), SubResource("page_credits"), SubResource("page_sub"), SubResource("page_character_create")])
+pages = Array[ExtResource("2_pagedef")]([SubResource("page_play"), SubResource("page_characters"), SubResource("page_settings"), SubResource("page_credits"), SubResource("page_sub"), SubResource("page_character_create"), SubResource("page_pause")])
 initial_page = &"play"
 archetypes = Array[ExtResource("1_mdj5m")]([ExtResource("18_vanguard"), ExtResource("19_arcanist"), ExtResource("20_scout")])
 creation_steps = Array[ExtResource("17_stepdef")]([SubResource("step_name"), SubResource("step_archetype"), SubResource("step_appearance"), SubResource("step_pointbuy")])
