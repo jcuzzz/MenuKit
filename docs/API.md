@@ -651,8 +651,8 @@ keys, a backend script that does not extend its base).
 
 ## MKJsonCodec
 
-`class_name MKJsonCodec extends RefCounted` — the persisted-JSON type envelope, shared by both
-shipped JSON backends.
+`class_name MKJsonCodec extends RefCounted` — the persisted-JSON type envelope **and the shared
+atomic write**, both used by both shipped JSON backends.
 
 ```gdscript
 const TYPE_TAG := "__mk_type"
@@ -662,9 +662,17 @@ const TAG_INT := "int"
 
 static func encode_value(value: Variant, envelope_ints: bool) -> Variant
 static func decode_value(value: Variant, context := "") -> Variant
+static func write_atomic(path: String, text: String) -> Error
 ```
 
 The envelope is `{"__mk_type": "<type name>", "v": <payload>}`.
+
+`write_atomic()` writes to a sibling `.tmp` and renames it over `path`, so an interrupted write
+leaves the previous good file rather than a truncated one — the corruption both load paths would
+otherwise have to quarantine. It returns `OK` or the failing `Error` and **logs nothing**: each
+backend words its own failure. On a rename failure the `.tmp` is deliberately left in place (it holds
+the only copy of the new data; the target still holds the last good one). Both shipped stores go
+through it — a store of your own that writes `user://` should too.
 
 **The envelope is a format surface with a versioning rule.** Adding a tag is *additive* (an old
 reader meets an unknown tag as a plain dictionary, exactly as it already treated any object it did

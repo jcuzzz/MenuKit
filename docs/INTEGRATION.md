@@ -335,10 +335,10 @@ func _mint_id() -> String:
 	return str(Time.get_unix_time_from_system())
 
 func _ensure_loaded() -> void:
-	pass  # read _service_path + "roster.json" into _entries once
+	pass  # read _service_path + "roster.json" into _cache once
 
 func _write() -> void:
-	pass  # serialize _entries back to disk
+	pass  # serialize _cache back to disk
 ```
 
 Wire it by pointing the slot at the script:

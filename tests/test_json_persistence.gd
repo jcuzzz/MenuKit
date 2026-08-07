@@ -26,6 +26,7 @@ func run_tests() -> void:
 	await _test_a_payload_carrying_the_discriminator_is_refused_at_the_door()
 	await _test_a_newer_store_makes_the_backend_read_only()
 	await _test_a_stored_name_is_the_trimmed_one()
+	await _test_both_stores_write_atomically()
 	_clean(SETTINGS_PATH)
 	_clean(PROFILES_PATH)
 
@@ -505,6 +506,62 @@ func _test_a_stored_name_is_the_trimmed_one() -> void:
 	_clean(PROFILES_PATH)
 
 
+## SETTINGS_SCHEMA §7 promises BOTH stores write atomically, and the profile store did not until the
+## write was hoisted into `MKJsonCodec.write_atomic`. Two observable consequences are asserted per
+## store: the `.tmp` staging file does not survive the save (a write that never staged, or one that
+## staged and failed to rename, both leave it), and the target parses COMPLETE — a `.tmp`-free
+## assertion alone would pass on a backend that wrote nothing at all.
+##
+## [b]The property the atomicity is FOR is not testable headless[/b]: no test can halt the engine
+## between the close and the rename, so "an interrupted write leaves the previous good file" is
+## argued from the mechanism, not measured.
+##
+## What IS measured is that the mechanism ran, and a bare "no `.tmp` survives" assertion does not
+## measure it — a truncate-then-write backend creates no `.tmp` either and passes. So each store's
+## `.tmp` path is SEEDED with junk first: an atomic write opens that exact path, truncates it, and
+## renames it away, so the junk is gone afterwards; a direct write to the target never touches it and
+## the seed survives. (The trade: a future implementation staging under a different name would fail
+## here. That is the cost of pinning the mechanism at all from outside.)
+func _test_both_stores_write_atomically() -> void:
+	_clean(SETTINGS_PATH)
+	_clean(PROFILES_PATH)
+
+	var settings := _make_settings()
+	settings.set_value(&"video/max_fps", 144)
+	settings.set_value(&"gameplay/name", "atomic")
+	check(_seed_tmp(SETTINGS_PATH), "precondition: seeded a .tmp beside the settings store")
+	settings.save()
+	check(not FileAccess.file_exists(SETTINGS_PATH + ".tmp"),
+		"settings: the save staged through the .tmp and renamed it away — no sibling survives")
+	var settings_text := FileAccess.get_file_as_string(SETTINGS_PATH)
+	var settings_parsed = JSON.parse_string(settings_text)
+	check(settings_parsed is Dictionary,
+		"settings: and the target parses — the staged bytes really landed on it")
+	if settings_parsed is Dictionary:
+		var values: Variant = (settings_parsed as Dictionary).get("values", {})
+		check(values is Dictionary and (values as Dictionary).has("gameplay/name"),
+			"settings: with the whole payload, not a truncated prefix")
+	settings.free()
+
+	var profiles := _make_profiles()
+	check(_seed_tmp(PROFILES_PATH), "precondition: seeded a .tmp beside the profile store")
+	var created := profiles.create_profile({"name": "Atomic", "archetype": "scout"})
+	check(not created.is_empty(), "precondition: the profile was created (create_profile saves)")
+	check(not FileAccess.file_exists(PROFILES_PATH + ".tmp"),
+		"profiles: the save staged through the .tmp too — the store the docs promised was atomic now is")
+	var profiles_parsed = JSON.parse_string(FileAccess.get_file_as_string(PROFILES_PATH))
+	check(profiles_parsed is Dictionary,
+		"profiles: and the target parses")
+	if profiles_parsed is Dictionary:
+		var roster: Variant = (profiles_parsed as Dictionary).get("profiles", [])
+		check(roster is Array and (roster as Array).size() == 1,
+			"profiles: carrying the whole roster")
+	profiles.free()
+
+	_clean(SETTINGS_PATH)
+	_clean(PROFILES_PATH)
+
+
 func _make_settings() -> MKJsonSettingsBackend:
 	var backend := MKJsonSettingsBackend.new()
 	backend._mk_configure({"file_path": SETTINGS_PATH})
@@ -517,6 +574,18 @@ func _make_profiles() -> MKJsonProfileBackend:
 	backend._mk_configure({"file_path": PROFILES_PATH})
 	get_root().add_child(backend)
 	return backend
+
+
+## Plants junk at the staging path an atomic write uses, so its ABSENCE afterwards means the write
+## went through that path rather than straight at the target. Returns false if the seed could not be
+## written, which would make the assertion that follows it vacuous.
+func _seed_tmp(path: String) -> bool:
+	var f := FileAccess.open(path + ".tmp", FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string("seed — an atomic write overwrites and renames this away")
+	f.close()
+	return FileAccess.file_exists(path + ".tmp")
 
 
 ## Quarantine renames to `<base>.corrupt-<n>.json`; the exact n depends on how many quarantines have

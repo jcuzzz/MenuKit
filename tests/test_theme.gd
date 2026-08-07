@@ -172,6 +172,20 @@ func run_tests() -> void:
 	var before: Theme = root.theme
 	check(before != null, "root applied a generated theme at boot")
 
+	# --- the scrim at BOOT, not only after a swap ---------------------------------
+	# test_alt_skin covers the swap. The build path is a SECOND write (`_apply_theme` runs before the
+	# shell exists, so `_build_shell` applies the palette's scrim once itself), and a shell whose modal
+	# dim only becomes the palette's after somebody swaps a palette is the same defect the swap fix was
+	# for. The first assertion is the anti-vacuity one: with the DEFAULT palette this proves nothing
+	# unless the palette's scrim differs from what an unconfigured MKModalLayer already exports.
+	var bare_layer := MKModalLayer.new()
+	var export_default: Color = bare_layer.scrim_color
+	bare_layer.free()
+	check(config.palette.scrim != export_default,
+		"precondition: the default palette's scrim differs from MKModalLayer's exported default, so the next check cannot pass by accident")
+	check_eq(root.get_modal_layer().scrim_color, config.palette.scrim,
+		"a freshly built shell already dims with the PALETTE's scrim — no palette swap required")
+
 	var probe := Color(0.91, 0.13, 0.17)
 	config.palette.accent = probe
 	await step_frame()

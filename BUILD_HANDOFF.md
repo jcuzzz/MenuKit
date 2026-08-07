@@ -33,7 +33,7 @@ Phase 1–2 material below is carried forward unchanged where still true.
 | 6 | Pause menu: `mk_pause_menu` panel + the shipped `&"pause"` page in BOTH configs, `demo_game.tscn/.gd` (grey-box mouse-captured first-person), the pause-shell rules on `MKRoot` (nav hidden, page-aware ESC rung + recovery, pre-check refusal, `show_backdrop`, hide==close, recorded-nav restore, back-stack clear on close), save-on-exit for the settings store (round-2 catch: `save()` had NO production caller) | **Done.** Test leg + 7 adversarial review rounds (round table below; round 7 terminal) |
 | 7 | Server browser: `mk_server_browser` panel (every ConnectState rendered with its message — there is NO TIMEOUT enum member, "timeout" is FAILED + "Connection timed out."), demo Servers page, `servers_rig`, the `_recover_focus` seam (focus loss on rebuild/disable-under-ring), render-after-resolve (the status line lied for any backend without the stub-only `get_connect_state`) | **Done.** Test leg + 2 review rounds (round table below; round 2 terminal) |
 | 8 | Input polish: `MKInputGlyphs` (device-aware prompt vocabulary, hoisted from the rebind row; panel-owned tracker with a DETERMINISTIC dispatch-order contract), the §6 visual debt closed (binding column, label-column FILL, palette-generated CheckBox glyphs, CheckBox/CheckButton focus boxes), destructive dialogs open on Cancel by TREE ORDER, welcome copy, empty-roster geometry, select-panel focus recovery | **Done.** Test leg + 2 review rounds (table below; round 2 terminal) |
-| 8a | Comment diet: ~711 comment lines out across three parallel legs; `tools/comment_diff.ps1` (string-aware stripper + SHA manifest) is the gate and reported IDENTICAL; 64 authored `;` lines out of `.tres`/`.tscn` (the rule covers BOTH — learned this phase); displaced knowledge staged in `docs/phase9_staging/*.md` (59 host bullets + 24 handoff candidates) | **Done.** One adversarial round (mandated), PASS: zero lost constraints, two NITs (one fixed with the docs commit, the D-id glossary owed to Phase 9's docs) |
+| 8a | Comment diet: ~711 comment lines out across three parallel legs; `tools/comment_diff.ps1` (string-aware stripper + SHA manifest) is the gate and reported IDENTICAL; 64 authored `;` lines out of `.tres`/`.tscn` (the rule covers BOTH — learned this phase); displaced knowledge staged in `docs/phase9_staging/*.md` (59 host bullets + 24 handoff candidates), all consumed and the directory deleted in Phase 9 | **Done.** One adversarial round (mandated), PASS: zero lost constraints, two NITs (one fixed with the docs commit, the D-id glossary owed to Phase 9's docs) |
 | 9 | Polish & handoff | Not started |
 
 **Current metrics:** 113 compiled scripts/scenes, 24 test suites, gate:
@@ -327,6 +327,43 @@ Phase 6 additions:
   state** — it wiped the integrator's own uncommitted fixes in the same file as the mutation.
   Mutate only files with no pending edits, or stash/re-apply deliberately.
 
+Consolidated at Phase 9 (the staging files' handoff candidates, folded in before the staging
+directory was deleted):
+
+- **`ProjectSettings.set_setting` mutates memory only** — without an explicit
+  `ProjectSettings.save()` the key evaporates on the next editor launch (a second-run-only bug
+  signature). `EditorPlugin.add_autoload_singleton` needs NO save (the editor persists autoloads
+  itself); do not add one assuming symmetry. And a setting whose value equals its INITIAL value
+  is omitted from `project.godot` entirely — `save()` becomes a silent no-op; the initial value
+  must differ from any value you intend to persist (plugin.gd uses `""`).
+- **`JSON.parse_string()` pushes an engine ERROR line; `JSON.new().parse()` does not** — the
+  backends use the instance API because they fully handle the failure by quarantining, and the
+  static API's noise would fail any output-scanning gate. Report parse-failure and
+  wrong-root-type separately: a parsed-but-array root leaves error line/message empty.
+- **`Array.duplicate()` returns an UNTYPED Array** (unsafe narrowing — use `assign()`), and an
+  untyped `[]` literal is refused at runtime by an `Array[T]` parameter — build a typed local.
+- **A typed `Array[Control]` refuses to hand back a freed element** and `is`/`as` on a freed
+  instance error — `MKModalLayer`'s stack/focus-memory are untyped and `is_instance_valid` must
+  precede any `is` test.
+- **`Array.sort_custom` is not a stable sort** — decorate with the original index when the same
+  array feeds two consumers (nav order + boot page).
+- **An autoload's script must not declare a matching `class_name`** — it fails to parse at every
+  boot ("hides an autoload singleton") while direct-mount tests stay green; and registering a
+  real autoload needs an editor session, which is why `MKSettingsService` has the
+  `override_backend_slot` seam.
+- **`MKPreviewViewport._built` does not survive an editor script reload** (a reload re-runs
+  `_ready` on a fresh instance and rebuilds children on top) — it guards a second `_ready` on the
+  SAME instance only.
+- **The MKInputGlyphs last-child placement INVERTS across a rebuild** unless
+  `_place_input_glyphs_last()` re-asserts it — invisible on a first build (§5's Phase 8 entry has
+  the contract; this line is the trap shape).
+- **Sweeps for authored resource-file comments must cover `.tscn` as well as `.tres`** (two
+  settings scenes carried `;` blocks the 8a rule almost missed).
+- **Cross-repo doc links in tool headers rot silently** (`capture_scene.gd` pointed at a
+  source-project-only doc for five phases); tools/README.md is the in-repo home now.
+- **`tests/test_creation_host.gd` still carries `const F8_NOISE`** — a plan finding-id in a code
+  identifier; renaming is a token change for a post-0.1.0 slice.
+
 Phase 7 additions:
 
 - **Godot auto-disconnects a freed node's method-bound signal connections** — a backend
@@ -557,10 +594,9 @@ Phase 5 open items:
 
 Phase 6 open items:
 
-- **The quit-confirm dialog default-focuses its DESTRUCTIVE button** (`mk_confirm_dialog.gd`
-  grabs Confirm; `destructive` only styles) — a gamepad-A/Enter on the quit dialog quits.
-  Owner-deferred to Phase 8 polish, same bucket as the welcome-page copy (which names Play/Quit
-  controls the page does not have).
+- ~~**The quit-confirm dialog default-focuses its DESTRUCTIVE button**~~ — **CLOSED in Phase 8.**
+  `destructive` now decides default focus by BUTTON ORDER, and `MKRoot.request_quit_confirm`
+  passes `destructive = true`, so the quit dialog opens on Cancel.
 - **One-frame resume during quit-to-menu:** close-before-backend means the world simulates for
   the remainder of that frame under the shipped deferred scene change. INTEGRATION.md sentence
   (Phase 9), not code.
@@ -716,8 +752,9 @@ Phase 8 items (the row-8 exit criterion is itself a manual matrix):
 ## 7. Next step: Phase 9 — polish & handoff
 
 Plan row 9 + §6: alt skin under demo/alt_skin/ proving re-theme (gate 3), the five docs
-(INTEGRATION/THEMING/API/SETTINGS_SCHEMA/CREATION_STEPS — the raw material is
-docs/phase9_staging/*.md, 59 host bullets written for exactly this), README, CHANGELOG 0.1.0
+(INTEGRATION/THEMING/API/SETTINGS_SCHEMA/CREATION_STEPS — the raw material was
+docs/phase9_staging/*.md, 59 host bullets written for exactly this; all consumed, directory
+deleted), README, CHANGELOG 0.1.0
 (the §6 initial-format statement list: input event device field, __mk_type int tag +
 discriminator refusal, trimmed names, newer-store latch, save-on-exit crash caveat), a D-id
 glossary (the 8a NIT), MKVersion/plugin.cfg/tag agreement (gate 10), the characters_rig frame

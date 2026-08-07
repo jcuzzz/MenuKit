@@ -20,7 +20,10 @@ extends RefCounted
 
 ## The pause page is instantiated inside open_pause_menu and MKRoot defers its focus pass by a frame,
 ## so a short wait photographs an unfocused (and, on the first frame, unlaid-out) panel. Frames, not
-## seconds — size any change to this for the fastest common refresh rate, never the typical one.
+## seconds. THE RULE, and every rig states the same one: size a wait that guards a resolved-state
+## guarantee for 240 Hz, never for the typical display. What this one waits on is a deferred FRAME
+## rather than a timer, so the count is rate-independent — but any timer-shaped addition to this rig
+## re-imports the rule and must be re-sized at 240 Hz.
 func wait_frames() -> int:
 	return 40
 

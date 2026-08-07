@@ -36,7 +36,11 @@
 # runs it (the menu_kit/config_path key below is written by that same _enter_tree and by nothing
 # else), but only ProjectSettings.save() persists to disk in that pass and add_autoload_singleton
 # relies on the editor's own save. So the harness asserts the plugin ran, then emulates the one write
-# the headless editor does not flush. The name and script path are the plugin's own constants.
+# the headless editor does not flush. The autoload name and script path below are HAND-COPIED
+# literals, not read from the plugin: this harness is host-side and cannot import addon constants. So
+# a rename of MKConfig.SETTINGS_SERVICE_NAME or a move of mk_settings_service.gd leaves this script
+# emulating the OLD name - pass 3 would then register an autoload nothing resolves and still go
+# green. Rename either and update this block in the same commit.
 #
 # user:// isolation is owned by this wrapper, as in check.ps1: the child engines run with APPDATA
 # redirected into the temp project's own profile dir, so the settings service's first-boot JSON write
@@ -183,9 +187,15 @@ try {
             @("--headless", "--path", $ProjectDir, "--script", "cold_drop_boot.gd", "--", "frames=$Frames") $TimeoutSec
     }
     # Pass 3: the service tier. See the header - the autoload line is the one write the headless
-    # editor does not flush, and these are plugin.gd's own constants.
+    # editor does not flush, and the name/path in it are hand-copied literals.
+    #
+    # The match is deliberately anchored to the POST-import SECTION, not to the substring 'menu_kit':
+    # the pre-import template already spells that inside the enabled-plugin path, so a substring test
+    # is vacuous - it passes on a project the editor never touched. Only plugin.gd's _enter_tree
+    # writes the [menu_kit] section and its config_path key, so requiring both is the real proof.
     $writtenProject = Join-Path $ProjectDir "project.godot"
-    $pluginRan = (Test-Path $writtenProject) -and ((Get-Content $writtenProject -Raw) -match 'menu_kit')
+    $writtenText = if (Test-Path $writtenProject) { Get-Content $writtenProject -Raw } else { "" }
+    $pluginRan = ($writtenText -match '(?m)^\[menu_kit\]\s*$') -and ($writtenText -match '(?m)^config_path=')
     if ($importExit -eq 0 -and $bootExit -eq 0 -and $pluginRan) {
         Add-Content -Path $writtenProject -Encoding ascii -Value @'
 

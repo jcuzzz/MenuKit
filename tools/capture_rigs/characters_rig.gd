@@ -30,7 +30,8 @@ extends RefCounted
 ## duration at an assumed refresh rate, and an under-sized wait photographs an EARLIER step with
 ## nothing failing to say so.
 ##
-## Sized for the fastest common displays, as servers_rig is: 0.65s × 240 ≈ 156, rounded up to 200 so a
+## THE RULE, and every rig states the same one: size a wait that guards a resolved-state guarantee for
+## 240 Hz, never for the typical display. Here that is 0.65s × 240 ≈ 156, rounded up to 200 so a
 ## host flow one step longer than the demo's (0.80s → 192 at 240 Hz) still resolves. 165 Hz needs 108,
 ## 60 Hz 39. The previous 120 covered 165 Hz by 0.08s and did not cover 240 Hz at all. An over-long
 ## wait costs only capture seconds, which is why the count is set by the fastest display rather than

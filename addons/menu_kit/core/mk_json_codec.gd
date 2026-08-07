@@ -117,6 +117,35 @@ static func decode_value(value: Variant, context := "") -> Variant:
 	return value
 
 
+## Writes [param text] to [param path] atomically: to a sibling [code].tmp[/code], then renamed over
+## the target. An interrupted write therefore leaves the PREVIOUS good file intact rather than a
+## truncated one — which is exactly the corruption both backends' load paths then have to quarantine,
+## taking every other record in the file with it.
+##
+## Shared rather than per-backend for the same reason the envelope is: two copies of one durability
+## rule drift, and this one drifted already — the settings store had it and the profile store did not,
+## while the docs promised both. Returns [constant OK], or the failing [enum Error]; it logs nothing,
+## because the two callers word their own failure differently.
+##
+## [b]The crash window itself is not testable headless[/b] — no test can halt the engine between
+## [method FileAccess.close] and the rename. What IS asserted (persistence suite) is the observable
+## residue: after a save no [code].tmp[/code] sibling survives and the target parses complete.
+static func write_atomic(path: String, text: String) -> Error:
+	var tmp_path := path + ".tmp"
+	var file := FileAccess.open(tmp_path, FileAccess.WRITE)
+	if file == null:
+		return FileAccess.get_open_error()
+	file.store_string(text)
+	file.close()
+	var err := DirAccess.rename_absolute(tmp_path, path)
+	if err != OK:
+		# The tmp is left where it is: it holds the only copy of the data that was just written, and
+		# the target still holds the last good one. Deleting it here would turn a rename failure into
+		# data loss.
+		return err
+	return OK
+
+
 ## One message shape for both malformed branches.
 static func _warn_malformed(tag: String, context: String) -> void:
 	var where := context if not context.is_empty() else "a MenuKit JSON store"

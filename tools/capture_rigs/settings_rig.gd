@@ -14,7 +14,9 @@ extends RefCounted
 ##                      nothing is saved, so the demo's config on disk is untouched.
 
 ## Frames, not seconds: the page builds and MKRoot defers its focus pass, and this count only means
-## a duration at an assumed refresh rate — size any change for the fastest common display.
+## a duration at an assumed refresh rate. THE RULE, and every rig states the same one: size a wait
+## that guards a resolved-state guarantee for 240 Hz, never for the typical display. The longest
+## thing here is the 0.15s focus timer below — 0.15s × 240 = 36, so 40 clears 240 Hz.
 func wait_frames() -> int:
 	return 40
 

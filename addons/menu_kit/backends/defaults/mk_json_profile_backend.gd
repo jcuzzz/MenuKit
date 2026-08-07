@@ -445,13 +445,14 @@ func _save() -> void:
 				MKLog.context(_file_path), dir, mk_err,
 			])
 			return
-	var file := FileAccess.open(_file_path, FileAccess.WRITE)
-	if file == null:
-		# Warn, not error: a full disk or a locked file is an environment problem the menu keeps running
-		# through. The in-memory roster stays valid for this session and is simply not durable.
+	# Atomic through the shared helper, same as the settings store: a truncate-then-write here would
+	# lose the WHOLE roster to an interrupted save, and the load path would then quarantine the file
+	# and boot empty. Warn, not error: a full disk or a locked file is an environment problem the menu
+	# keeps running through. The in-memory roster stays valid for this session and is simply not
+	# durable.
+	var err := MKJsonCodec.write_atomic(_file_path, JSON.stringify(data, "\t"))
+	if err != OK:
 		MKLog.warn("%s: cannot write profile store (error %d); the roster is in memory only" % [
-			MKLog.context(_file_path), FileAccess.get_open_error(),
+			MKLog.context(_file_path), err,
 		])
 		return
-	file.store_string(JSON.stringify(data, "\t"))
-	file.close()

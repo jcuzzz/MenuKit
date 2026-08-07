@@ -30,8 +30,11 @@ boot of `mk_root.tscn`, and a service-tier boot with the autoload registered. Fa
 error or warning line; the allowlist ships EMPTY (measured on 4.7.stable — nothing needed
 exempting), and any future entry must carry a comment proving the line is engine-unavoidable.
 Harness limitation, documented in the header: a headless import runs `plugin.gd` but does not
-persist `add_autoload_singleton`, so the script writes the autoload line itself from the
-plugin's constants; the real enable/disable cycle stays a manual editor check.
+persist `add_autoload_singleton`, so the script writes the autoload line itself — from a
+HAND-COPIED literal name and script path, because a `.ps1` harness cannot import addon constants.
+Renaming `MKConfig.SETTINGS_SERVICE_NAME` or moving `mk_settings_service.gd` therefore leaves the
+gate registering the OLD name and still passing; update the script in the same commit. The real
+enable/disable cycle stays a manual editor check.
 
 ## comment_diff.ps1 — the Phase 8a token gate
 
@@ -45,8 +48,8 @@ Renders a scene to `.agent_tmp/captures/*.png` (brief window flash; needs a disp
 verification only — read the PNG; interaction and feel stay F5. Rig contract: a `RefCounted`
 with `setup(node, tree)` and optional `wait_frames() -> int`; the harness takes the LARGER of
 its own frame count and the rig's, so a rig can only raise the wait. Frames elapse at the
-display's refresh rate — size waits for the fastest common display (165 Hz), not 60 Hz, or a
-"the shot shows the resolved state" guarantee silently inverts on fast panels.
+display's refresh rate — size every wait that guards a resolved-state guarantee for **240 Hz**,
+not 60 Hz and not 165, or that guarantee silently inverts on a fast panel.
 
 Rigs and their env vars:
 

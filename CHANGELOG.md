@@ -59,7 +59,7 @@ First release. Everything is new, so the sections below summarise rather than en
   with preview scenes, a point-buy schema, a grey-box first-person game scene with the complete ESC
   flow, and an alternate palette proving the re-skin.
 - **Tooling** — `tools/check.ps1` (headless compile gate, `-Smokes` for the isolated test suite,
-  `-Docs`), `tools/capture_scene.ps1` with capture rigs.
+  plus `-Isolation` and `-NoImport`), `tools/capture_scene.ps1` with capture rigs.
 
 ### Persisted formats — initial statement
 
@@ -115,8 +115,9 @@ Documented properties of `0.1.0`, not open defects:
 - **Reparenting a live `MKRoot` is unsupported**: `_exit_tree()` discards pause and nav state with no
   signal. Close the pause menu first.
 - **Assigning `MKRoot.config` at runtime does nothing.** Swapping `MKConfig.palette` is supported.
-- **`MKPalette.scrim` is unread** — `MKModalLayer` uses its own `scrim_color`, so a palette swap does
-  not change the modal dim. `MKPalette.font_size_title` is generated but unconsumed.
+- **`MKPalette.font_size_title` is generated but unconsumed** by any shipped control. (`scrim` is
+  read: `MKRoot` drives the shell-owned `MKModalLayer` from it at build and on every palette swap; a
+  host-owned `MKModalLayer` keeps its own exported `scrim_color`.)
 - **The `MKInputGlyphs` dispatch guarantee is owner-subtree-relative**: an `_input`-consuming node
   mounted after the shell at ancestor level dispatches first and can blind the device tracker. No
   shipped node does this.
@@ -131,9 +132,7 @@ Documented properties of `0.1.0`, not open defects:
   is disabled meanwhile, so no mis-connect is possible.
 - **Two shipped scenes are unreferenced** (`mk_modal_layer.tscn`, `mk_confirm_dialog.tscn`) — both
   types are built in code; the scenes are authoring conveniences.
-- **The quit-confirm dialog default-focuses its confirm button**, unlike the destructive dialogs
-  built through `MKConfirmDialog.open(..., destructive = true)`.
 - **Some cosmetic alignment drift remains**: rebind buttons' left edges are ragged against the
   slider/enum control column, and empty-roster copy is centred while roster cards left-align.
 
-[0.1.0]: https://semver.org/
+[0.1.0]: #010--2026-08-08

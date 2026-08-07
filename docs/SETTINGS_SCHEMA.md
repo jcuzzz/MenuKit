@@ -295,8 +295,9 @@ func _on_color_changed(value: Color) -> void:
 ```
 
 > Note: this example stores a `Color`. The shipped `MKJsonSettingsBackend` envelopes only `Vector2i`,
-> so a `Color` round-trips through JSON as an array-ish value — persist it as a hex `String` or four
-> floats if you use that backend, or handle the type in your own.
+> so a `Color` round-trips through JSON as its **string** form — `JSON.stringify` writes
+> `"(0.2, 0.4, 0.6, 1.0)"` and it comes back a `String`, not a `Color`. Persist it as a hex `String` or
+> four floats if you use that backend, or handle the type in your own.
 
 Styling uses theme type variations only. MenuKit ships zero `add_theme_*_override` calls, and that
 rule binds host-facing examples as hard as core panels.
@@ -324,8 +325,10 @@ Rules:
 
 ## 7. Persisted formats
 
-Both shipped stores are JSON under `user://`, both written atomically where possible, and **neither
-ever deletes a file it could not read**.
+Both shipped stores are JSON under `user://`, both written **atomically** — through the one shared
+`MKJsonCodec.write_atomic()` (sibling `.tmp`, renamed over the target), so an interrupted write
+leaves the previous good file rather than a truncated one — and **neither ever deletes a file it
+could not read**.
 
 ### Settings store — `user://menukit_settings.json`
 

@@ -59,7 +59,10 @@ it, or if a re-skinner would obviously reach for it.
 **Danger** — `danger`, `danger_hover`, `danger_pressed`, `danger_text`. Used by the
 `MKDangerButton` variation, so a delete and a quit never look like an OK.
 
-**Overlay** — `scrim`.
+**Overlay** — `scrim`. Not a `Theme` item (the modal layer draws a plain `ColorRect`), so `MKRoot`
+drives it directly: the **shell-owned** `MKModalLayer` takes `palette.scrim` when the shell is built
+and again on every palette swap. A `MKModalLayer` you mount yourself is untouched and keeps its own
+exported `scrim_color`.
 
 **Metrics** — `corner_radius` (0–32), `border_width` (0–8), `focus_width` (0–8).
 
@@ -74,9 +77,6 @@ that cannot produce a usable theme; `MKConfig.validate()` folds the result in.
 
 ### Known holes
 
-- **`scrim` is currently unread.** `MKModalLayer` uses its own exported `scrim_color`, so a palette
-  swap does not change the modal dim. Set `MKModalLayer.scrim_color` alongside your palette if the
-  dim matters to your skin.
 - **`font_size_title` is generated but unconsumed** by any shipped control.
 
 ---

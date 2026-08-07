@@ -295,9 +295,9 @@ func load() -> void:
 
 ## Flushes to disk.
 ##
-## Written to a sibling [code].tmp[/code] and renamed over the target, so an interrupted write leaves
-## the previous good file intact rather than a truncated one — the very corruption [method load] then
-## has to quarantine.
+## Written atomically through [method MKJsonCodec.write_atomic] (a sibling [code].tmp[/code] renamed
+## over the target), so an interrupted write leaves the previous good file intact rather than a
+## truncated one — the very corruption [method load] then has to quarantine.
 func save() -> void:
 	var encoded_values := {}
 	for key in _values.keys():
@@ -313,19 +313,12 @@ func save() -> void:
 	if not dir.is_empty():
 		DirAccess.make_dir_recursive_absolute(dir)
 
-	var tmp_path := _file_path + ".tmp"
-	var file := FileAccess.open(tmp_path, FileAccess.WRITE)
-	if file == null:
-		MKLog.warn("%s: cannot write %s (error %d) — settings not saved"
-			% [_context(), tmp_path, FileAccess.get_open_error()])
-		return
-	file.store_string(JSON.stringify(payload, "\t"))
-	file.close()
-
-	var err := DirAccess.rename_absolute(tmp_path, _file_path)
+	# Warn, not error, on either failure stage: a full disk or a locked file is an environment problem
+	# the menu keeps running through, with the in-memory values still valid for this session.
+	var err := MKJsonCodec.write_atomic(_file_path, JSON.stringify(payload, "\t"))
 	if err != OK:
-		MKLog.warn("%s: could not move %s onto %s (error %d) — settings not saved"
-			% [_context(), tmp_path, _file_path, err])
+		MKLog.warn("%s: cannot write %s or its .tmp sibling (error %d) — settings not saved"
+			% [_context(), _file_path, err])
 		return
 	MKLog.debug("saved settings to %s" % _file_path)
 
