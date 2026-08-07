@@ -1,15 +1,17 @@
 # MenuKit — Build Handoff
 
-**Status:** Phases 1–5 complete and reviewed. Phase 6 (pause menu) not started. The JSON
-int→float decision that gated Phase 5 was MADE by the owner (2026-08-07: the `__mk_type`
-envelope, now implemented as `MKJsonCodec`) — the §6 star is resolved.
+**Status:** Phases 1–6 complete and reviewed. Phase 6 (pause menu) went terminal at review
+round 7 (zero findings, cross-round mutations reproduced, mirror sweep clean).
 **Repo:** `C:\GodotProjects\MenuKit` (standalone, own git history — not a Workingfile subtree)
-**HEAD:** `f3fd3dc`
+**HEAD:** `d59e383` (+ this docs commit)
 **Engine:** Godot 4.7 (`C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe`)
 **Plan (authoritative spec):** `c:\GodotProjects\Workingfile\docs\plans\menukit_asset_extraction_plan.md` — **rev 10** (the owner lifted the plan freeze on 2026-08-07; rev 10 adds
 **Phase 8a, the comment-diet phase** — §4.4a has the per-comment-kind rules and the token-level
 comment-only verification — and folds in the §3.1 drift this file used to carry)
-**Written:** 2026-08-06 (Phases 3–4); Phase 5 sections + the rev-10 sync added 2026-08-07
+**Written:** 2026-08-06 (Phases 3–4); Phase 5 sections + the rev-10 sync added 2026-08-07;
+Phase 6 sections added 2026-08-07 (same day — the phase ran orchestrated end-to-end in one
+session: two Opus implementation legs, an Opus test leg, seven review rounds — reviews on
+Fable from round 3 by owner direction, fix legs on Opus)
 
 This file supersedes `Workingfile\docs\plans\menukit_build_handoff.md`, which is frozen at the
 Phase 2 state (Workingfile was declared never-edit for the Phase 3 session). Same format; the
@@ -26,10 +28,32 @@ Phase 1–2 material below is carried forward unchanged where still true.
 | 3 | Settings schema + panel, brightness controller, D14 revert countdown | **Done.** 7 adversarial review rounds (majors 4→3→2→1→1→0→0; round 7 terminal, zero findings) |
 | 4 | Rebinding: `MKRebindRow` capture widget, conflict modal, per-row + global reset, persistence, the `_input`/`_unhandled_input` priority rule, axis binding (descope valve NOT needed) | **Done.** Test leg + 2 adversarial review rounds (see the round table below) |
 | 5 | Profiles + preview: `MKJsonCodec` int envelope (the owner's int→float call), character select + delete confirm, `MKCreationHost` + Name/Archetype/Appearance/Point-buy steps, `MKPreviewViewport` (D13/F10), config-driven step ordering, demo archetypes + 3-stat schema | **Done.** Test leg + 8 adversarial review rounds (round table below; round 8 terminal) |
-| 6–9 | Pause menu, server browser, input polish, handoff | Not started |
+| 6 | Pause menu: `mk_pause_menu` panel + the shipped `&"pause"` page in BOTH configs, `demo_game.tscn/.gd` (grey-box mouse-captured first-person), the pause-shell rules on `MKRoot` (nav hidden, page-aware ESC rung + recovery, pre-check refusal, `show_backdrop`, hide==close, recorded-nav restore, back-stack clear on close), save-on-exit for the settings store (round-2 catch: `save()` had NO production caller) | **Done.** Test leg + 7 adversarial review rounds (round table below; round 7 terminal) |
+| 7–9 | Server browser, input polish, handoff | Not started |
 
-**Current metrics:** 100 compiled scripts/scenes, 20 test suites, gate:
-`compile=pass smokes=20/20 isolation=pass exit=0`.
+**Current metrics:** 107 compiled scripts/scenes, 22 test suites, gate:
+`compile=pass smokes=22/22 isolation=pass exit=0`.
+
+### Phase 6 defect-count table (test leg, then review rounds)
+
+| Stage | Majors | Notes |
+|---|---|---|
+| Integration (owner) | 1 visual | First capture: the shell's opaque backdrop hid the whole world — nothing showed a pause menu was over a game; `show_backdrop` born here |
+| Test leg | 0 | 150 assertions over the shipped assets; zero product defects — a first for this build |
+| Round 1 | 5 | The pause shell rendered the full NAV STRIP: one tab click broke the rung's own guarantee (ESC resumed under a full settings page), Start Game reachable from pause; open suspended the world for a scene-less page (the refusal doc was false); three surviving mutations (pop_all, back-stack clear + a vacuous assertion, show_backdrop untested) |
+| Round 2 | 5 | Two inside round 1's fixes (recovery dead-end: ESC consumed forever over a frozen world; the focus guard tested `.visible`, probe put focus on an invisible tab); dead unwind block; undefended invariant; and the fresh-eyes catch of the phase: **`MKSettingsBackend.save()` had no production caller — settings never persisted across a relaunch** |
+| Round 3 | 3 | Code held (D14-vs-save-on-exit and visibility-teardown probes both clean); three surviving mutants — all coverage: the visibility close's DIRECTION, "close before to_main_menu" pinned only by a test NAME, the adopted-save exclusion; plus two false comments (a false impossibility argument where a safety net was deleted) |
+| Round 4 | 1 | `not is_visible_in_tree()` → `not visible` survived: both direction tests drove the shell itself, where the reads agree — the ancestor-hide gesture (host UI layer) is where they diverge; plus the "cannot fail" claim's two stale MIRRORS (method doc + test doc) |
+| Round 5 | 1 | Audit of the integrator's inline round-4 fixes: all reproduced; one finding — the THIRD mirror (pause_rig.gd still claimed the repudiated "already unwound" mechanism) |
+| Round 6 | 2 | Zero behavioral; the FOURTH and FIFTH mirrors (test_demo_game's refusal doc/caption; `_show_page`'s doc naming a caller-unwind that no longer exists, contradicting its sibling comment) |
+| Round 7 | 0 | **TERMINAL** — 2/2 cross-round mutations red at claimed granularity; grep-sweep of every corrected claim family found no surviving mirror |
+
+Majors per stage: **1 → 0 → 5 → 5 → 3 → 1 → 1 → 2 → 0.** The signature held and specialized:
+after round 2 every finding was either missing coverage for a fresh fix or a PROSE MIRROR of an
+already-corrected claim — five mirrors of one repudiated mechanism ("open suspends, then unwinds
+on failure") surfaced across four rounds in four different files. The lesson is §8's, sharpened:
+when a mechanism changes, grep the CLAIM FAMILY across the whole repo in the same fix leg;
+correcting only the file under review manufactures next round's finding.
 
 ### Phase 5 defect-count table (test leg, then review rounds)
 
@@ -70,6 +94,17 @@ against an empty project (Audio Master-only, Controls no-KEYBIND — the §3.1 i
 ### Commit history (each review round its own commit, deliberately)
 
 ```
+d59e383 fix(phase6): act on the sixth review; the fourth and fifth mirrors
+87cd5d7 fix(phase6): act on the fifth review; the third mirror
+cecbcf2 fix(phase6): act on the fourth review; the ancestor and the shell are not the same node
+26d2f59 fix(phase6): act on the third review; the code held, the coverage had not
+3cc90c3 fix(phase6): act on the second review; the fixes had fixed less than they claimed
+8f9bc14 fix(phase6): act on the first review; the pause shell stops being a main menu
+3dce93c test(phase6): the dedicated suites; the world behind the menu is the fixture
+8f28ddf feat(phase6): pause menu — the shell learns to sit on top of a game
+9edf86b docs: sync the handoff to plan rev 10 — freeze lifted, Phase 8a exists, drift resolved
+f3fd3dc chore: commit the Godot editor resave; the editor is the argument
+f91c69a docs: Phase 5 build handoff
 66a9c39 fix(phase5): act on the eighth review; terminal — the code held, two defences did not
 443be1c fix(phase5): act on the seventh review; the roster now refuses what it cannot keep
 25c9739 fix(phase5): act on the sixth review; the slot does not care about the tree
@@ -111,6 +146,18 @@ Visual checks now include the settings panel:
 ```
 ./tools/capture_scene.ps1 -Scene res://demo/demo_main.tscn -Rig res://tools/capture_rigs/settings_rig.gd -Out settings.png
 ```
+
+Phase 6 adds the pause composition — the one shot no other rig can produce, a MenuKit surface
+over a live 3D world:
+
+```
+./tools/capture_scene.ps1 -Scene res://demo/demo_game.tscn -Rig res://tools/capture_rigs/pause_rig.gd -Out pause_menu.png
+```
+
+Expected content (verified twice this phase): grey-box world filling the frame (floor, boxes,
+sky), NO nav strip, no backdrop, the centred "Paused" panel with the focus ring on Resume. The
+phase's first capture showed the opposite (an opaque backdrop wall) and is why `show_backdrop`
+exists — the defect class remains invisible to every headless assertion.
 
 `settings_rig.gd` honours two env vars: `MK_CAPTURE_TAB` (a tab title, e.g. `Gameplay`) and
 `MK_CAPTURE_FOCUS_ROW` (a row shell name, `Row_<id with / as _>`, focused before the shot — the
@@ -213,6 +260,30 @@ Phase 5 additions:
   a length check "for hosts assigning text in code" above the cap is unreachable.
 - **A const named `TYPE_*` shadows `@GlobalScope`'s enum script-wide** — `typeof(x) == TYPE_INT`
   silently compares against your String. Name codec tags `TAG_*`.
+
+Phase 6 additions:
+
+- **A GDScript lambda captures locals BY VALUE.** A `var count := 0` incremented inside a
+  signal-connected closure is a copy the test's later read never sees — a permanently-zero
+  counting assertion that looks like a product bug. Use a one-element Array or a member.
+- **`NOTIFICATION_VISIBILITY_CHANGED` fires on ENTERING the tree** (with `is_visible_in_tree()`
+  already true) and on ancestor hide/show — but NOT on leaving the tree by any route
+  (remove_child, reparent, free). Measured across all shapes. Two consequences are load-bearing:
+  MKRoot's hide==close cannot re-enter during teardown, and any guard on that notification must
+  branch on the direction, not the arrival.
+- **`visible` and `is_visible_in_tree()` diverge exactly when an ANCESTOR is hidden** — and a
+  mutant swapping one for the other survives every test that drives visibility on the node
+  itself. Three MKRoot sites draw the distinction deliberately (`_unhandled_input`,
+  `_focus_page_content`, the hide-close guard); each needed an ancestor-driven test to pin it.
+- **`check.ps1`'s noise gate counts ERRORs, not WARNINGs** — an `expect_engine_error`
+  declaration for a warning is UNMATCHED and fails the run by itself.
+- **Exit order at quit and scene-free protects D14 by construction:** children run `_exit_tree`
+  before their parents, and the scene tree unwinds before autoloads — so a live revert
+  countdown's panel reverts the store BEFORE either save-on-exit owner writes it. Measured, both
+  paths; any future save site must preserve this ordering property.
+- **`git checkout -- <file>` during inline mutation testing restores HEAD, not your working
+  state** — it wiped the integrator's own uncommitted fixes in the same file as the mutation.
+  Mutate only files with no pending edits, or stash/re-apply deliberately.
 
 ---
 
@@ -334,6 +405,42 @@ Phase 5 additions:
   INVALID schema drops it with a warn naming the resource; the demo authors all four steps and
   `require_full_spend = true` (pinned as contract — the demo is the §5 deliverable).
 
+Phase 6 additions:
+
+- **The pause shell is the same `MKRoot`, page-based** — no second shell class. Both shipped
+  configs define a hidden `&"pause"` page (`mk_pause_menu.tscn`: Resume / Settings / Quit to
+  Menu; a page, not a shell — it never touches `paused`, the cursor, or the counter). The
+  in-game shape is an `MKRoot` instance parked hidden and LAST in the game scene
+  (`demo_game.tscn`), `host_content_process_mode = ALWAYS`, `show_backdrop = false`.
+- **While the pause menu is open the shell is a PAUSE shell:** the nav bar is hidden on open and
+  the RECORDED visibility restored on close (a host may run navless); `open_pause_menu` records
+  `_pause_page_id`; the ESC ladder's pause rung closes only ON the pause page, recovers TO it
+  from a foreign page, and a failed recovery closes rather than freezes (a resumed game with a
+  warning beats a paused one with no exit). `close_pause_menu` clears the back stack — no
+  return addresses into a hidden shell.
+- **`open_pause_menu` refuses by PRE-CHECK** (def null OR scene null) before touching any state —
+  `_show_page` returns true for a scene-less def, so a return-value refusal was provably false.
+  The bare `_show_page` call after the pre-check is a containment decision, not an
+  impossibility claim: the call-site comment names the two foreign-code windows and the
+  recovery rung that contains them. Five prose mirrors of the old suspend-then-unwind mechanism
+  had to be hunted down across four rounds; the grep-the-claim-family rule in §1 is the residue.
+- **Hide == close:** `NOTIFICATION_VISIBILITY_CHANGED` closes an open pause menu when the shell
+  becomes not-visible-in-tree (ancestor hides included). Direction-guarded; entry/show is a
+  no-op. This is what makes the host's `visible = open` one-liner safe in both directions.
+- **Quit to Menu closes the pause state BEFORE `to_main_menu()`** — the scene change is
+  deferred, so close-first is safe under the shipped backend and mandatory for a custom backend
+  that swaps no scene (it used to inherit a paused main menu with no nav bar). One visible
+  consequence documented for Phase 9: the world runs for the remainder of the quit frame.
+- **Settings persist via save-on-exit at the two OWNERS of a booted backend:**
+  `MKSettingsService._exit_tree` (the supported tier) and `MKRoot._exit_tree` only when
+  `not _adopted_settings` (standalone tier; the adopted case never saves at the root — one
+  owner, one write). Round 2's headline: `save()` previously had NO production caller, so no
+  setting, rebind, or brightness value ever reached disk. Crash/`OS.kill` still loses the
+  session's writes — an accepted property for the Phase 9 CHANGELOG.
+- **The adopt path notes (debug level) when it ignores a slot's non-empty params.** Warn was
+  wrong by measurement: the shipped demo's service builds from the SAME slot instance, so a
+  warn fired on every correct boot against gate 2's zero-warnings bar.
+
 ---
 
 ## 6. Known open items
@@ -388,6 +495,32 @@ Phase 5 open items:
 - **Editor-side behaviour remains unverified** (plugin enable/disable cycle, theme bake) —
   needs an interactive editor session; every phase has flagged this.
 
+Phase 6 open items:
+
+- **The quit-confirm dialog default-focuses its DESTRUCTIVE button** (`mk_confirm_dialog.gd`
+  grabs Confirm; `destructive` only styles) — a gamepad-A/Enter on the quit dialog quits.
+  Owner-deferred to Phase 8 polish, same bucket as the welcome-page copy (which names Play/Quit
+  controls the page does not have).
+- **One-frame resume during quit-to-menu:** close-before-backend means the world simulates for
+  the remainder of that frame under the shipped deferred scene change. INTEGRATION.md sentence
+  (Phase 9), not code.
+- **Two SIMULTANEOUS service-less shells stack two gamma passes** — `_boot_own_brightness`'s
+  guard covers only the service-shaped route; the gap is documented in-code (no shipped config
+  mounts that shape). INTEGRATION.md sentence (Phase 9).
+- **F6 alternative on record:** the adopt-ignores-params debug line could become a true-positive
+  WARN by comparing identity via `service.get_config()` — Phase 9 API-polish candidate.
+- **Post-recovery warn-spam:** after a failed recovery-close (pause page def gone), every ESC
+  re-attempts open and warns once per press. Coherent with "running beats frozen"; recorded so
+  nobody re-reports it.
+- **`MKPauseMenu._find_menu_backend` resolves once at `_ready`** — a backend assigned later is
+  never seen by an already-open pause page. No shipped path does this; recorded as a question,
+  not a defect (the page is re-instantiated per open).
+- **Reparenting a live shell is UNSUPPORTED** (class doc states it): `_exit_tree` discards pause
+  and nav state without a signal; ancestor-reparent probed round 5 — same semantics, no crash,
+  world unpaused by the policy's own teardown.
+- **Save-on-exit loses a crashed session's writes** — accepted; must appear in the Phase 9
+  CHANGELOG/INTEGRATION persistence notes alongside the format statement.
+
 ## 6a. Human-only checklist (Phase 3 items requiring F5 / a display / a controller)
 
 1. **Brightness (gate 4c preview):** cold-drop or demo boot with a display — drag the slider,
@@ -440,9 +573,43 @@ Phase 5 items:
 15. **Delete confirm on a real display:** the destructive red Confirm, focus trap, Escape pops
     the dialog not the page.
 
+Phase 6 items (the cursor clauses are headless-unreachable by mechanism — `Input.mouse_mode`
+is pinned VISIBLE under the dummy DisplayServer, so the suites cover only the depth-edge
+proxies; these rows ARE the row-6 mouse-capture evidence):
+
+16. **Cursor round-trip:** enter the game (cursor captured), ESC — cursor releases and the
+    pause menu appears; Resume — capture returns. Then: open pause, open the quit-confirm over
+    it, Cancel — the cursor must STAY visible (modal-over-pause dismiss must not restore
+    capture under a still-open menu); finally Quit to Menu — the main menu boots with the
+    cursor visible, never captured.
+17. **The MKNoPausePolicy twenty minutes** (plan row 6 names it): swap the demo config's pause
+    slot to `MKNoPausePolicy`, play — the world runs behind the open menu (spinner turning),
+    mouselook does NOT spin the camera while the menu is up (the demo gates it — feel this,
+    the suite only asserts the handler), a D14 countdown from pause still ticks, and the ESC
+    in/out rhythm feels right with the world live.
+18. **Pause feel pass:** ESC in/out repeatedly (no double-open, no stuck states), Settings from
+    pause → change a display setting → let the countdown lapse FROM PAUSE on a real display
+    (the revert must visibly land), keyboard-only and gamepad-only walks of
+    pause → settings → back → resume → quit-to-menu.
+19. **Quit-frame observation:** on Quit to Menu, watch for the one visible frame of resumed
+    world — confirm it reads as harmless on a real display (it is accepted and documented; this
+    row exists so a future report of it is expected rather than alarming).
+
 ---
 
-## 7. Next step: Phase 6 — pause menu
+## 7. Next step: Phase 7 — server browser
+
+Per the plan's §5 row 7: the optional panel + `MKStubNetworkBackend` connect-state UI. The
+exit criteria are short: the panel is ABSENT under `default_config.tres` (whose network slot
+ships empty — §3.1's cold-drop first impression), and present under the demo config's stub
+slot with list/refresh/connect/cancel/error/timeout all rendering. Most of the machinery
+exists: `MKStubNetworkBackend` shipped in Phase 2 (fake list, `connect_delay` param already
+in the demo slot), the slot plumbing is §4.1, and the panel is `mk_server_browser.tscn/.gd`
+in the §3 layout. Watch the §3.1 rule: the panel is a new shipped file — its gate 1/gate 2
+row must be added in the same slice. Sized 2–3 days in the plan; the Phase 6 shape (small
+feature, big review surface) suggests budgeting the review rounds, not the build.
+
+### The completed Phase 6, for reference
 
 Per the plan's §5 row — the demo game scene (`demo_game.tscn`, mouse-captured first-person
 grey-box), the ESC flow, `MKRoot.open/close_pause_menu()` driving `MKPausePolicy`,
@@ -513,6 +680,32 @@ What earned its keep this phase:
 - The recurring defect signature remains §8's: *a confident comment defending code that does
   not do what it says.* It appeared in every round through 6, including inside fixes whose
   behaviour was correct.
+
+Phase 6 ran the shape at speed (one session: two Opus implementation legs on disjoint files
+with a binding owner-written contract between them, owner integration, Opus test leg, seven
+review rounds — Fable reviewers from round 3 on, by owner direction; fix legs Opus; two rounds'
+fixes applied integrator-inline when small and fully specified, each audited by the NEXT round
+as if it were a leg's). What it taught:
+
+- **A zero-defect test leg does not mean a clean phase.** The 150-assertion leg found nothing;
+  round 1 then found five majors — every one in the INTERACTION between the new feature and
+  shell machinery the tests exercised only in isolation (nav tabs during pause, a scene-less
+  page def). Test legs test the deliverable; reviewers must walk the product of deliverable ×
+  every existing gesture.
+- **Grep the claim family, not the file.** One repudiated mechanism ("open suspends, then
+  unwinds on failure") left five prose mirrors across four files; rounds 3–6 each paid for one.
+  The terminal round's mirror sweep (grep for the corrected claim's vocabulary across the whole
+  repo) is what earned the zero — run that sweep in the FIX leg that changes a mechanism, not
+  in round N+3.
+- **Surviving mutations became the phase's main currency.** Ten of the fifteen post-test-leg
+  findings were "delete/invert this line, the suite stays green" — cheaper to state, harder to
+  argue with, and each one converted directly into a test. Reviewers should budget mutation
+  time over reading time once the code stops yielding sequence bugs.
+- **Integrator-inline fixes are fine IFF the next round audits them by name.** Both inline
+  rounds survived their audits, but round 5 was explicitly pointed at cecbcf2 "as if no leg
+  report exists" — that pointing is the discipline, not optional.
+- **One process footgun on record:** `git checkout --` to restore a mutation clobbered the
+  integrator's own uncommitted comment fixes in the same file (§4 trap). Mutate clean files.
 
 ---
 
