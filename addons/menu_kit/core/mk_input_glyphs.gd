@@ -23,6 +23,20 @@ extends Node
 ## [b]This class never marks an event handled.[/b] It observes. Marking would make merely mounting a
 ## tracker swallow the input of every node below it in the dispatch order — including
 ## [code]MKRebindRow[/code]'s capture, which is the one consumer this class was written for.
+##
+## [b]The dispatch-order contract — the tracker sees EVERY event, including ones a row consumes.[/b]
+## Measured on 4.7, not assumed: [method Node._input] is dispatched in REVERSE child order (the last
+## child first), and [method Viewport.set_input_as_handled] stops every [method Node._input] consumer
+## that has not run yet for that same event. So a tracker placed before a consuming sibling is blind
+## exactly when it matters most — a device flip DURING a capture (the player putting the keyboard
+## down mid-prompt, or pressing the pad's reserved B) is consumed by the listening
+## [code]MKRebindRow[/code], and the prompt would keep naming the device that is no longer in hand.
+##
+## [b]The OWNER of a tracker guarantees the order by placing it LAST among its siblings.[/b] That is
+## the whole mechanism; there is no flag, no priority number and nothing this class can do for
+## itself. [method MKSettingsPanel._place_input_glyphs_last] is the shipped implementation and is
+## called at the end of every build, because the natural order inverts across a rebuild. A host
+## mounting its own tracker owes it the same placement.
 
 ## Emitted when — and only when — the tracked device class flips. Not per event: a pad player holding
 ## a stick would otherwise emit every frame, and every consumer would be re-rendering a prompt whose
@@ -101,11 +115,8 @@ func is_pad_active() -> bool:
 ## relabels every prompt on screen mid-gesture. A mouse BUTTON is an unambiguous statement of intent
 ## and is tracked; moving the pointer is not.
 ##
-## [b]What this does not see.[/b] A node that calls [method Viewport.set_input_as_handled] earlier in
-## the dispatch order stops propagation outright, so events consumed by a listening
-## [code]MKRebindRow[/code] never reach here. That is correct rather than tolerated: the gesture that
-## STARTED the capture (a pad button press on the binding button, a mouse click) was seen normally,
-## because the row was not listening yet when it passed through.
+## What reaches here at all is the dispatch-order contract in the class doc, and it is the OWNER's
+## job, not this method's: nothing below decides whether it runs.
 func _input(event: InputEvent) -> void:
 	if event is InputEventJoypadButton:
 		_set_pad_active(true)

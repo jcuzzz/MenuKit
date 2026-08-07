@@ -246,10 +246,27 @@ func rebuild() -> void:
 			continue
 		_build_page(page)
 
+	_place_input_glyphs_last()
 	_update_conditional_rows()
 	_update_resolution_enabled()
 	_built = true
 	built.emit()
+
+
+## Enforces the dispatch order [MKInputGlyphs]'s class doc states as a contract: the tracker is this
+## panel's LAST child, so [method Node._input]'s reverse-order walk reaches it before any row.
+##
+## Without this the order INVERTS across a rebuild and nobody notices. A first build creates the
+## tracker mid-build, after the tab strip, so it lands last by accident; [method _clear] then frees
+## the tab strip but deliberately keeps the tracker, and the next [method rebuild] re-adds "Pages"
+## BELOW it — putting the rows first and the tracker behind a listening row's
+## [method Viewport.set_input_as_handled].
+func _place_input_glyphs_last() -> void:
+	if _input_glyphs == null or not is_instance_valid(_input_glyphs):
+		return
+	if _input_glyphs.get_parent() != self:
+		return
+	move_child(_input_glyphs, get_child_count() - 1)
 
 
 func _clear() -> void:
@@ -808,7 +825,10 @@ func _build_keybind(def: MKSettingDef) -> Control:
 ## the panel refreshed. The rows are handed the surviving instance instead.
 ##
 ## Never marks input handled ([MKInputGlyphs] documents that as a contract), so mounting it cannot
-## take a press away from a listening [MKRebindRow] below it.
+## take a press away from a listening [MKRebindRow] below it. Where it sits among this panel's
+## children is not left to the order it happened to be created in — see
+## [method _place_input_glyphs_last], which is where this panel discharges the tracker's
+## dispatch-order guarantee.
 func _ensure_input_glyphs() -> MKInputGlyphs:
 	if _input_glyphs != null and is_instance_valid(_input_glyphs):
 		return _input_glyphs

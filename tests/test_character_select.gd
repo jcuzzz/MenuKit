@@ -30,6 +30,7 @@ func run_tests() -> void:
 	await _test_play_hands_the_selected_entry_over_verbatim()
 	await _test_delete_is_confirmed_before_it_happens()
 	await _test_a_destructive_dialog_opens_on_cancel()
+	await _test_an_untrapped_dialogs_own_button_ring_wraps()
 	await _test_deleting_the_last_entry_leaves_a_reachable_empty_state()
 	await _test_navigating_to_an_empty_roster_never_focuses_a_disabled_button()
 	await _test_the_empty_label_wears_the_card_columns_geometry()
@@ -172,6 +173,32 @@ func _test_a_destructive_dialog_opens_on_cancel() -> void:
 		check(get_root().gui_get_focus_owner() != destructive.get_confirm_button(),
 			"never on the destructive button, which is what the trap's tree-order rule is arranged to produce")
 
+		# [b]Neither direction off the opening focus may dead-end.[/b] The row is two buttons wide and
+		# the ring starts on Cancel, so a gamepad player pushing the stick the "wrong" way must still
+		# arrive at the other button — on the one screen where that other button is a delete, silence is
+		# read as a hung menu.
+		#
+		# Asserted as the explicit neighbour paths rather than by pushing ui_left: the wiring is what is
+		# under test, and a pushed direction also depends on GUI focus dispatch this suite cannot drive
+		# headless. On a two-element ring both directions land on the same node — that IS the wrap.
+		#
+		# [b]Whose wiring this is, measured:[/b] NOT the dialog's own
+		# [method MKFocus.link_chain](row, false, true). Pushing a modal runs [method MKFocus.trap],
+		# which re-collects the whole subtree and re-wires left/right as its own wrapping ring — so for a
+		# LAYER-pushed dialog the dialog's wrap argument is overwritten before anyone can observe it
+		# (flipping it to false leaves this whole block green). The un-trapped shape below is where that
+		# argument is the live wiring.
+		var cancel := destructive.get_cancel_button()
+		var confirm := destructive.get_confirm_button()
+		check(cancel != null and confirm != null, "the destructive dialog built both buttons")
+		if cancel != null and confirm != null:
+			check_eq(cancel.get_node_or_null(cancel.focus_neighbor_right), confirm,
+				"ui_right from Cancel reaches the destructive button — the row reads Cancel → Delete, left to right")
+			check_eq(cancel.get_node_or_null(cancel.focus_neighbor_left), confirm,
+				"and ui_LEFT reaches it too rather than dead-ending, because the trap's ring closes")
+			check_eq(confirm.get_node_or_null(confirm.focus_neighbor_right), cancel,
+				"and it closes from the other side as well")
+
 		# [b]The THIRD route into this dialog's focus[/b], and the one neither the _ready grab nor
 		# MKFocus.trap covers: a modal stacked ABOVE this one popping runs
 		# MKModalLayer._restore_focus, which takes the first focusable of the revealed top. A dialog
@@ -204,6 +231,44 @@ func _test_a_destructive_dialog_opens_on_cancel() -> void:
 		await step_frame()
 
 	await _drop(root)
+
+
+## [b]The dialog's OWN focus ring, in the one shape where it is the live wiring.[/b] The class doc
+## supports a host parenting an [MKConfirmDialog] itself — "a host parenting it itself gets no trap" —
+## and there [method MKFocus.trap] never runs, so the horizontal chain the dialog wired in
+## [method MKConfirmDialog._build] is the only thing telling the ring where to go.
+##
+## That chain is [method MKFocus.link_chain](row, false, [b]true[/b]), and the wrap is the whole
+## assertion: with it false the ends of a two-element chain get an EMPTY NodePath, so ui_left from the
+## dialog's opening focus dead-ends. Measured (and recorded so nobody re-derives it): the same flip is
+## invisible on a layer-pushed dialog, because the trap re-wires left/right over the whole subtree —
+## which is why this test builds one WITHOUT a layer instead of asserting it through `open`.
+func _test_an_untrapped_dialogs_own_button_ring_wraps() -> void:
+	var dialog := MKConfirmDialog.new()
+	dialog.name = "MKConfirmDialog"
+	dialog._destructive = true
+	dialog._configure("Delete Character", "Delete 'Alice'?", "Delete", "Cancel", "")
+	get_root().add_child(dialog)
+	await step_frame()
+
+	var cancel := dialog.get_cancel_button()
+	var confirm := dialog.get_confirm_button()
+	check(cancel != null and confirm != null, "a host-parented dialog still builds both buttons")
+	if cancel != null and confirm != null:
+		check_eq(get_root().gui_get_focus_owner(), cancel,
+			"and still opens on Cancel with no trap to arrange it — _ready grabs the same button _build put first")
+		check_eq(cancel.get_node_or_null(cancel.focus_neighbor_right), confirm,
+			"its own chain runs Cancel → Delete")
+		check_eq(cancel.get_node_or_null(cancel.focus_neighbor_left), confirm,
+			"and WRAPS: ui_left off the opening focus reaches the other button instead of finding an empty path")
+		check_eq(confirm.get_node_or_null(confirm.focus_neighbor_left), cancel,
+			"the ring closes from the far side too")
+		check_eq(confirm.get_node_or_null(confirm.focus_neighbor_right), cancel,
+			"in both directions — on a two-button row that identity IS the wrap")
+
+	dialog.queue_free()
+	await step_frame()
+	await step_frame()
 
 
 ## An empty roster is never a dead end (§4.4): the one action that can change it is offered AND takes

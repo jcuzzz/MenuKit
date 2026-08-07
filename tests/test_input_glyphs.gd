@@ -32,6 +32,10 @@ const SERVICE_NAME := "MKSettingsService"
 const ACTION_BOTH := &"mk_glyph_both"
 const ACTION_KEY := &"mk_glyph_key"
 const ACTION_PAD := &"mk_glyph_pad"
+## Three bindings, none of them a pad one: the shape that makes "the fallback is the FIRST match" a
+## falsifiable claim. Two would only distinguish first from last; three also rules out "the middle
+## one", and the three keys are deliberately distinct so the assertion names a specific keycap.
+const ACTION_TRIPLE := &"mk_glyph_triple"
 const ACTION_ROW := &"mk_glyph_row"
 const ID_ROW := &"input/mk_glyph_row"
 const ACTION_ROW_B := &"mk_glyph_row_b"
@@ -63,6 +67,8 @@ func run_tests() -> void:
 	await _test_the_tracker_never_consumes_the_event_it_watched()
 
 	await _test_the_panel_owns_one_tracker_that_survives_a_rebuild()
+	await _test_a_panel_with_no_keybind_rows_mounts_no_tracker()
+	await _test_a_consumed_capture_event_still_reaches_the_tracker()
 	await _test_the_capture_hint_names_the_device_in_use()
 	await _test_a_row_with_no_tracker_keeps_the_keyboard_prose()
 	await _test_the_row_geometry_is_a_column()
@@ -166,6 +172,14 @@ func _test_action_label_prefers_a_device_and_falls_back() -> void:
 		"a keyboard-only action still answers a pad session, with the binding that actually works")
 	check_eq(MKInputGlyphs.action_label(ACTION_PAD, false), "A",
 		"and a pad-only action answers a keyboard session the same way")
+
+	# The fallback is the FIRST usable non-preferred binding, not the last one and not the last one
+	# standing. Both single-binding actions above are silent on that — with one candidate every
+	# selection rule agrees — so the claim is made against an action carrying three, none of them of
+	# the preferred class. It is a sentence glyph ("%s to cancel"), and the first binding is the one a
+	# project author wrote down first.
+	check_eq(MKInputGlyphs.action_label(ACTION_TRIPLE, true), "G",
+		"with three non-pad bindings to choose from, a pad session falls back to the FIRST — 'last wins' would print the same action's third keycap")
 
 	check_eq(MKInputGlyphs.action_label(&"", true), "",
 		"the empty action is '' — a host asking about an unconfigured slot gets no prompt rather than a crash")
@@ -334,6 +348,98 @@ func _test_the_panel_owns_one_tracker_that_survives_a_rebuild() -> void:
 	await _drop(panel, backend)
 
 
+## [b]The tracker is LAZY, and staying lazy is the claim.[/b] [method
+## MKSettingsPanel._ensure_input_glyphs] says a panel with no KEYBIND rows mounts no input handler at
+## all — which is every one of the addon's four shipped pages. An unconditional mount would put a
+## [method Node._input] handler under every settings page in every host and be invisible to every
+## other assertion in this suite, because a tracker that exists and is correct is exactly what the
+## rest of the file asserts. Counted by TYPE, and BOTH before and after a rebuild: the placement rule
+## runs at the end of every build and must not be the thing that summons one.
+func _test_a_panel_with_no_keybind_rows_mounts_no_tracker() -> void:
+	var backend := _make_backend()
+	var panel := await _make_panel(backend, [_toggle(ID_TOGGLE, "A toggle")])
+
+	check_eq(_tracker_count(panel), 0,
+		"a panel built from rows that ask no device question mounts no MKInputGlyphs")
+
+	panel.rebuild()
+	await step_frame()
+	await step_frame()
+	check_eq(_tracker_count(panel), 0, "and a rebuild does not conjure one either")
+
+	await _drop(panel, backend)
+
+
+## [b]The dispatch-order contract, driven through a REAL capture.[/b] A listening [MKRebindRow]
+## consumes every event class it inspects ([method Viewport.set_input_as_handled]), and — measured on
+## 4.7 — that stops every [method Node._input] consumer which has not run yet for that same event.
+## The tracker must therefore be the panel's LAST child, since [method Node._input] walks children in
+## REVERSE order. [method MKSettingsPanel._place_input_glyphs_last] is what guarantees it.
+##
+## [b]The rebuilt panel is the half with teeth.[/b] A first build creates the tracker mid-build, after
+## the tab strip, so it lands last by accident and this test passes without the rule existing at all.
+## [method MKSettingsPanel._clear] then keeps the tracker and frees the tab strip, and the next
+## rebuild re-adds "Pages" BELOW it — inverting the order and blinding the tracker to exactly the
+## events this asserts about. Both halves are driven, in that order, against the same panel.
+##
+## The event is joypad B, which is the direction that matters: it is the RESERVED event, so the row
+## refuses it and ends the capture, and the player's hands are now on a pad. If the tracker missed it
+## the hint would go on naming Escape to someone holding a controller.
+func _test_a_consumed_capture_event_still_reaches_the_tracker() -> void:
+	var backend := _make_backend()
+	var panel := await _make_panel(backend, [_keybind(ID_ROW, ACTION_ROW, "Row A")])
+
+	await _capture_a_reserved_pad_press(panel, "on a freshly built panel")
+
+	panel.rebuild()
+	await step_frame()
+	await step_frame()
+	await _capture_a_reserved_pad_press(panel, "and after rebuild(), where the tab strip is re-added below the surviving tracker")
+
+	await _drop(panel, backend)
+
+
+## One full capture gesture: focus the binding button, start listening with a real [code]ui_accept[/code],
+## push joypad B, and assert that the row consumed it AND that the tracker saw it anyway.
+func _capture_a_reserved_pad_press(panel: MKSettingsPanel, phase: String) -> void:
+	var row := _row(panel, ID_ROW)
+	check(row != null, "%s: the rebind row is there to capture with" % phase)
+	if row == null:
+		return
+	var tracker := _tracker(panel)
+	check(tracker != null, "%s: and the panel's tracker is reachable" % phase)
+	if tracker == null:
+		return
+
+	var binding := row.get_node_or_null("Binding") as Button
+	check(binding != null, "%s: the binding button is there to press" % phase)
+	if binding == null:
+		return
+	await _activate(binding)
+	check(row.is_listening(), "%s: a real ui_accept on the focused binding button starts the capture" % phase)
+	check(not tracker.is_pad_active(),
+		"%s: precondition — that keystroke put the tracker on keyboard, so the flip below is a flip" % phase)
+	check_eq(_hint_text(panel, ID_ROW), MKRebindRow.HINT_KEYBOARD,
+		"%s: precondition — the hint is the keyboard prose" % phase)
+
+	var handled := _push(_pad(JOY_BUTTON_B, true))
+	await step_frame()
+
+	check(handled,
+		"%s: the listening row CONSUMED the pad press — without this the rest is not a test of consumed events at all" % phase)
+	check(tracker.is_pad_active(),
+		"%s: and the tracker flipped to pad anyway, which only happens if it was dispatched BEFORE the row consumed it" % phase)
+	check_eq(_hint_text(panel, ID_ROW), "B to cancel",
+		"%s: so the hint names the pad's own way out, on the very press that changed the device in hand" % phase)
+	check_eq(_caption_text(row), MKRebindRow.CAPTION_RESERVED,
+		"%s: and the row still did its own job — B is refused as reserved" % phase)
+	check(not row.is_listening(), "%s: and that refusal ended the capture" % phase)
+
+	# Back to keyboard, so the next phase starts from the same place this one did.
+	_push(_key(KEY_G))
+	await step_frame()
+
+
 ## [b]The hint names the gesture that actually aborts on the device in hand.[/b] A controller player
 ## told "Esc to cancel" is being pointed at a key their hands are not on, and the pad's own way out
 ## goes unnamed. The pad string is derived from the RESERVED list — the same list the refusal path
@@ -458,7 +564,7 @@ func _test_the_row_geometry_is_a_column() -> void:
 # --- Fixtures -------------------------------------------------------------------
 
 func _seed_actions() -> void:
-	for action in [ACTION_BOTH, ACTION_KEY, ACTION_PAD, ACTION_ROW, ACTION_ROW_B]:
+	for action in [ACTION_BOTH, ACTION_KEY, ACTION_PAD, ACTION_TRIPLE, ACTION_ROW, ACTION_ROW_B]:
 		if InputMap.has_action(action):
 			InputMap.erase_action(action)
 		InputMap.add_action(action)
@@ -472,6 +578,11 @@ func _seed_actions() -> void:
 	InputMap.action_add_event(ACTION_BOTH, pad)
 	InputMap.action_add_event(ACTION_KEY, key)
 	InputMap.action_add_event(ACTION_PAD, pad)
+	# Keyboard-only and THREE deep, in a fixed order, for the fallback half of action_label.
+	for physical in [KEY_G, KEY_H, KEY_J]:
+		var triple_key := InputEventKey.new()
+		triple_key.physical_keycode = physical as Key
+		InputMap.action_add_event(ACTION_TRIPLE, triple_key)
 	var row_key := InputEventKey.new()
 	row_key.physical_keycode = KEY_H
 	InputMap.action_add_event(ACTION_ROW, row_key)
@@ -484,7 +595,7 @@ func _seed_actions() -> void:
 ## inherited by whatever ran next in the same process, and this suite's ACTION_BOTH carries a pad
 ## binding that would quietly change another suite's conflict scan.
 func _teardown_actions() -> void:
-	for action in [ACTION_BOTH, ACTION_KEY, ACTION_PAD, ACTION_ROW, ACTION_ROW_B]:
+	for action in [ACTION_BOTH, ACTION_KEY, ACTION_PAD, ACTION_TRIPLE, ACTION_ROW, ACTION_ROW_B]:
 		if InputMap.has_action(action):
 			InputMap.erase_action(action)
 
@@ -576,6 +687,11 @@ func _hint_label(row: MKRebindRow) -> Label:
 	return row.get_node_or_null("CancelHint") as Label
 
 
+func _caption_text(row: MKRebindRow) -> String:
+	var label := row.get_node_or_null("Caption") as Label
+	return label.text if label != null else "<no caption label>"
+
+
 func _hint_text(panel: MKSettingsPanel, id: StringName) -> String:
 	var row := _row(panel, id)
 	if row == null:
@@ -660,6 +776,19 @@ func _push(event: InputEvent) -> bool:
 	var viewport := get_root()
 	viewport.push_input(event, true)
 	return viewport.is_input_handled()
+
+
+## Presses a button the way a keyboard/gamepad player does — focus, then a real [code]ui_accept[/code]
+## press AND release through the viewport, so the engine's own GUI dispatch runs the activation.
+## Emitting [signal BaseButton.pressed] directly would start a capture no player could start.
+func _activate(button: Button) -> void:
+	button.grab_focus()
+	await step_frame()
+	get_root().push_input(_key(KEY_ENTER), true)
+	var release := _key(KEY_ENTER)
+	release.pressed = false
+	get_root().push_input(release, true)
+	await step_frame()
 
 
 ## A plain [Node] that counts what reaches its [method Node._input]. Sits beside the tracker so

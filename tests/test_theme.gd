@@ -95,6 +95,28 @@ func run_tests() -> void:
 				"'%s' has an opaque border pixel — a transparent glyph IS the defect this fix exists for"
 					% state)
 
+	# [b]The 2px border FLOOR, which is the whole fix and had nothing holding it.[/b] The generator
+	# draws the box at maxi(2, border_width), and the shipped palette's border_width is 1 — the exact
+	# panel-scale hairline that rendered the unchecked box near-invisible on a 20px glyph. So reverting
+	# the floor to maxi(1, …) reproduces the SHIPPED defect while every assertion above stays green:
+	# the glyph is still the right size, still opaque at (0,0), still different from the checked one.
+	#
+	# Measured off the generator's own rule (`x < line or y < line or …`): at line 2 the pixel at (1,1)
+	# is border, at line 1 it is interior fill. Asserting the SECOND ring rather than a counted run
+	# keeps this a floor check — a palette raising border_width to 3 thickens the border and this still
+	# passes.
+	check_eq(palette.border_width, 1,
+		"precondition, and the reason the floor exists: the shipped palette's border_width is the hairline the glyph must not inherit")
+	var floor_icon := theme.get_icon(&"unchecked", &"CheckBox") as Texture2D
+	if floor_icon != null:
+		var floor_image := floor_icon.get_image()
+		check(floor_image.get_pixel(1, 1).a > 0.0,
+			"the unchecked glyph's second border ring is opaque at all")
+		check(_pixels_match(floor_image.get_pixel(1, 1), floor_image.get_pixel(0, 0)),
+			"and it is the SAME colour as the outer ring — the border is at least 2px thick, which is what maxi(2, border_width) buys over the palette's 1px hairline")
+		check(not _pixels_match(floor_image.get_pixel(4, 4), floor_image.get_pixel(0, 0)),
+			"while the box's interior is NOT the border colour, so the assertion above is a border measurement and not a glyph painted one flat colour")
+
 	var unchecked := theme.get_icon(&"unchecked", &"CheckBox") as Texture2D
 	var checked := theme.get_icon(&"checked", &"CheckBox") as Texture2D
 	check(unchecked != null and checked != null and unchecked != checked,
@@ -193,6 +215,14 @@ func run_tests() -> void:
 ## True when [param image] contains a pixel of [param color]. Used to tell the checked glyph from the
 ## unchecked one by the presence of the TICK specifically, rather than by "the buffers differ" alone —
 ## a generator that drew two different boxes and no tick would satisfy the weaker claim.
+## Per-channel tolerance compare, for the same reason [method _has_pixel] carries one: the glyph is
+## rasterised to 8-bit RGBA, so two pixels written from one [Color] come back quantised and an exact
+## comparison of a correctly drawn border reports a mismatch.
+func _pixels_match(a: Color, b: Color) -> bool:
+	return absf(a.r - b.r) < 0.01 and absf(a.g - b.g) < 0.01 \
+		and absf(a.b - b.b) < 0.01 and absf(a.a - b.a) < 0.01
+
+
 func _has_pixel(image: Image, color: Color) -> bool:
 	if image == null or image.is_empty():
 		return false

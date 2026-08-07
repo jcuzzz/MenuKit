@@ -422,9 +422,14 @@ func _on_device_class_changed(_pad: bool) -> void:
 
 ## The abort hint, repainted. Runs whether or not the hint is currently visible: the label is hidden
 ## between captures rather than rebuilt, so writing it eagerly is what makes it correct on the frame
-## [method begin_listen] shows it — computing it only at capture start would leave a device flip that
-## happened DURING a capture (a player putting the keyboard down mid-prompt) showing the other
-## device's key.
+## [method begin_listen] shows it.
+##
+## It also repaints DURING a live capture, and that half is only true because of the tracker's
+## dispatch-order contract ([MKInputGlyphs]' class doc): this row consumes every event class it
+## inspects while listening, so the flip that a mid-capture device change represents — the player
+## putting the keyboard down, or reaching for the pad's reserved B — reaches the tracker only when
+## its owner placed it ahead of this row in dispatch. It does; the hint therefore names the device in
+## hand on the very press that changed it.
 func _refresh_hint() -> void:
 	if _hint_label == null or not is_instance_valid(_hint_label):
 		return
