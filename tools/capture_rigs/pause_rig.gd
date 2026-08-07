@@ -36,9 +36,10 @@ func setup(node: Node, _tree: SceneTree) -> void:
 	# hidden photographs a page with no focus ring on anything.
 	root.visible = true
 	if not root.open_pause_menu():
-		# open_pause_menu returns false when the config has no "pause" page, having already unwound its
-		# own suspension. Without this the shot would be an opaque, empty shell over the world and would
-		# look like a panel-layout bug rather than a missing page def.
+		# open_pause_menu returns false when the config defines no usable "pause" page — its pre-check
+		# refuses BEFORE anything is suspended, so nothing is left behind except the visibility this rig
+		# set the line above. Without undoing that, the shot would be an opaque, empty shell over the
+		# world and would look like a panel-layout bug rather than a missing page def.
 		root.visible = false
 		push_error("pause_rig: open_pause_menu() refused — the config defines no 'pause' page")
 
