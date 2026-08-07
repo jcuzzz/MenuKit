@@ -13,16 +13,21 @@ extends RefCounted
 ##                            demo stub reaches CONNECTED.
 ##
 ## [b]Which state you get is a timing question, and the wait below settles it.[/b] The demo slot
-## passes `connect_delay = 1.2` to the stub, and the press is scheduled 0.2s in (the page builds its
-## rows on entering the tree, after this rig runs), so the outcome lands ~1.4s in. The shipped
-## `wait_frames` is longer than that on purpose: the default shot is the RESOLVED caption. To
-## photograph CONNECTING and its live Cancel button instead, cap the wait from the harness side
-## (`capture_scene.gd` takes the LARGER of its `frames=` arg and this method, so it must be shortened
-## HERE — measured against the arithmetic above, not guessed) or raise the demo slot's delay.
+## passes `connect_delay = 1.2` to the stub, and the press is scheduled 0.2s in, so the outcome lands
+## ~1.4s in. The shipped `wait_frames` covers that on purpose: the default shot is the RESOLVED
+## caption. To photograph CONNECTING and its live Cancel button instead, shorten the wait HERE
+## (`capture_scene.gd` takes the LARGER of its `frames=` arg and this method, so the harness side
+## cannot cap it) or raise the demo slot's delay.
 
-## Sized against the ~1.4s above with room to spare; an over-long wait costs only capture seconds.
+## Frames, not seconds — the rig API has no other unit, so this count only means "~1.4s" at an assumed
+## 60 Hz and the assumption is the contract's weak point: at 144 Hz a 60 Hz-sized wait elapses before
+## the connect resolves and the "resolved caption" guarantee above silently inverts into a CONNECTING
+## shot, with nothing failing to say so. Sized for the worst common case instead: 1.4s × 144 ≈ 202,
+## rounded up. Faster displays than that (240 Hz) would need it raised again; an over-long wait costs
+## only capture seconds, which is why the count is set by the fastest display rather than the typical
+## one.
 func wait_frames() -> int:
-	return 150
+	return 220
 
 
 func setup(node: Node, tree: SceneTree) -> void:
@@ -35,8 +40,11 @@ func setup(node: Node, tree: SceneTree) -> void:
 	var wanted := OS.get_environment("MK_CAPTURE_CONNECT")
 	if wanted.is_empty():
 		return
-	# Found late, on a timer: MKRoot instantiates a page on first visit and the panel builds its rows
-	# in _ready, so nothing named "Connect" exists in the frame this rig runs.
+	# Found on a timer rather than immediately. The page and its footer DO exist by now — go_to_page
+	# instantiates the scene synchronously and the panel builds its UI in _ready — so this is margin,
+	# not necessity: the shell's own focus pass is deferred, the stub's list is answered through a
+	# backend the shell resolves at boot, and a press landing before either has settled photographs a
+	# race rather than a page.
 	tree.create_timer(0.2).timeout.connect(func() -> void:
 		var panel := root.find_child("MKServerBrowser", true, false)
 		if panel == null:

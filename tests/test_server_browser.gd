@@ -50,6 +50,14 @@ func run_tests() -> void:
 	await _test_no_backend_renders_the_empty_state_and_warns_once()
 	await _test_the_page_focuses_something_on_entry()
 	await _test_the_backend_walk_passes_a_null_answering_shell()
+	await _test_the_connecting_flip_moves_the_ring_off_the_button_it_disabled()
+	await _test_a_rebuild_hands_the_ring_back_to_the_selected_row()
+	await _test_a_minimal_backend_gets_its_state_and_its_rows_on_screen()
+	await _test_re_entering_mid_connect_seeds_the_connecting_state()
+	await _test_an_out_of_enum_state_renders_its_number()
+	await _test_a_nameless_entry_renders_the_unnamed_fallback()
+	await _test_an_id_less_entry_is_skipped_and_named_once()
+	await _test_the_backendless_page_leaves_cancel_live_too()
 	await _test_the_demo_nav_is_exactly_five_pages_in_order()
 
 
@@ -232,11 +240,12 @@ func _test_the_connecting_state_owns_the_footer() -> void:
 
 ## Cancel, through the button, from CONNECTING — and the focus question the flip raises.
 ##
-## [b]The focus half is a pin, not an endorsement.[/b] Cancel is FOCUSED when it is pressed (that is
-## what the gesture is), and the CANCELLED state it produces disables it. Godot lets a disabled
-## Control keep focus, and [method MKServerBrowser._chain_focus] rewires neighbours without moving
-## the ring — so the player's next Enter lands on a button that does nothing. The assertions below
-## record what actually happens rather than what should; see the suite report.
+## [b]The focus half is the point.[/b] Cancel is FOCUSED when it is pressed (that is what the gesture
+## is), and the CANCELLED state it produces disables it. Godot lets a disabled Control keep focus and
+## [method MKServerBrowser._chain_focus] rewires neighbours without moving the ring, so this gesture
+## used to end with the player's next Enter landing on a button that does nothing —
+## [method MKServerBrowser._recover_focus] is what moves it, and Connect (live again, and the retry
+## the player wants) is where it goes.
 func _test_cancel_from_connecting_and_the_focus_it_leaves_behind() -> void:
 	var root := _make_shell(_demo_config(HELD_DELAY))
 	var panel := await _open_browser(root)
@@ -261,12 +270,10 @@ func _test_cancel_from_connecting_and_the_focus_it_leaves_behind() -> void:
 	var owner_control := root.get_viewport().gui_get_focus_owner()
 	check(owner_control != null,
 		"focus is not lost to null when the focused Cancel greys out")
-	# PINNED, and reported as a finding: the ring stays on the now-disabled Cancel. MKFocus's own doc
-	# calls a disabled button "never the answer" to where focus should go, and the empty-Characters
-	# case it cites is this one with the roles swapped. Nothing in the panel moves the ring on a state
-	# flip, so this assertion is here to make a fix visible rather than to bless the behaviour.
-	check(owner_control == _button(panel, "Cancel"),
-		"and it STAYS on the disabled Cancel (pinned: the panel re-chains neighbours but never moves the ring — see the suite report)")
+	check(owner_control != _button(panel, "Cancel"),
+		"and it does NOT stay on the disabled Cancel — a ring on a button that swallows every activation is the dead end MKFocus documents")
+	check(owner_control == _button(panel, "Connect"),
+		"it lands on Connect: the live primary action, which is also the retry this state invites")
 
 	root.free()
 	await step_frame()
@@ -446,6 +453,38 @@ func _test_no_backend_renders_the_empty_state_and_warns_once() -> void:
 	await step_frame()
 
 
+## Cancel's own backendless carve-out, which is the same one Connect takes and was defended by
+## nothing: with no backend there is no lifecycle, CONNECTING is unreachable, and the
+## `and _network_backend != null` clause is what keeps Cancel out of the permanently-disabled state
+## that clause's absence would produce. A disabled button cannot be pressed, and the press is the
+## whole naming mechanism — so a Cancel disabled here is a second dead control on a page whose only
+## job in this configuration is to say which slot is empty.
+func _test_the_backendless_page_leaves_cancel_live_too() -> void:
+	var config := _demo_config()
+	config.network_backend = null
+	var root := _make_shell(config)
+	var panel := await _open_browser(root)
+	check(panel != null, "the page built with an empty network slot")
+	if panel == null:
+		root.free()
+		await step_frame()
+		return
+	check(not _button(panel, "Cancel").disabled,
+		"Cancel is LIVE without a backend — the carve-out Connect's comment names, applied symmetrically")
+	check(not _button(panel, "Connect").disabled, "as is Connect, for the same reason")
+
+	_watch_log()
+	await _activate(_button(panel, "Cancel"))
+	var lines := _log_lines.filter(func(l: String) -> bool: return l.contains("MKServerBrowser"))
+	_unwatch_log()
+	check_eq(lines.size(), 1,
+		"and pressing it reaches the naming warn — which a disabled Cancel could never have produced")
+	check(lines.size() == 1 and lines[0].contains("network_backend"), "naming the slot to assign")
+
+	root.free()
+	await step_frame()
+
+
 # --- Focus --------------------------------------------------------------------
 
 ## The gamepad entry point: arriving at the page focuses something INSIDE it. A page that focuses
@@ -517,6 +556,222 @@ func _test_the_backend_walk_passes_a_null_answering_shell() -> void:
 	await step_frame()
 
 
+# --- Focus recovery -----------------------------------------------------------
+
+## The other half of the flip family the Cancel test covers: Connect is focused when it is pressed,
+## and CONNECTING disables it. Same mechanism, opposite button — and the recovery target differs,
+## because Connect (the first choice) is exactly the button that just went down.
+##
+## Refresh, not Cancel, is where the ring lands: [method MKServerBrowser._live_footer_button] takes
+## the primary action first and the always-live one second. Cancel IS the semantically interesting
+## button mid-flight; the fixed order is what makes the target predictable across all five states
+## instead of state-by-state, and Cancel is one arrow key away.
+func _test_the_connecting_flip_moves_the_ring_off_the_button_it_disabled() -> void:
+	var root := _make_shell(_demo_config(HELD_DELAY))
+	var panel := await _open_browser(root)
+	if panel == null:
+		root.free()
+		await step_frame()
+		return
+	await _select_row(panel, "mk_stub_local")
+	await _activate(_button(panel, "Connect"))
+	check_eq(panel.get_connect_state(), MKNetworkBackend.ConnectState.CONNECTING, "an attempt is in flight")
+	check(_button(panel, "Connect").disabled, "precondition: the press disabled the button it came from")
+
+	var owner_control := root.get_viewport().gui_get_focus_owner()
+	check(owner_control != _button(panel, "Connect"),
+		"the ring did not stay on the Connect the flip disabled — the next Enter would have gone nowhere")
+	check(owner_control == _button(panel, "Refresh"),
+		"it moved to Refresh, the live footer button the recovery order reaches first here")
+
+	root.free()
+	await step_frame()
+
+
+## The third shape: a rebuild frees the row the ring was standing on. Driven through the BACKEND's
+## refresh rather than the Refresh button, because pressing the button moves focus into the footer
+## first and would test the wrong loss — this is the servers_changed route a host discovery result takes,
+## with the player still standing in the list.
+func _test_a_rebuild_hands_the_ring_back_to_the_selected_row() -> void:
+	var root := _make_shell(_demo_config(HELD_DELAY, QUICK_DELAY))
+	var panel := await _open_browser(root)
+	if panel == null:
+		root.free()
+		await step_frame()
+		return
+	var backend := root.get_network_backend()
+	await _select_row(panel, "mk_stub_ranked")
+	check(root.get_viewport().gui_get_focus_owner() == _row(panel, "mk_stub_ranked"),
+		"precondition: the player is standing on a row, which is what a rebuild is about to free")
+
+	var builds: Array[int] = [0]
+	panel.built.connect(func() -> void: builds[0] += 1)
+	backend.refresh()
+	var rebuilt := await _await_signalled(builds)
+	check(rebuilt, "the sweep rebuilt the list under the player")
+
+	var owner_control := root.get_viewport().gui_get_focus_owner()
+	check(owner_control != null,
+		"and focus is not left on the freed row's null — keyboard and gamepad die there, and a gamepad has no mouse to recover with")
+	check(owner_control == _row(panel, "mk_stub_ranked"),
+		"it is the REBUILT row for the same selection, so the player is standing where they were")
+
+	root.free()
+	await step_frame()
+
+
+# --- A backend with nothing but the abstract surface --------------------------
+
+## A host backend that implements [MKNetworkBackend] and nothing more — no [code]get_connect_state[/code],
+## which is a STUB-only addition, and no message accessor (there is none to add). This is the shape a
+## host ships, and the shape every other test here misses by driving the stub.
+class MinimalBackend extends MKNetworkBackend:
+	var servers: Array[Dictionary] = []
+
+	func list_servers() -> Array[Dictionary]:
+		return servers
+
+	func connect_to(_entry: Dictionary) -> void:
+		connect_state_changed.emit(ConnectState.CONNECTING, "")
+
+	func cancel() -> void:
+		connect_state_changed.emit(ConnectState.CANCELLED, "")
+
+	## Emits whatever it is handed, so the panel's unknown-state caption has a way to be reached: no
+	## shipped state can produce it, and the caption exists precisely for a state MenuKit did not write.
+	func emit_state(state: int) -> void:
+		connect_state_changed.emit(state, "")
+
+
+## Row 7 for the backend a host actually writes: the panel must show that backend's IDLE state, not
+## the "no network backend is configured" line it renders before one is resolved.
+##
+## The panel builds its UI before [method MKServerBrowser._resolve_backend] runs, so the status line
+## starts on NO_BACKEND_TEXT by construction. Under the stub that is corrected by the duck-typed seed;
+## under a backend without [code]get_connect_state[/code] — the base class offers none — nothing
+## corrected it, and the page rendered the host's three servers under a line saying it had no backend.
+func _test_a_minimal_backend_gets_its_state_and_its_rows_on_screen() -> void:
+	var backend := MinimalBackend.new()
+	backend.servers = [
+		{"id": "host_one", "name": "Host One"},
+		{"id": "host_two", "name": "Host Two"},
+	]
+	check(not backend.has_method("get_connect_state"),
+		"precondition: the minimal backend offers NO get_connect_state — the seed cannot be what corrects the line")
+	var mounted := await _mount_under_provider(backend)
+	var panel := mounted[1] as MKServerBrowser
+	check(panel != null, "the page built over a minimal backend")
+	if panel != null:
+		check_eq(_status(panel), MKServerBrowser.STATE_CAPTIONS[MKNetworkBackend.ConnectState.IDLE],
+			"the status line carries the IDLE caption — not the no-backend line it was built with")
+		check(_status(panel) != MKServerBrowser.NO_BACKEND_TEXT,
+			"which is the lie a host would have shipped: 'no network backend' printed above that backend's own list")
+		check_eq(_rows(panel).size(), 2, "and both of its servers are rows")
+	(mounted[0] as Node).free()
+	await step_frame()
+
+
+## The out-of-enum caption, reached the only way it can be: a backend emitting a state MenuKit never
+## defined. The panel names the number rather than falling through to the previous caption, so a host
+## extending the lifecycle sees an honest "I do not know this" instead of a stale "Connected".
+func _test_an_out_of_enum_state_renders_its_number() -> void:
+	var backend := MinimalBackend.new()
+	backend.servers = [{"id": "host_one", "name": "Host One"}]
+	var mounted := await _mount_under_provider(backend)
+	var panel := mounted[1] as MKServerBrowser
+	if panel != null:
+		backend.emit_state(99)
+		await step_frame()
+		check_eq(_status(panel), MKServerBrowser.UNKNOWN_STATE_CAPTION % 99,
+			"an unmapped state renders as its number, not as whatever the panel said last")
+		check(_status(panel) != MKServerBrowser.STATE_CAPTIONS[MKNetworkBackend.ConnectState.IDLE],
+			"and specifically not as IDLE, which is what a get()-with-a-default onto the previous caption would have shown")
+	(mounted[0] as Node).free()
+	await step_frame()
+
+
+## [method MKNetworkBackend.list_servers] guarantees an [code]id[/code] and a [code]name[/code]; a
+## host backend is a host's code and can break either. The name is recoverable — the row renders with
+## a stated placeholder rather than an empty button the player cannot tell from a rendering bug.
+func _test_a_nameless_entry_renders_the_unnamed_fallback() -> void:
+	var backend := MinimalBackend.new()
+	backend.servers = [{"id": "host_one", "ping": 40}]
+	var mounted := await _mount_under_provider(backend)
+	var panel := mounted[1] as MKServerBrowser
+	if panel != null:
+		var row := _row(panel, "host_one")
+		check(row != null, "the entry still becomes a row — a missing name is not a reason to hide a joinable server")
+		check(row != null and row.text.contains("(unnamed)"),
+			"labelled with the stated fallback, not an empty string that reads as a broken row")
+		check(row != null and row.text.contains("40 ms"),
+			"and the rest of the entry still renders around it")
+	(mounted[0] as Node).free()
+	await step_frame()
+
+
+## The id, unlike the name, is not recoverable: [method MKNetworkBackend.connect_to] refuses an entry
+## without one, so the row could only ever fail. It is skipped and the backend NAMED — once, and only
+## for the offending entry.
+func _test_an_id_less_entry_is_skipped_and_named_once() -> void:
+	var backend := MinimalBackend.new()
+	backend.servers = [
+		{"id": "host_one", "name": "Host One"},
+		{"name": "Ghost"},
+	]
+	_watch_log()
+	var mounted := await _mount_under_provider(backend)
+	var lines := _log_lines.filter(func(l: String) -> bool: return l.contains("MKServerBrowser") and l.contains("no 'id'"))
+	_unwatch_log()
+	var panel := mounted[1] as MKServerBrowser
+	if panel != null:
+		check_eq(_rows(panel).size(), 1,
+			"the id-less entry produced NO row — a row whose only possible outcome is a refused connect is worse than no row")
+		check(_row(panel, "host_one") != null, "and the valid entry beside it still built")
+		check_eq(lines.size(), 1, "with exactly one warning, for the one bad entry")
+	(mounted[0] as Node).free()
+	await step_frame()
+
+
+# --- The mid-flight re-entry --------------------------------------------------
+
+## The bind-time seed, on its own rather than through the M1 coupling: a page LEFT mid-connect and
+## returned to is a fresh panel instance that has observed no signal, and without the seed it would
+## claim IDLE over a connection still in flight — with a live Connect offering to start a second one.
+##
+## The caption is asserted ALONE, deliberately. The seed reads the state back through
+## [code]get_connect_state[/code] and there is no message accessor to read beside it, so the
+## "Connecting to <server>…" half the live signal carries is lost on this path. That is the documented
+## trade, and this assertion is what makes a future message accessor visible instead of silent.
+func _test_re_entering_mid_connect_seeds_the_connecting_state() -> void:
+	var root := _make_shell(_demo_config(HELD_DELAY))
+	var panel := await _open_browser(root)
+	if panel == null:
+		root.free()
+		await step_frame()
+		return
+	await _select_row(panel, "mk_stub_ranked")
+	await _activate(_button(panel, "Connect"))
+	check_eq(panel.get_connect_state(), MKNetworkBackend.ConnectState.CONNECTING, "an attempt is in flight")
+
+	root.go_to_page(&"settings")
+	await step_frame()
+	await step_frame()
+	var returned := await _open_browser(root)
+	check(returned != null and returned != panel,
+		"precondition: coming back built a FRESH panel, which has observed no state change of its own")
+	if returned != null:
+		check_eq(returned.get_connect_state(), MKNetworkBackend.ConnectState.CONNECTING,
+			"it seeded CONNECTING from the backend's own getter rather than claiming IDLE over a live attempt")
+		check_eq(_status(returned), MKServerBrowser.STATE_CAPTIONS[MKNetworkBackend.ConnectState.CONNECTING],
+			"the caption ALONE — the seed has no message accessor to read, an accepted loss on this one path")
+		check(_button(returned, "Connect").disabled,
+			"and the footer agrees with it: Connect is down, so the page cannot start a second attempt over the first")
+		check(not _button(returned, "Cancel").disabled, "with Cancel live, which is the only sane action here")
+
+	root.free()
+	await step_frame()
+
+
 # --- Navigation ---------------------------------------------------------------
 
 ## Row 7 adds a nav tab, which is a change to a number [code]test_navigation[/code] asserts. Pinning
@@ -555,6 +810,27 @@ func _demo_config(connect_delay := QUICK_DELAY, refresh_delay := QUICK_DELAY) ->
 	}
 	config.network_backend = slot
 	return config
+
+
+## Boots a shell whose OWN network slot is empty under a host provider answering with [param backend],
+## and opens the browser. The [code]BackendProvider[/code] shape is reused rather than a second
+## mounting idiom because it is the only way to give the panel a backend that is not the demo slot's
+## stub. Returns [code][provider, panel][/code]; freeing the provider frees the whole fixture.
+func _mount_under_provider(backend: MKNetworkBackend) -> Array:
+	var provider := BackendProvider.new()
+	provider.name = "MinimalHostProvider"
+	get_root().add_child(provider)
+	provider.backend = backend
+	provider.add_child(backend)
+
+	var config := _demo_config()
+	config.network_backend = null
+	var root := MKRoot.new()
+	root.config = config
+	root.size = Vector2(1920, 1080)
+	provider.add_child(root)
+	var panel := await _open_browser(root)
+	return [provider, panel]
 
 
 func _make_shell(config: MKConfig) -> MKRoot:

@@ -25,7 +25,11 @@ extends Control
 ## reports its unreachable server as [code]FAILED[/code] with the message
 ## [code]"Connection timed out."[/code] — read from the stub, not assumed. Timeout is therefore a
 ## MESSAGE under the FAILED caption here, and a panel that rendered only the caption would show the
-## two indistinguishably. That is why the message is always appended rather than used as a fallback.
+## two indistinguishably. That is why the message is appended rather than used as a fallback wherever
+## there is one to append — every state that arrives on the signal. The ONE path with no message to
+## append is the bind-time seed in [method _resolve_backend]: a panel re-entering the tree mid-connect
+## reads the state back through a getter and there is no message accessor to read beside it, so that
+## one render is caption-only by construction. Named there, with the trade.
 ##
 ## [b]The whole UI is built in code[/b] (plan §1.2): the accompanying [code].tscn[/code] is the root
 ## node plus this script, so the scene cannot drift from the structure this script indexes into —
@@ -216,14 +220,26 @@ func _resolve_backend() -> void:
 	# Seed from the backend's own getter when it offers one. Duck-typed because get_connect_state is
 	# NOT on MKNetworkBackend — MKStubNetworkBackend adds it, documented there as being for "a panel
 	# binding after a state change has already been emitted", which is exactly this page re-entering
-	# the tree mid-connect. A backend without it starts the page on IDLE, which is the honest default
-	# for a panel that has observed nothing.
+	# the tree mid-connect. A backend without it starts the page on IDLE: not because IDLE is observed
+	# truth, but because a panel that has observed nothing has nothing better to say.
+	#
+	# The seed carries NO message: there is no message accessor on MKNetworkBackend, so a page
+	# re-entered mid-connect renders the CONNECTING caption alone and loses the "Connecting to
+	# <server>…" half the live signal carries. Accepted rather than fixed — growing the backend's
+	# abstract surface with a get_connect_message() every host would have to implement, for a display
+	# nicety on one re-entry path, is the wrong trade before 0.1.0.
 	if _network_backend.has_method("get_connect_state"):
 		var seeded: Variant = _network_backend.call("get_connect_state")
-		# typeof-gated and passed as a bare int: an enum-typed parameter is int-backed, and `as` does not
+		# typeof-gated and assigned as a bare int: an enum-typed member is int-backed, and `as` does not
 		# accept an enum as its target type in GDScript.
 		if typeof(seeded) == TYPE_INT:
-			_render_state(int(seeded), "")
+			_state = int(seeded)
+	# UNCONDITIONAL, and after the seed. _build() ran before any backend was resolved, so the status
+	# line still carries NO_BACKEND_TEXT and the actions were settled against a null backend — for a
+	# host backend that does not offer get_connect_state (the base class offers none; the stub adds
+	# it), the seeded render used to be the only thing that corrected either, so the shipped host shape
+	# reached the screen claiming no backend was configured while rendering that backend's rows.
+	_render_state(_state, "")
 
 
 func _on_servers_changed() -> void:
@@ -243,6 +259,7 @@ func _render_state(state: MKNetworkBackend.ConnectState, message: String) -> voi
 		_status_label.text = _state_text(state, message)
 	_refresh_actions()
 	_chain_focus()
+	_recover_focus()
 
 
 func _state_text(state: MKNetworkBackend.ConnectState, message: String) -> String:
@@ -305,6 +322,11 @@ func _refresh() -> void:
 	else:
 		_refresh_actions()
 		_chain_focus()
+	# The rows above were freed, so a player who was standing on one is now standing on nothing:
+	# Godot releases focus when the holder leaves the tree and the rebuilt rows are different nodes.
+	# Passed true because "the ring was on a row" is not answerable after the fact — the row it was on
+	# no longer exists to be recognised.
+	_recover_focus(true)
 	built.emit()
 
 
@@ -406,6 +428,11 @@ func _refresh_actions() -> void:
 		# off CONNECTING so a stray press cannot wipe a FAILED message the player has not read. Cancel is
 		# still disabled off CONNECTING: "safe" is not the same as "an affordance", and a permanently
 		# live Cancel on an idle page invites the press that does nothing.
+		#
+		# The `_network_backend != null` clause is the SAME carve-out Connect takes above, and for the
+		# same reason: with no backend there is no lifecycle, CONNECTING is unreachable, and a Cancel
+		# disabled forever could never produce the press that names the unassigned slot. So both buttons
+		# stay live on a backendless page and both routes reach _require_backend's one warning.
 		_cancel_button.disabled = not connecting and _network_backend != null
 	if _refresh_button != null:
 		# Refresh stays live throughout, including mid-connect: MKNetworkBackend.refresh() touches the
@@ -423,6 +450,84 @@ func _chain_focus() -> void:
 	MKFocus.chain_container(_row_column)
 	MKFocus.chain_container(_footer, false, true)
 	MKFocus.link_containers(_row_column, _footer)
+
+
+## Puts the focus ring back on a live control when this panel's own redraw took it away. The ONE
+## recovery point, called after every enable-flag settle in [method _render_state] and after every row
+## rebuild in [method _refresh] — the two gestures that destroy or disable the control the player was
+## standing on:
+##
+## [br][br]- a REFRESH (or any [signal MKNetworkBackend.servers_changed]) frees every row, and a
+## player standing on one is left with a null focus owner: keyboard and gamepad are dead until a mouse
+## touches something, which on a gamepad is never.
+## [br]- a state FLIP disables the button that caused it. Cancel is pressed while focused and
+## CANCELLED disables it; Connect is pressed while focused and CONNECTING disables it. Godot lets a
+## disabled control keep focus perfectly happily — nothing errors, the ring just sits there and eats
+## every subsequent activation. [MKFocus]'s own doc calls a disabled button "never the answer" to
+## where focus should go; [method _chain_focus] rewires the NEIGHBOURS around such a button and moves
+## nothing, which is why re-chaining alone never fixed this.
+##
+## [br][br]It recovers only from focus this panel is responsible for: a null owner, a freed one, or a
+## live one INSIDE this panel that is now disabled. Focus that is alive, enabled, or somewhere else
+## entirely is left alone — a modal or a host panel may legitimately own it, and stealing it back
+## would make this page the one that breaks THEM.
+##
+## [param rebuilding] states that the rows were just replaced, so a lost ring belongs on the selection
+## rather than in the footer.
+func _recover_focus(rebuilding := false) -> void:
+	if not is_inside_tree() or not is_visible_in_tree():
+		return
+	var viewport := get_viewport()
+	if viewport == null:
+		return
+	var prefer_row := rebuilding
+	var owner_control := viewport.gui_get_focus_owner()
+	if owner_control != null and is_instance_valid(owner_control):
+		if not is_ancestor_of(owner_control):
+			# Live focus outside this panel. Not ours to move.
+			return
+		var button := owner_control as BaseButton
+		if button == null or not button.disabled:
+			return
+		# A row is never disabled today, so this only reads true if one ever is — the branch is the
+		# rule ("go back to the list you were in"), not a prediction about which controls disable.
+		prefer_row = prefer_row or (_row_column != null and _row_column.is_ancestor_of(owner_control))
+	var target: Control = null
+	if prefer_row:
+		target = _recovery_row()
+	if target == null:
+		target = _live_footer_button()
+	if target != null and target.is_visible_in_tree():
+		target.grab_focus()
+
+
+## The row a rebuild should hand the ring back to: the selected one, or the first that exists. Null
+## when the list is empty, which is when the footer takes over.
+func _recovery_row() -> Control:
+	if _row_column == null:
+		return null
+	var selected_id := _selected_id()
+	if not selected_id.is_empty() and _rows.has(selected_id):
+		var row: Button = _rows[selected_id]
+		if row != null and is_instance_valid(row) and not row.disabled:
+			return row
+	for child in _row_column.get_children():
+		var button := child as Button
+		if button != null and is_instance_valid(button) and not button.disabled:
+			return button
+	return null
+
+
+## The footer button a lost ring lands on, in the order a player wants them: the primary action first,
+## then the one that is always live, then the last resort. Null when the whole footer is disabled —
+## which no state produces today, because Refresh never disables.
+func _live_footer_button() -> Control:
+	var ordered: Array[Button] = [_connect_button, _refresh_button, _cancel_button]
+	for button in ordered:
+		if button != null and is_instance_valid(button) and not button.disabled \
+				and button.is_visible_in_tree():
+			return button
+	return null
 
 
 func _on_refresh_pressed() -> void:
