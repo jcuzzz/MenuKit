@@ -95,6 +95,10 @@ var _saved_mouse_mode := Input.MOUSE_MODE_VISIBLE
 ## with that call rather than with a re-query of [code]can_pause()[/code]. See [method _push_suspend].
 var _policy_entered := false
 var _pause_menu_open := false
+## The page id [method open_pause_menu] navigated to, recorded so the Escape ladder's pause rung can
+## tell "we are ON the pause page" from "the pause menu is open but the shell has been navigated
+## somewhere else". Empty whenever [member _pause_menu_open] is false.
+var _pause_page_id: StringName = &""
 
 
 func _ready() -> void:
@@ -133,6 +137,10 @@ func _exit_tree() -> void:
 	_modal_suspensions = 0
 	_policy_entered = false
 	_pause_menu_open = false
+	# Zeroed with the rest of the pause state. The nav bar's visibility needs no restore here for the
+	# reason the counters do not need a real pop: _nav_bar is a child of THIS instance and dies with
+	# it, so there is nothing outside this subtree still reading it.
+	_pause_page_id = &""
 	# Only touch the cursor if we were actually holding it, and set it VISIBLE rather than restoring
 	# the saved value: that value was captured from gameplay, so restoring it would re-capture the
 	# cursor on the main menu.
@@ -141,7 +149,16 @@ func _exit_tree() -> void:
 
 
 ## Cancel is consumed by the innermost open thing. Precedence is
-## rebind capture → modal stack top → page back stack → pause resume → root quit-confirm.
+## rebind capture → modal stack top → page back stack → pause rung → root quit-confirm.
+##
+## The pause rung is PAGE-AWARE, not merely flag-aware: it resumes only when the shell is actually
+## showing the page [method open_pause_menu] opened. While the pause menu is open on some OTHER page
+## with nothing on the back stack — reachable only programmatically, since [method open_pause_menu]
+## hides the nav bar — the rung navigates BACK to the pause page instead. That is a recovery, not a
+## resume: the alternative readings are both worse, because resuming hands the player a running game
+## under a full-screen menu page, and falling through to the quit-confirm answers ESC with
+## "Quit to desktop?" over a paused world. An earlier revision keyed the rung on the flag alone and
+## did the first of those.
 ##
 ## Rebind capture does not appear here by name because it is handled by mechanism: a listening row
 ## consumes input in [method Node._input] and calls
@@ -186,7 +203,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	# player expects from the key that opened the menu. Without this rung that same press opened a
 	# "Quit to desktop?" dialog over a paused game.
 	if _pause_menu_open:
-		close_pause_menu()
+		if _page_id == _pause_page_id:
+			close_pause_menu()
+		else:
+			# Recovery, not resume — see the ladder doc above. _show_page, not go_to_page: the back
+			# stack is already empty under this branch, so clearing it again would be theatre.
+			_show_page(_pause_page_id)
 		return
 	request_quit_confirm()
 
@@ -303,7 +325,11 @@ func _focus_page_content() -> void:
 	if _current_page_node != null and is_instance_valid(_current_page_node):
 		if MKFocus.focus_first(_current_page_node) != null:
 			return
-	if _nav_bar != null and is_instance_valid(_nav_bar):
+	# The visibility test is not decoration: open_pause_menu hides the bar, and handing focus to a tab
+	# nobody can see is a worse dead end than no focus at all — the player's next input would activate
+	# an invisible Start Game. The shipped pause page always has a focusable Resume, so this fallback is
+	# not the pause page's route to focus in the first place.
+	if _nav_bar != null and is_instance_valid(_nav_bar) and _nav_bar.visible:
 		_nav_bar.focus_active()
 
 
@@ -311,12 +337,33 @@ func _focus_page_content() -> void:
 
 ## The single entry point for the pause gesture: policy, mouse mode, and page state change together
 ## in a fixed order, in one place. The host forwards the ESC/Start gesture and nothing more.
-## Returns whether the pause menu opened. It refuses — and unwinds its own suspension — when the
-## named page does not exist: suspending the world and freeing the cursor to display nothing is
-## strictly worse than not pausing, and the bare call defaults to a page id no shipped config defines
-## yet.
+## Returns whether the pause menu opened.
+##
+## [b]It refuses BEFORE suspending anything when the page cannot be shown.[/b] Suspending the world
+## and freeing the cursor to display nothing is strictly worse than not pausing, and the bare call
+## defaults to a page id a host config need not define. Two cases qualify and the pre-check covers
+## both, because [method _show_page] returns true for the second: no page def under the id, and a def
+## whose [member MKMenuPageDef.scene] is null (that path only warns and empties the page host — a
+## refusal doc written against the return value alone was simply false). The post-[method _show_page]
+## unwind below stays for every other failure it can report.
+##
+## [b]While the pause menu is open the shell is a PAUSE shell: the nav bar is hidden.[/b] A tab press
+## is a lateral [method go_to_page], which clears the back stack, leaves [member _pause_menu_open]
+## true, and parks the shell on a foreign page — after which Escape hit the resume rung and handed
+## the player a running game under a full settings page. Worse, the shipped tabs reach Start Game and
+## character deletion, which are main-menu gestures, not pause gestures. Hiding is per-instance and
+## per-open; [method close_pause_menu] restores it.
+##
+## Programmatic navigation during pause remains HOST territory — nothing here refuses a
+## [method go_to_page] call — but the ladder's pause rung recovers from it by navigating back to the
+## recorded pause page rather than resuming. See [method _unhandled_input].
 func open_pause_menu(page_id: StringName = &"pause") -> bool:
 	if _pause_menu_open:
+		return false
+	var def := config.get_page(page_id) if config != null else null
+	if def == null or def.scene == null:
+		MKLog.warn("open_pause_menu('%s'): no page with a scene under that id in %s — refusing to suspend the world for an empty page"
+			% [page_id, MKLog.context(config, "pages")])
 		return false
 	_pause_menu_open = true
 	_push_suspend(&"pause")
@@ -324,15 +371,32 @@ func open_pause_menu(page_id: StringName = &"pause") -> bool:
 		_pause_menu_open = false
 		_pop_suspend(&"pause")
 		return false
+	_pause_page_id = page_id
 	_back_stack.clear()
+	# The pause page is not a tab, so _show_page's set_active(page_id) matched no button and cleared
+	# the highlight — documented as a legitimate state on MKNavBar.set_active (an unknown id is silent
+	# by design there). Hiding the bar makes that moot for the shipped configuration and is what stops
+	# a tab press defeating the whole rung; the set_active call is left alone rather than special-cased,
+	# because it is already correct for a host that shows the bar itself.
+	if _nav_bar != null:
+		_nav_bar.visible = false
 	pause_menu_toggled.emit(true)
 	return true
 
 
+## Drops the pause suspension and restores the shell chrome. [b]It does not navigate[/b]: the page
+## stays wherever navigation left it, which is normally the pause page and, after a host's own
+## go_to_page, some other one. That is deliberate — a hidden shell's next visible page is the host's
+## decision (it may be about to change scene entirely, as Quit to Menu does), and a close that
+## navigated would fight the host for it. With the nav bar hidden while open and the ladder's rung
+## recovering to the pause page, the divergent state is only reachable programmatically.
 func close_pause_menu() -> void:
 	if not _pause_menu_open:
 		return
 	_pause_menu_open = false
+	_pause_page_id = &""
+	if _nav_bar != null:
+		_nav_bar.visible = true
 	if _modal_layer != null:
 		_modal_layer.pop_all()
 	_pop_suspend(&"pause")
