@@ -1093,6 +1093,16 @@ func _make_conflict_fixture() -> Dictionary:
 		check(dialog != null, "and it is an MKConfirmDialog — no second near-identical dialog script")
 		check(not _backend_has_override(backend, ACTION_A),
 			"nothing is committed while the question is still open")
+		# The dialog BODY is the second place this row prints an event, and the one the Phase 8 hoist
+		# rerouted through MKInputGlyphs.event_label. Asserted here because a body that stopped naming
+		# the key — "%s is already bound to" with an empty %s — asks the user to arbitrate a conflict
+		# over something unnamed, and every other assertion in this suite reads the BUTTON text.
+		if dialog != null:
+			var body := dialog.find_child("Body", true, false) as Label
+			check(body != null, "the dialog has a body")
+			if body != null:
+				check_eq(body.text, "%s is already bound to %s." % [OS.get_keycode_string(KEY_K), ACTION_B],
+					"which spells the contested key with the SAME vocabulary the binding button uses — one spelling, or the dialog and the row below it disagree about what was pressed")
 
 	return {"backend": backend, "panel": panel, "host": host, "layer": layer, "dialog": dialog}
 

@@ -73,6 +73,72 @@ func run_tests() -> void:
 		check(ring.border_width_top > 0, "with a real border, which is the entire ring")
 		check_eq(ring.bg_color.a, 0.0, "and a transparent fill, so it never obscures the control inside")
 
+	# --- the CheckBox glyph and the check focus boxes (Phase 8) ---
+	# The unchecked box rendered near-invisible on the shipped dark panel, and no palette edit could
+	# move it: the glyph is an ICON, the one part of a control a StyleBox cannot reach. The generator
+	# now draws all four states from the palette, so this is where "the checkbox is visible" becomes
+	# assertable at all.
+	for state in [&"unchecked", &"checked", &"unchecked_disabled", &"checked_disabled"]:
+		var icon := theme.get_icon(state, &"CheckBox") as Texture2D
+		check(icon != null, "CheckBox defines a '%s' icon" % state)
+		if icon == null:
+			continue
+		check_eq(icon.get_size(),
+			Vector2(MKThemeGenerator.CHECK_ICON_SIZE, MKThemeGenerator.CHECK_ICON_SIZE),
+			"'%s' is drawn at the glyph size, not at whatever an empty Image defaults to" % state)
+		var glyph := icon.get_image()
+		check(glyph != null and not glyph.is_empty(), "'%s' carries real pixels" % state)
+		if glyph != null and not glyph.is_empty():
+			# Every pixel of the box is written by the generator's loop; a fully transparent glyph is
+			# exactly what the invisible-checkbox defect looked like.
+			check(glyph.get_pixel(0, 0).a > 0.0,
+				"'%s' has an opaque border pixel — a transparent glyph IS the defect this fix exists for"
+					% state)
+
+	var unchecked := theme.get_icon(&"unchecked", &"CheckBox") as Texture2D
+	var checked := theme.get_icon(&"checked", &"CheckBox") as Texture2D
+	check(unchecked != null and checked != null and unchecked != checked,
+		"checked and unchecked are two different textures")
+	if unchecked != null and checked != null:
+		# The load-bearing one: same size, same border, and the whole difference is the tick. Comparing
+		# the raw buffers is what catches a generator that drew the same box for both states, which
+		# would leave a CheckBox with no visible on/off distinction at all.
+		check(unchecked.get_image().get_data() != checked.get_image().get_data(),
+			"and they are different PIXELS — a checkbox whose two states draw the same glyph reads as permanently off")
+		check(_has_pixel(checked.get_image(), palette.accent_text),
+			"the checked glyph carries the tick, drawn in the palette's accent_text")
+		check(not _has_pixel(unchecked.get_image(), palette.accent_text),
+			"and the unchecked one does not — which is the difference above, named")
+
+	# The engine modulates a button's icon per state. These glyphs already carry palette colours, so
+	# every state is plain white: without this a hover or a focus re-tints a box drawn on purpose.
+	for state in [&"icon_normal_color", &"icon_hover_color", &"icon_pressed_color",
+			&"icon_hover_pressed_color", &"icon_focus_color"]:
+		check(theme.has_color(state, &"CheckBox"), "CheckBox sets '%s'" % state)
+		check_eq(theme.get_color(state, &"CheckBox"), Color.WHITE,
+			"'%s' is white, so the generated glyph is shown as drawn rather than re-tinted" % state)
+	check(theme.has_color(&"icon_disabled_color", &"CheckBox"),
+		"the disabled state is dimmed instead")
+	check(theme.get_color(&"icon_disabled_color", &"CheckBox").a < 1.0,
+		"which is the only thing still saying 'unavailable' if a future engine renames the *_disabled icon slots")
+
+	# Both check types gain a focus box, and its margins must match their own `normal` box: a Button's
+	# minimum size is the largest of its styleboxes', so roomier focus margins silently pad every check
+	# row — and a ring inset differently from the control reads as a ring around nothing.
+	for check_type in [&"CheckBox", &"CheckButton"]:
+		var focus := theme.get_stylebox(&"focus", check_type) as StyleBoxFlat
+		var normal := theme.get_stylebox(&"normal", check_type) as StyleBoxFlat
+		check(focus != null, "%s defines a focus stylebox — keyboard traversal is invisible without one"
+			% check_type)
+		if focus == null or normal == null:
+			continue
+		check(focus.border_width_top > 0, "%s's focus box is a real ring" % check_type)
+		check_eq(focus.content_margin_left, normal.content_margin_left,
+			"%s's focus margins match its normal box horizontally, so focusing one does not resize it"
+				% check_type)
+		check_eq(focus.content_margin_top, normal.content_margin_top,
+			"%s's focus margins match vertically too" % check_type)
+
 	# --- the live re-skin path ---
 	var config := ResourceLoader.load(CONFIG_PATH) as MKConfig
 	check(config != null, "default config loads")
@@ -122,3 +188,21 @@ func run_tests() -> void:
 	old_palette.accent = Color(1.0, 0.0, 1.0)
 	await step_frame()
 	check(root.theme == after_swap, "editing the DISCARDED palette no longer restyles anything")
+
+
+## True when [param image] contains a pixel of [param color]. Used to tell the checked glyph from the
+## unchecked one by the presence of the TICK specifically, rather than by "the buffers differ" alone —
+## a generator that drew two different boxes and no tick would satisfy the weaker claim.
+func _has_pixel(image: Image, color: Color) -> bool:
+	if image == null or image.is_empty():
+		return false
+	for y in image.get_height():
+		for x in image.get_width():
+			var pixel := image.get_pixel(x, y)
+			# Per-channel tolerance rather than is_equal_approx: the glyph is rasterised into an 8-bit
+			# RGBA image, so every palette colour comes back QUANTISED and an exact read of a colour
+			# that was written correctly reports absent.
+			if absf(pixel.r - color.r) < 0.01 and absf(pixel.g - color.g) < 0.01 \
+					and absf(pixel.b - color.b) < 0.01 and absf(pixel.a - color.a) < 0.01:
+				return true
+	return false

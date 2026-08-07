@@ -32,6 +32,8 @@ func run_tests() -> void:
 	await _test_a_destructive_dialog_opens_on_cancel()
 	await _test_deleting_the_last_entry_leaves_a_reachable_empty_state()
 	await _test_navigating_to_an_empty_roster_never_focuses_a_disabled_button()
+	await _test_the_empty_label_wears_the_card_columns_geometry()
+	await _test_a_rebuild_puts_the_ring_back_on_a_card()
 	await _test_new_character_pushes_and_every_exit_pops_back()
 	await _test_the_page_is_drivable_by_keyboard_alone()
 	await _test_the_selection_survives_a_roster_rebuild()
@@ -169,6 +171,24 @@ func _test_a_destructive_dialog_opens_on_cancel() -> void:
 				% get_root().gui_get_focus_owner())
 		check(get_root().gui_get_focus_owner() != destructive.get_confirm_button(),
 			"never on the destructive button, which is what the trap's tree-order rule is arranged to produce")
+
+		# [b]The THIRD route into this dialog's focus[/b], and the one neither the _ready grab nor
+		# MKFocus.trap covers: a modal stacked ABOVE this one popping runs
+		# MKModalLayer._restore_focus, which takes the first focusable of the revealed top. A dialog
+		# that had been arranged by a preference rather than by TREE ORDER would come back with the ring
+		# on Delete — an accept travelling as the upper modal closed would then delete.
+		var over := MKConfirmDialog.open(layer, "Are you sure?", "Really?", "Yes", "No", false)
+		await step_frame()
+		check_eq(layer.depth(), 2, "a second modal stacked over the destructive one")
+		layer.pop_modal()
+		await step_frame()
+		check_eq(layer.depth(), 1, "and popping it reveals the destructive dialog again")
+		check_eq(get_root().gui_get_focus_owner(), destructive.get_cancel_button(),
+			"with the ring restored to CANCEL — the layer's restore takes the first focusable, which is the same tree-order fact the _ready grab reads (got %s)"
+				% get_root().gui_get_focus_owner())
+		check(over == null or not is_instance_valid(over) or not over.is_inside_tree(),
+			"and the upper dialog is gone")
+
 		layer.pop_modal()
 		await step_frame()
 
@@ -253,6 +273,90 @@ func _test_navigating_to_an_empty_roster_never_focuses_a_disabled_button() -> vo
 	var owner_button := owner as BaseButton
 	check(owner_button != null and not owner_button.disabled,
 		"and whatever holds focus is ENABLED: Godot lets a disabled control hold focus perfectly happily, which is why this is asserted rather than assumed")
+
+	await _drop(root)
+
+
+## [b]The empty state occupies a card's slot, so it must wear a card's geometry.[/b] Centred and
+## non-expanding, the sentence floated over a column whose every populated row starts at the left
+## edge, and the page visibly re-laid itself out the moment the first character existed. Asserted
+## against the CARD's own values read from a populated roster rather than against copied literals:
+## the contract is "these two agree", so a future change to the card would have to move both.
+func _test_the_empty_label_wears_the_card_columns_geometry() -> void:
+	_seed([{"name": "Alice"}])
+	var root := await _make_root()
+	var panel := _panel(root)
+	if panel == null:
+		await _drop(root)
+		return
+	var card := _card(panel, "Alice")
+	check(card != null, "precondition: a card to compare against")
+	var card_alignment := card.alignment if card != null else HORIZONTAL_ALIGNMENT_LEFT
+	var card_flags := card.size_flags_horizontal if card != null else 0
+	await _drop(root)
+
+	_clean()
+	root = await _make_root()
+	panel = _panel(root)
+	if panel == null:
+		await _drop(root)
+		return
+	check_eq(_cards(panel).size(), 0, "precondition: an empty roster")
+	var empty := panel._card_column.get_node_or_null("Empty") as Label
+	check(empty != null, "the empty state renders a label")
+	if empty != null:
+		check_eq(empty.horizontal_alignment, card_alignment,
+			"aligned exactly as a card is, so the column does not re-lay itself out when the first character appears")
+		check_eq(empty.size_flags_horizontal, card_flags,
+			"and filling the column the same way a card does")
+		check_eq(empty.autowrap_mode, TextServer.AUTOWRAP_WORD_SMART,
+			"wrapping rather than pushing the column wider — the backend-missing variant is a whole sentence")
+
+	await _drop(root)
+
+
+## [b]A rebuild frees every card, and Godot sets the focus owner to NULL when the focused control
+## goes.[/b] A roster that changes under a keyboard or gamepad player — a host-side write, any
+## roster_changed this panel did not initiate — then left the page alive and undrivable with no ring
+## anywhere. Both halves are asserted from the same fixture, because "recovers" passes just as well
+## against a recovery that fires unconditionally and yanks the ring out of the player's hands.
+func _test_a_rebuild_puts_the_ring_back_on_a_card() -> void:
+	_seed([{"name": "Alice"}, {"name": "Bob"}])
+	var root := await _make_root()
+	var panel := _panel(root)
+	if panel == null:
+		await _drop(root)
+		return
+
+	_card(panel, "Bob").grab_focus()
+	await step_frame()
+	check_eq(get_root().gui_get_focus_owner(), _card(panel, "Bob"), "precondition: a card holds focus")
+
+	root.get_profile_backend().create_profile({"name": "Zed"})
+	await step_frame()
+	await step_frame()
+
+	var owner := get_root().gui_get_focus_owner()
+	check(owner != null,
+		"a rebuild under a focused card does not leave the page ringless — focus goes null when the focused control is freed, and a keyboard player is stranded")
+	check_eq(owner, _card(panel, "Bob"),
+		"and recovery prefers the SELECTED card, so the ring lands where the page says the player is rather than at the top of the list (got %s)" % owner)
+
+	# The refusal half: something live already holds focus, so the rebuild must not move it. A page
+	# embedding this panel beside a host's own controls is the case this protects.
+	var play := _button(panel, "Play")
+	play.grab_focus()
+	await step_frame()
+	check_eq(get_root().gui_get_focus_owner(), play, "precondition: a live NON-card control holds focus")
+
+	root.get_profile_backend().create_profile({"name": "Yara"})
+	await step_frame()
+	await step_frame()
+
+	check_eq(_cards(panel).size(), 4, "precondition: the rebuild really happened")
+	check_eq(get_root().gui_get_focus_owner(), play,
+		"and the ring stayed put — recovery is licensed to act on NULL only, never to steal focus from a control that survived (got %s)"
+			% get_root().gui_get_focus_owner())
 
 	await _drop(root)
 
