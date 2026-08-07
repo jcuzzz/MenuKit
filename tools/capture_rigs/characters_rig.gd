@@ -24,13 +24,19 @@ extends RefCounted
 ## shown, and the host re-gates Next off the newly visible step, so a same-frame second press reads
 ## the previous step's button state.
 
-## Long enough for the whole advance chain to finish before the shot: the timers below run 0.2s to
-## find the host plus 0.15s per press, so a three-step advance needs ~0.65s. Frames, not seconds —
-## this count only means "~0.65s" at an assumed refresh rate, so it must be sized for the FASTEST
-## common display (a 60 Hz-sized wait under-waits on a 144/165 Hz panel and photographs an earlier
-## step). An over-long wait costs only capture seconds.
+## Long enough for the whole advance chain to finish before the shot. What it waits on is TIMERS, not
+## a backend: 0.2s to find the host, then 0.15s per Next press, so the shipped four-step demo flow's
+## longest chain (three advances) resolves at ~0.65s. Frames, not seconds — the count only means a
+## duration at an assumed refresh rate, and an under-sized wait photographs an EARLIER step with
+## nothing failing to say so.
+##
+## Sized for the fastest common displays, as servers_rig is: 0.65s × 240 ≈ 156, rounded up to 200 so a
+## host flow one step longer than the demo's (0.80s → 192 at 240 Hz) still resolves. 165 Hz needs 108,
+## 60 Hz 39. The previous 120 covered 165 Hz by 0.08s and did not cover 240 Hz at all. An over-long
+## wait costs only capture seconds, which is why the count is set by the fastest display rather than
+## the typical one.
 func wait_frames() -> int:
-	return 120
+	return 200
 
 
 func setup(node: Node, tree: SceneTree) -> void:

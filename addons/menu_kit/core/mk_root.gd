@@ -611,6 +611,11 @@ func _apply_theme() -> void:
 		MKLog.error("%s: generated Theme is missing type variations — panels using them render unstyled"
 			% MKLog.context(next_palette))
 	theme = generated
+	# The scrim is not a Theme item (the modal layer draws a plain ColorRect), so a palette swap
+	# must drive it here or the alt skin dims with the old skin's colour. Shell-owned layer only —
+	# a host's own MKModalLayer keeps its exported scrim_color.
+	if _modal_layer != null and is_instance_valid(_modal_layer):
+		_modal_layer.scrim_color = next_palette.scrim
 
 
 func _build_shell() -> void:
@@ -650,6 +655,10 @@ func _build_shell() -> void:
 	add_child(_modal_layer)
 	_modal_layer.modal_pushed.connect(_on_modal_pushed)
 	_modal_layer.modal_popped.connect(_on_modal_popped)
+	# _apply_theme ran before the shell existed, so the palette's scrim is applied once here; later
+	# palette swaps re-drive it from _apply_theme.
+	if config != null and config.palette != null:
+		_modal_layer.scrim_color = config.palette.scrim
 
 	_sfx_player = AudioStreamPlayer.new()
 	_sfx_player.name = "SfxPlayer"

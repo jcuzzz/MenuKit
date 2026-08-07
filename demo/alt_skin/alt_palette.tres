@@ -1,0 +1,36 @@
+[gd_resource type="Resource" script_class="MKPalette" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/menu_kit/core/mk_palette.gd" id="1_mk_palette"]
+
+[resource]
+script = ExtResource("1_mk_palette")
+background = Color(0.08, 0.075, 0.065, 1)
+surface = Color(0.14, 0.13, 0.115, 0.98)
+surface_raised = Color(0.215, 0.2, 0.175, 1)
+surface_sunken = Color(0.055, 0.05, 0.045, 0.95)
+border = Color(0.48, 0.44, 0.36, 0.9)
+border_focus = Color(0.55, 0.86, 0.95, 0.95)
+text = Color(0.9, 0.885, 0.855, 1)
+text_bright = Color(1, 0.995, 0.98, 1)
+text_dim = Color(0.7, 0.675, 0.62, 1)
+text_disabled = Color(0.5, 0.475, 0.43, 1)
+accent = Color(0.92, 0.66, 0.2, 1)
+accent_hover = Color(1, 0.78, 0.35, 1)
+accent_pressed = Color(0.72, 0.5, 0.12, 1)
+accent_text = Color(0.1, 0.075, 0.03, 1)
+danger = Color(0.66, 0.16, 0.22, 1)
+danger_hover = Color(0.84, 0.24, 0.3, 1)
+danger_pressed = Color(0.47, 0.1, 0.15, 1)
+danger_text = Color(1, 0.93, 0.93, 1)
+scrim = Color(0.04, 0.02, 0, 0.65)
+corner_radius = 2
+border_width = 2
+focus_width = 3
+spacing_xs = 5
+spacing_sm = 10
+spacing_md = 16
+spacing_lg = 26
+font_size_small = 14
+font_size_normal = 17
+font_size_header = 24
+font_size_title = 38

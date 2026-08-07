@@ -4,6 +4,14 @@ extends RefCounted
 ## The settings panel is runtime-built from page defs, so its failure modes are visual by
 ## construction — an unstyled row, a collapsed tab bar, or a slider with no readout all pass every
 ## headless assertion.
+##
+## MK_CAPTURE_PALETTE=<res:// path to an MKPalette .tres>  assigns that palette to the shell's config
+##                      BEFORE the tab navigation below, so the shot is the RE-SKINNED panel. This is
+##                      the visual half of ship gate 3 (`demo/alt_skin/alt_palette.tres` is the shipped
+##                      subject): headless assertions can prove the generated Theme differs, but only
+##                      a PNG shows whether the alternative skin is legible. The assignment is an
+##                      in-memory mutation of the loaded config in a throwaway capture process —
+##                      nothing is saved, so the demo's config on disk is untouched.
 
 ## Frames, not seconds: the page builds and MKRoot defers its focus pass, and this count only means
 ## a duration at an assumed refresh rate — size any change for the fastest common display.
@@ -16,6 +24,20 @@ func setup(node: Node, tree: SceneTree) -> void:
 	if root == null:
 		push_error("settings_rig expects an MKRoot as the captured scene")
 		return
+	# Re-skin BEFORE navigating: MKRoot regenerates its Theme off the palette reassignment, and pages
+	# are themed by inheritance, so the order only has to put the assignment ahead of the shot. Doing it
+	# first also means a broken path fails before any page is built.
+	var palette_path := OS.get_environment("MK_CAPTURE_PALETTE")
+	if not palette_path.is_empty():
+		if root.config == null:
+			push_error("settings_rig: MK_CAPTURE_PALETTE set but the root has no MKConfig")
+			return
+		var palette := ResourceLoader.load(palette_path) as MKPalette
+		if palette == null:
+			push_error("settings_rig: MK_CAPTURE_PALETTE '%s' is not an MKPalette resource" % palette_path)
+			return
+		root.config.palette = palette
+
 	root.go_to_page(&"settings")
 	# Optional tab override for eyeballing the non-default pages: MK_CAPTURE_TAB names a tab title
 	# (e.g. "Gameplay"). The panel hosts its pages in a TabContainer built at runtime.
