@@ -16,9 +16,9 @@ extends Control
 ## under [member SceneTree.paused] — the D14 confirm-or-revert dialog would hang forever with no
 ## failing write to reveal it. This is unconditional and must never become policy-dependent: it
 ## costs nothing under a no-pause policy and it is what keeps the countdown alive.
-## Host-supplied content is forced back to [constant Node.PROCESS_MODE_PAUSABLE] on add, so a
-## host's preview scene does not keep animating during pause and behave differently there than
-## in-game.
+## Host-supplied content is set to [member host_content_process_mode] on add — PAUSABLE by
+## default, so a host's preview scene does not keep animating during pause and behave differently
+## there than in-game; a pause-hosting shell exports it as ALWAYS (the export's doc has the why).
 
 ## Emitted after a page change completes, for hosts driving their own state off navigation.
 signal page_changed(id: StringName)
@@ -410,8 +410,9 @@ func _focus_page_content() -> void:
 ## both, because [method _show_page] returns true for the second: no page def under the id, and a def
 ## whose [member MKMenuPageDef.scene] is null (that path only warns and empties the page host — a
 ## refusal doc written against the return value alone was simply false). The pre-check now owns
-## refusal outright: there is no post-[method _show_page] unwind, because under the pre-check that
-## call cannot fail. See the bare call below.
+## refusal outright: there is no post-[method _show_page] unwind. That is a containment decision,
+## not an impossibility claim — foreign code runs between the pre-check and the show, and the bare
+## call below names the two windows and the recovery rung that contains a failure there.
 ##
 ## [b]While the pause menu is open the shell is a PAUSE shell: the nav bar is hidden.[/b] A tab press
 ## is a lateral [method go_to_page], which clears the back stack, leaves [member _pause_menu_open]
@@ -819,8 +820,8 @@ func _boot_own_settings_backend() -> MKSettingsBackend:
 ## slider, not because it is equivalent.
 ##
 ## [b]Two controllers must never coexist[/b] — each applies its own gamma pass and the image would be
-## corrected twice. The adopt path never reaches this method, so the check below is about the ONE
-## remaining route: [code]/root/MKSettingsService[/code] is resolved duck-typed (get_node_or_null plus
+## corrected twice. The adopt path never reaches this method, so the check below covers the
+## service-shaped route: [code]/root/MKSettingsService[/code] is resolved duck-typed (get_node_or_null plus
 ## has_method), so the node answering that name need not be the shipped service. A host-supplied one
 ## that owns a brightness controller while returning null from [code]get_settings_backend()[/code]
 ## sends this scene down the build-your-own path with a controller already live, and without the check
@@ -829,6 +830,13 @@ func _boot_own_settings_backend() -> MKSettingsBackend:
 ## The shipped [code]MKSettingsService[/code] cannot reach that state — its [code]_boot_brightness[/code]
 ## runs only after a backend booted, so an inert service owns no controller either — which is why this
 ## is a check against a host's node, not a second guess about our own.
+##
+## What it deliberately does NOT cover: two standalone shells mounted SIMULTANEOUSLY with no
+## service at all — each walks this path, sees no service, and builds its own controller, stacking
+## two gamma passes. No shipped configuration mounts two service-less shells at once (the demo uses
+## the autoload; scenes swap rather than coexist), so the gap is documented rather than guarded;
+## a host running that shape owns brightness itself or mounts the service. Phase 9's
+## INTEGRATION.md carries the sentence.
 func _boot_own_brightness(backend: MKSettingsBackend) -> void:
 	if config == null or not config.manage_brightness:
 		return

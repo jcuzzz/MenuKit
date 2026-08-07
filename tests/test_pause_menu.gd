@@ -56,6 +56,8 @@ func run_tests() -> void:
 	await _test_quit_to_menu_unwinds_the_pause_before_the_backend_runs()
 	await _test_hiding_the_shell_closes_the_pause_menu()
 	await _test_showing_a_hidden_shell_does_not_close_an_open_pause_menu()
+	await _test_hiding_an_ancestor_closes_the_pause_menu()
+	await _test_quit_to_menu_walks_past_a_null_answering_ancestor()
 	_clean()
 
 
@@ -479,8 +481,9 @@ func _test_a_second_open_is_refused() -> void:
 ## A config with no "pause" page must leave nothing behind. Since the pre-check moved ahead of the
 ## suspension there is nothing to unwind — the assertions below say so in both directions: depth zero
 ## AND the policy never told anything at all. There is no post-[code]_show_page[/code] unwind left to
-## measure: under the pre-check that call cannot report failure, so the branch that used to undo it
-## was deleted as unreachable.
+## measure: the pre-check owns refusal, and a show that fails anyway (foreign code between the
+## pre-check and the lookup — the two windows the call site names) is contained by the ESC recovery
+## rung, which [code]_test_a_lost_recovery_target_resumes_rather_than_freezing[/code] drives.
 ## Suspending the world to display nothing is strictly worse than not pausing.
 func _test_open_without_a_pause_page_refuses_without_touching_anything() -> void:
 	CountingSpy.reset()
@@ -985,6 +988,90 @@ func _test_showing_a_hidden_shell_does_not_close_an_open_pause_menu() -> void:
 	await step_frame()
 
 
+## A host controller that ANSWERS get_menu_backend above a shell whose own slot is unassigned.
+class BackendProvider extends Control:
+	var backend: MKMenuBackend
+
+	func get_menu_backend() -> MKMenuBackend:
+		return backend
+
+
+## Pins the continue-past-null half of [code]MKPauseMenu._find_menu_backend[/code]'s walk — the
+## property its comment cites [MKCharacterSelect] for, which round 4 proved undefended here: a
+## first-responder walk (stop at whoever ANSWERS the method) passed the whole suite. The shape it
+## breaks is the documented one: a shell booted with an unassigned menu slot, wrapped by a host
+## controller that provides the backend — the walk must pass the null-answering MKRoot and reach
+## the provider, or Quit to Menu warns "no backend" with a backend two levels up.
+##
+## The button is driven by its own pressed signal rather than a focus + ui_accept gesture: the
+## activation path is not the property here (the quit tests own it), the LOOKUP is, and a synthetic
+## press exercises exactly the handler the lookup lives in.
+func _test_quit_to_menu_walks_past_a_null_answering_ancestor() -> void:
+	QuitSpy.reset()
+	var provider := BackendProvider.new()
+	provider.name = "HostBackendProvider"
+	get_root().add_child(provider)
+	var spy := QuitSpy.new()
+	provider.backend = spy
+	provider.add_child(spy)
+	var root := _make_root(MKTreePausePolicy, Node.PROCESS_MODE_ALWAYS, false, provider)
+	await step_frame()
+	check(root.get_menu_backend() == null,
+		"precondition: the shell itself answers get_menu_backend with null — the walk must not stop here")
+	check(root.open_pause_menu(), "the pause menu opened")
+	await step_frame()
+
+	var page := _find_typed(root, "MKPauseMenu") as Control
+	check(page != null, "the shipped pause page is up")
+	if page != null:
+		var quit_button := page.find_child("QuitToMenu", true, false) as Button
+		check(quit_button != null, "and carries its Quit to Menu button")
+		if quit_button != null:
+			quit_button.pressed.emit()
+			await step_frame()
+	check_eq(QuitSpy.to_menu, 1,
+		"Quit reached the provider ABOVE the null-answering shell — the walk continued past the first responder")
+
+	provider.free()
+	await step_frame()
+
+
+## The ANCESTOR-hide direction, and the reason the guard reads is_visible_in_tree() and not the
+## local flag.
+##
+## Round 4's surviving mutant: `not is_visible_in_tree()` → `not visible` passed the whole suite,
+## because both existing direction tests drive visibility on the SHELL itself, where the two reads
+## agree. They disagree exactly when a host hides a PARENT of the shell — a UI layer, a cutscene
+## container — which never touches the shell's own flag. Under the mutant that gesture strands the
+## suspension: world paused, cursor free, no surface on screen, the precise failure the hide-close
+## exists to prevent. The distinction is the same one _unhandled_input and _focus_page_content
+## already draw; this pins it on the third site.
+func _test_hiding_an_ancestor_closes_the_pause_menu() -> void:
+	var layer := Control.new()
+	layer.name = "HostUiLayer"
+	get_root().add_child(layer)
+	var root := _make_root(MKTreePausePolicy, Node.PROCESS_MODE_ALWAYS, false, layer)
+	await step_frame()
+	check(root.open_pause_menu(), "the pause menu opened under a host UI layer")
+	await step_frame()
+	check(get_root().get_tree().paused, "and the world is paused")
+
+	var toggles: Array[bool] = []
+	root.pause_menu_toggled.connect(func(open: bool) -> void: toggles.append(open))
+	layer.hide()
+	await step_frame()
+
+	check(root.visible, "the shell's OWN flag never moved — only the tree visibility did")
+	check(not root.is_visible_in_tree(), "while the shell is genuinely off screen")
+	check(not root.is_pause_menu_open(), "and the ancestor hide closed the pause menu")
+	check_eq(root.get_suspend_depth(), 0, "dropping the suspension")
+	check(not get_root().get_tree().paused, "and resuming the world")
+	check_eq(toggles, [false] as Array[bool], "with exactly one toggle(false) for the host")
+
+	layer.free()
+	await step_frame()
+
+
 # --- Fixtures -----------------------------------------------------------------
 
 ## A lean shell carrying the SHIPPED pause page under the given policy. [param page_mode] defaults to
@@ -996,7 +1083,8 @@ func _test_showing_a_hidden_shell_does_not_close_an_open_pause_menu() -> void:
 ## backdrop over the fixture is the in-game shape every other test here wants.
 func _make_root(policy_script: Script,
 		page_mode: Node.ProcessMode = Node.PROCESS_MODE_ALWAYS,
-		backdrop := false) -> MKRoot:
+		backdrop := false,
+		parent: Node = null) -> MKRoot:
 	var config := MKConfig.new()
 	config.palette = load("res://addons/menu_kit/themes/default_palette.tres")
 	var slot := MKBackendSlot.new()
@@ -1019,7 +1107,7 @@ func _make_root(policy_script: Script,
 	root.config = config
 	root.host_content_process_mode = page_mode
 	root.show_backdrop = backdrop
-	get_root().add_child(root)
+	(parent if parent != null else get_root()).add_child(root)
 	return root
 
 
