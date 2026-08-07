@@ -6,7 +6,10 @@ extends Control
 ##
 ## [b]Per-scene instance, not a persistent singleton.[/b] Counters are per-instance and reset
 ## naturally on a scene change, which is only safe because of the teardown rule in
-## [method _exit_tree].
+## [method _exit_tree]. Reparenting a LIVE shell is not supported for the same reason: a reparent
+## runs [method _exit_tree] on an instance that then survives it, so the pause and nav state is
+## discarded by design and no [signal pause_menu_toggled] is emitted — a host that must move a shell
+## closes the pause menu first.
 ##
 ## [b]The whole subtree runs [constant Node.PROCESS_MODE_ALWAYS].[/b] Backends, the revert
 ## countdown, the modal layer, tweens and the audio player are all Nodes and would otherwise freeze
@@ -145,8 +148,12 @@ func _exit_tree() -> void:
 	_policy_entered = false
 	_pause_menu_open = false
 	# Zeroed with the rest of the pause state. The nav bar's visibility needs no restore here for the
-	# reason the counters do not need a real pop: _nav_bar is a child of THIS instance and dies with
-	# it, so there is nothing outside this subtree still reading it.
+	# reason the counters do not need a real pop: this instance is on its way out, so nothing outside
+	# the subtree is still reading _nav_bar. That is true of the SUPPORTED lifecycle only — a free or
+	# a scene change. Under a REPARENT the instance survives its own _exit_tree, and everything above
+	# is discarded rather than unwound: the nav bar stays hidden, the pause state is dropped with no
+	# pause_menu_toggled(false), and the host is never told. Reparenting a live shell is unsupported;
+	# see the class doc.
 	_pause_page_id = &""
 	_nav_visible_before_pause = true
 	# Persist the settings this scene OWNS. MKSettingsBackend.save() had no production caller at all,
@@ -426,13 +433,25 @@ func open_pause_menu(page_id: StringName = &"pause") -> bool:
 		return false
 	_pause_menu_open = true
 	_push_suspend(&"pause")
-	# The return value needs no branch, and an unwind branch here would be unreachable code pretending
-	# to be a safety net. _show_page reports false for exactly two states — a null config, and no page
-	# def under the id — and the pre-check above has just established that config is non-null and that
-	# config.get_page(page_id) answered a def with a scene. Nothing between the two lines can undo
-	# that: the only foreign code that runs in between is the pause policy's enter_menu, which is
-	# handed a reason and no way to reach this node's config. (A page whose scene is null does not
-	# qualify either way — _show_page returns TRUE there, which is precisely why the pre-check exists.)
+	# The return value is deliberately not branched on, and that is a CONTAINMENT argument rather than
+	# an impossibility one. _show_page reports false for exactly two states — a null config, and no
+	# page def under the id — and the pre-check above established both were false a moment ago. But
+	# "a moment ago" is the whole of the guarantee: two windows of foreign code run in between, and
+	# either can invalidate it.
+	# - The pause policy's enter_menu, called from _push_suspend. The shipped policies cannot reach
+	#   this node's config, but a policy is a CHILD of this root, so a custom one only has to walk
+	#   get_parent().config and erase the page def.
+	# - _show_page's own first act is _modal_layer.pop_all(), which runs host-supplied modal teardown
+	#   BEFORE the get_page lookup it is about to make.
+	# What makes the missing branch safe is the state a false return leaves: _pause_menu_open true,
+	# _pause_page_id recorded, and the shell still on the OLD page. That is precisely the divergent
+	# state the Escape ladder's pause rung is page-aware for — it takes the recovery branch, re-runs
+	# _show_page against the same missing def, gets false again, and closes the pause menu (see
+	# _unhandled_input's lost-recovery-target branch, which test_pause_menu drives end to end). So the
+	# world is one Escape away from running, with a warning in the log naming the config, rather than
+	# suspended forever. An unwind branch here would be a second, unreachable-in-practice copy of that
+	# recovery. (A page whose scene is null does not qualify either way — _show_page returns TRUE
+	# there, which is precisely why the pre-check exists.)
 	_show_page(page_id)
 	_pause_page_id = page_id
 	_back_stack.clear()
@@ -745,6 +764,19 @@ func _resolve_settings_backend() -> MKSettingsBackend:
 	# reason to double-instantiate. Keep the service's instance and say so, naming both scripts.
 	var slot := config.settings_backend
 	if slot != null and slot.is_assigned():
+		# The slot's PARAMS are ignored on this path — the service already built and configured the
+		# instance from its own slot — and nothing said so: a config naming its own file_path adopted
+		# the service's store with zero diagnostics, and _exit_tree's save-on-exit then persisted the
+		# values into a file the config never mentions.
+		#
+		# Debug rather than warn, and the shipped demo is the reason: demo_config assigns file_path
+		# AND is the config menu_kit/config_path points the service at, so the service builds from
+		# this very slot and the demo's adopt ignores nothing. A warn would fire on every demo boot
+		# for a correct configuration — and ship gate 2's zero-warnings bar is not something to spend
+		# on a message that is right only for the hosts whose two configs disagree.
+		if not slot.params.is_empty():
+			MKLog.debug("%s: params are ignored when %s owns the backend — configure the service's slot instead"
+				% [MKLog.context(slot, "params"), SETTINGS_SERVICE_PATH])
 		var live_script := live.get_script() as Script
 		if live_script != null and live_script != slot.backend_script:
 			MKLog.error("settings backend mismatch: %s built '%s' but %s names '%s'. Keeping the service's instance."

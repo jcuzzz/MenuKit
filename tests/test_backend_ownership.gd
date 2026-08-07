@@ -31,6 +31,8 @@ func run_tests() -> void:
 	await _test_service_resolves_from_project_setting()
 	await _test_the_service_saves_its_backend_on_exit()
 	await _test_a_standalone_root_saves_the_backend_it_built()
+	await _test_an_adopted_backend_is_saved_by_the_service_and_not_by_the_root()
+	await _test_adopting_over_a_slot_with_params_says_the_params_are_ignored()
 
 	_restore_autoload(parked_for_suite)
 
@@ -172,6 +174,120 @@ func _test_a_standalone_root_saves_the_backend_it_built() -> void:
 	reloaded.free()
 	_remove_store(PATH)
 	await step_frame()
+
+
+## The OTHER half of the save-on-exit rule, and the one nothing measured: [MKRoot] saves only what it
+## OWNS. The guard is the [code]not _adopted_settings[/code] clause in [method MKRoot._exit_tree], and
+## deleting it passed the entire suite — every existing save test builds its own backend, so an
+## adopted one had no test in either direction.
+##
+## Deleting it is not cosmetic. [MKRoot] dies on every scene change while the service outlives them
+## all, so an unguarded root flushes the service's store from a node that is halfway through teardown,
+## once per transition — and it is the wrong owner's decision about a file the service will write
+## again anyway.
+##
+## The file's EXISTENCE is the whole assertion, which is why it is deleted first and why the value is
+## written but never read back: a save from the wrong owner produces a file at a moment no file should
+## exist yet, and reading contents could not tell which owner wrote them.
+func _test_an_adopted_backend_is_saved_by_the_service_and_not_by_the_root() -> void:
+	const PATH := "user://test_ownership_adopted_save.json"
+	_remove_store(PATH)
+	var service := _install_service_at(MKJsonSettingsBackend, PATH)
+	await step_frame()
+	var backend: MKSettingsBackend = service.get_settings_backend()
+	check(backend != null, "adopt/save: the service booted a backend over the test path")
+	if backend == null:
+		_remove_service(service)
+		return
+
+	var root := MKRoot.new()
+	root.config = _make_config(MKJsonSettingsBackend)
+	get_root().add_child(root)
+	await step_frame()
+	check(root.get_settings_backend() == backend,
+		"adopt/save: precondition — the shell ADOPTED the service's instance rather than building one")
+	backend.set_value(&"probe/persisted", 5)
+	check(not FileAccess.file_exists(PATH),
+		"adopt/save: precondition — nothing has flushed yet, so the file's existence means one thing only")
+
+	# Freed rather than queued, for the reason the service half is: this observes _exit_tree, and a
+	# queued node's deferred work can be dropped in a delete cascade.
+	root.free()
+	check(not FileAccess.file_exists(PATH),
+		"adopt/save: freeing the SHELL wrote nothing — a borrowed store is not the borrower's to flush, and MKRoot dies on every scene change while the service outlives them all")
+	check(is_instance_valid(backend), "adopt/save: and the backend itself is untouched")
+
+	_remove_service(service)
+	check(FileAccess.file_exists(PATH),
+		"adopt/save: while the OWNER's exit does write it — the guard skips one owner, it does not lose the store")
+	_remove_store(PATH)
+	await step_frame()
+
+
+## The adopt path ignores the scene slot's PARAMS, and used to do it in silence.
+##
+## Probed: a config naming its own [code]file_path[/code] adopted the service's store with no
+## diagnostic anywhere, and since save-on-exit exists the service then persisted those values into a
+## file the scene's config never mentions — "my settings are in the wrong file" with nothing in the
+## log to start from.
+##
+## [b]Debug rather than warn, deliberately.[/b] The shipped demo adopts AND assigns
+## [code]file_path[/code]: [code]menu_kit/config_path[/code] points the service at
+## [code]demo_config.tres[/code], so the service builds from the same slot the shell then finds its
+## params on, and nothing is actually ignored. A warn would fire on every demo boot for a correct
+## configuration. [member MKLog.observer] sees debug regardless of [member MKLog.verbose], which is
+## what keeps the line assertable here.
+func _test_adopting_over_a_slot_with_params_says_the_params_are_ignored() -> void:
+	const IGNORED := "user://test_ownership_never_written.json"
+	var service := _install_service(MKJsonSettingsBackend)
+	await step_frame()
+
+	var with_params := MKRoot.new()
+	with_params.config = _make_config(MKJsonSettingsBackend)
+	with_params.config.settings_backend.params = {"file_path": IGNORED}
+	_watch_log()
+	get_root().add_child(with_params)
+	await step_frame()
+	_unwatch_log()
+	check(with_params.get_settings_backend() == service.get_settings_backend(),
+		"params/adopt: precondition — this shell adopted, which is the only path the message is about")
+	var said := _log_lines.filter(func(l: String) -> bool: return l.contains("params are ignored"))
+	check_eq(said.size(), 1, "params/adopt: adopting over an assigned slot with params says so exactly once")
+	check(said.size() == 1 and said[0].contains("MKSettingsService"),
+		"params/adopt: naming the service that owns the backend, so the reader knows whose slot to configure instead")
+	check(not FileAccess.file_exists(IGNORED),
+		"params/adopt: and the named file is never written — which is the fact the message exists to explain")
+	with_params.free()
+	await step_frame()
+
+	# The silent half. Without it the assertion above holds against a line emitted on every adopt,
+	# which would put a diagnostic in front of the majority configuration that has nothing wrong.
+	var no_params := MKRoot.new()
+	no_params.config = _make_config(MKJsonSettingsBackend)
+	_watch_log()
+	get_root().add_child(no_params)
+	await step_frame()
+	_unwatch_log()
+	check_eq(_log_lines.filter(func(l: String) -> bool: return l.contains("params are ignored")).size(), 0,
+		"params/adopt: an adopt over a slot with NO params says nothing")
+	no_params.free()
+
+	_remove_service(service)
+	await step_frame()
+
+
+## Messages seen by [member MKLog.observer] while a test has it installed.
+var _log_lines: Array[String] = []
+
+
+func _watch_log() -> void:
+	_log_lines = []
+	MKLog.observer = func(_level: int, message: String) -> void:
+		_log_lines.append(message)
+
+
+func _unwatch_log() -> void:
+	MKLog.observer = Callable()
 
 
 ## A cold backend over [param path], loaded — the stand-in for the next launch. Never added to the

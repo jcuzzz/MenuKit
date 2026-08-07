@@ -55,6 +55,7 @@ func run_tests() -> void:
 	await _test_close_restores_the_nav_bar_the_host_had_hidden()
 	await _test_quit_to_menu_unwinds_the_pause_before_the_backend_runs()
 	await _test_hiding_the_shell_closes_the_pause_menu()
+	await _test_showing_a_hidden_shell_does_not_close_an_open_pause_menu()
 	_clean()
 
 
@@ -777,6 +778,18 @@ func _test_diagnostics_carry_the_pause_page_id_and_it_clears_on_close() -> void:
 		"and the close CLEARS it — a stale id would make the ladder's recovery rung navigate to a page nobody asked for the next time the flag went true")
 	check(root.dump_diagnostics().contains("pause_menu_open: false"), "with the flag down")
 
+	# A SECOND registered page id, so the field is measured rather than pattern-matched. With only the
+	# default id ever opened, a dump that FABRICATED the value — printing "pause" whenever the flag is
+	# true — carried the same string as the real field and every assertion above stayed green. The
+	# fixture's other page is a legitimate pause target: it is registered and it has a scene, which is
+	# all open_pause_menu's pre-check asks for.
+	check(root.open_pause_menu(&"only"), "the shell opens the pause menu under a non-default page id")
+	await step_frame()
+	check_eq(_diagnostic_pause_page_id(root), "only",
+		"and the dump names THAT id — the field is read from the state, not reconstructed from the flag")
+	root.close_pause_menu()
+	await step_frame()
+
 	root.free()
 	await step_frame()
 
@@ -847,6 +860,13 @@ func _test_close_restores_the_nav_bar_the_host_had_hidden() -> void:
 ## in-place state machine, a fade — in which case nothing is ever torn down and the world stays paused
 ## with a free cursor and a suspension counter nobody will unwind. The spy below is exactly that
 ## backend: it records the call and changes no scene.
+##
+## [b]"Before" is asserted at the call, not after it.[/b] Every end-state assertion below is equally
+## true of the reverse order — press, call the backend, then close — because by the time the press
+## returns both have happened either way. So the spy captures [member SceneTree.paused] and the
+## shell's counters INSIDE [code]to_main_menu[/code]; swapping the two lines in
+## [code]MKPauseMenu._on_quit_pressed[/code] turns those three assertions red and leaves the rest
+## green, which is the exact shape of the hole this closes.
 func _test_quit_to_menu_unwinds_the_pause_before_the_backend_runs() -> void:
 	QuitSpy.reset()
 	var config := _shipped_config()
@@ -854,6 +874,11 @@ func _test_quit_to_menu_unwinds_the_pause_before_the_backend_runs() -> void:
 	slot.backend_script = QuitSpy
 	config.menu_backend = slot
 	var root := _make_root_with(config)
+	QuitSpy.shell_probe = func() -> Dictionary:
+		return {
+			"pause_menu_open": root.is_pause_menu_open(),
+			"suspend_depth": root.get_suspend_depth(),
+		}
 	await step_frame()
 	var nav := _find_nav_bar(root)
 	check(root.open_pause_menu(), "opened")
@@ -866,6 +891,12 @@ func _test_quit_to_menu_unwinds_the_pause_before_the_backend_runs() -> void:
 		await _activate(quit)
 
 	check_eq(QuitSpy.to_menu, 1, "the backend was still called exactly once")
+	check(not QuitSpy.paused_at_call,
+		"and the world was ALREADY running when to_main_menu ran — not merely running by the time the press returned")
+	check(not QuitSpy.pause_open_at_call,
+		"with the pause menu already reported closed at that instant")
+	check_eq(QuitSpy.suspend_depth_at_call, 0,
+		"and the suspension already unwound — a backend that changes no scene inherits a clean shell, which is the whole claim")
 	check(not root.is_pause_menu_open(), "and the pause menu closed itself first")
 	check_eq(root.get_suspend_depth(), 0, "the suspension unwound")
 	check(not get_root().get_tree().paused,
@@ -873,6 +904,7 @@ func _test_quit_to_menu_unwinds_the_pause_before_the_backend_runs() -> void:
 	check(nav == null or nav.visible, "with the shell's chrome restored")
 
 	root.free()
+	QuitSpy.shell_probe = Callable()
 	await step_frame()
 
 
@@ -903,6 +935,52 @@ func _test_hiding_the_shell_closes_the_pause_menu() -> void:
 	check_eq(toggles, [false] as Array[bool],
 		"the host hears exactly one toggle(false), so its own `visible = open` handler re-hides an already hidden shell and stops there — no loop")
 
+	root.free()
+	await step_frame()
+
+
+## The other DIRECTION of the same notification, which is what makes the close conditional rather
+## than a close-on-any-visibility-change.
+##
+## Only the hidden branch was ever driven, so
+## [code]if _pause_menu_open and not is_visible_in_tree()[/code] mutated to
+## [code]if _pause_menu_open[/code] passed the whole suite. The host it breaks is the reverse-ordered
+## one: a shell that is hidden when the pause gesture arrives, opened, and shown afterwards. That is
+## not an exotic shape — [MKRoot] itself opens fine while hidden (the pre-check reads the config, not
+## the screen), and the demo's own ordering comment says the show-before-open order is the HOST's
+## choice for its own focus reason, i.e. the other order is a host's to make. Under the mutant the
+## show closes the menu instantly: world resumed, cursor recaptured, a panel on screen with the game
+## running behind it.
+##
+## The ordering that matters is that the SHOW comes after the open. Entering the tree fires a
+## visibility notification of its own, with [method CanvasItem.is_visible_in_tree] already true
+## (probed), and the hide below fires another — but both land while [code]_pause_menu_open[/code] is
+## still false, where every reading of the guard is a no-op. The first notification that can tell the
+## two readings apart is the one this test drives.
+func _test_showing_a_hidden_shell_does_not_close_an_open_pause_menu() -> void:
+	var root := _make_root(MKTreePausePolicy)
+	root.visible = false
+	await step_frame()
+	check(not root.is_visible_in_tree(), "precondition: the shell is in the tree and hidden")
+
+	var toggles: Array[bool] = []
+	root.pause_menu_toggled.connect(func(open: bool) -> void: toggles.append(open))
+	check(root.open_pause_menu(), "the pause menu opens on a HIDDEN shell — the pre-check reads the config, not the screen")
+	await step_frame()
+	check(get_root().get_tree().paused, "and the world is paused")
+
+	root.visible = true
+	await step_frame()
+	check(root.is_visible_in_tree(), "the host then shows the shell, which fires the same notification the hide does")
+	check(root.is_pause_menu_open(),
+		"and the menu is STILL open — the close is conditional on becoming invisible, not on the notification arriving")
+	check_eq(root.get_suspend_depth(), 1, "holding its suspension")
+	check(get_root().get_tree().paused,
+		"with the world still paused — a close here hands the player a running game under a full-screen pause panel")
+	check_eq(toggles, [true] as Array[bool],
+		"and the host heard exactly one toggle, the OPEN — no toggle(false) chased it")
+
+	root.close_pause_menu()
 	root.free()
 	await step_frame()
 
@@ -1150,20 +1228,46 @@ func _clean() -> void:
 
 
 ## Records the two application-level actions the pause page can reach, so "Quit to Menu called
-## to_main_menu" is distinguishable from "it called quit".
+## to_main_menu" is distinguishable from "it called quit" — and records the world state AT THE MOMENT
+## [method to_main_menu] ran, which is the only way to assert the word "before".
+##
+## Counts alone cannot: after the press, the page has both closed the menu and called the backend, so
+## the same final state (unpaused, depth 0) is produced by either order. This spy is a real backend
+## node parented into the shell, so [method Node.get_tree] answers the same tree the policy pauses;
+## the shell's own counters arrive through [member shell_probe], because a backend has no typed handle
+## on the root above it.
+##
+## The reset sentinels are the FAILING values (paused, open, depth unknown), so a spy that never
+## captured anything fails the assertions rather than passing them by default.
 class QuitSpy extends MKMenuBackend:
 	static var to_menu := 0
 	static var quits := 0
+	static var paused_at_call := true
+	static var pause_open_at_call := true
+	static var suspend_depth_at_call := -1
+	## Set by the test to a `func() -> Dictionary` reading the live shell. Left empty by the tests that
+	## only count calls.
+	static var shell_probe := Callable()
 
 	static func reset() -> void:
 		to_menu = 0
 		quits = 0
+		paused_at_call = true
+		pause_open_at_call = true
+		suspend_depth_at_call = -1
+		shell_probe = Callable()
 
 	func start_game(_profile: Dictionary) -> void:
 		pass
 
 	func to_main_menu() -> void:
 		to_menu += 1
+		var tree := get_tree()
+		paused_at_call = tree == null or tree.paused
+		if shell_probe.is_valid():
+			var state: Dictionary = shell_probe.call()
+			pause_open_at_call = bool(state.get("pause_menu_open", true))
+			suspend_depth_at_call = int(state.get("suspend_depth", -1))
 
 	func quit() -> void:
 		quits += 1
