@@ -100,6 +100,28 @@ func _ready() -> void:
 	_boot_brightness()
 
 
+## Flushes the store this node owns. [b]This is what makes settings survive a relaunch.[/b]
+##
+## [method MKSettingsBackend.save] had no production caller anywhere: every panel write reached
+## [method MKSettingsBackend.set_value], the value applied immediately and lived in memory, and the
+## process then ended without ever writing the file. The symptom is the one §4.2's whole
+## single-instance argument is about — "my settings don't stick" — with no bad handle to blame.
+##
+## Exit is the right moment rather than every write: a slider drag would otherwise rewrite the file
+## per tick, and this node is an autoload, so its exit is the process's exit. That last step is
+## measured, not assumed: a node left parented to the root when [method SceneTree.quit] runs receives
+## [constant Node.NOTIFICATION_EXIT_TREE] before it is deleted (probed on 4.7 — shutdown frees the
+## root through the tree, so autoloads exit it rather than being dropped where they stand). A host
+## wanting an earlier flush calls [method MKSettingsBackend.save] itself; nothing here prevents it.
+##
+## Guarded on validity because the backend is a child and children exit BEFORE their parent — it is
+## out of the tree by now, but not freed, which is exactly the state a flush needs (the write touches
+## the filesystem, not the tree).
+func _exit_tree() -> void:
+	if _backend != null and is_instance_valid(_backend):
+		_backend.save()
+
+
 ## The live [MKBrightnessController], or null when none was created (no config resolved, or
 ## [code]MKConfig.manage_brightness[/code] false). [b][MKRoot] calls exactly this name[/b] to detect
 ## that brightness is already owned and skip building its own standalone controller — two

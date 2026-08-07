@@ -41,13 +41,20 @@ func run_tests() -> void:
 	await _test_quit_to_menu_calls_the_backend()
 	await _test_quit_to_menu_without_a_backend_warns_once()
 	await _test_a_second_open_is_refused()
-	await _test_open_without_a_pause_page_unwinds_everything()
+	await _test_open_without_a_pause_page_refuses_without_touching_anything()
 	await _test_open_with_a_sceneless_pause_page_refuses_before_suspending()
 	await _test_the_nav_bar_is_hidden_while_the_pause_menu_is_open()
 	await _test_escape_on_a_foreign_page_recovers_to_the_pause_page()
 	await _test_close_pause_menu_clears_a_stacked_modal()
 	await _test_show_backdrop_gates_the_backdrop_layer()
 	await _test_a_hidden_shell_consumes_nothing()
+	await _test_a_lost_recovery_target_resumes_rather_than_freezing()
+	await _test_a_hidden_shell_does_not_focus_an_invisible_nav_tab()
+	await _test_diagnostics_carry_the_pause_page_id_and_it_clears_on_close()
+	await _test_close_clears_the_back_stack_left_by_a_pause_sub_panel()
+	await _test_close_restores_the_nav_bar_the_host_had_hidden()
+	await _test_quit_to_menu_unwinds_the_pause_before_the_backend_runs()
+	await _test_hiding_the_shell_closes_the_pause_menu()
 	_clean()
 
 
@@ -393,9 +400,9 @@ func _test_settings_from_pause_pushes_and_escape_walks_back() -> void:
 	await step_frame()
 
 
-## Quit to Menu calls [method MKMenuBackend.to_main_menu] and nothing else — no confirm dialog, and
-## no pre-emptive close (the teardown of a paused world is MKRoot's and the policy's exit-tree
-## contract, and a close here would be a second, differently-ordered unwind).
+## Quit to Menu calls [method MKMenuBackend.to_main_menu] exactly once, and raises no confirm dialog.
+## The close that now precedes the backend call is the NEXT test's subject; here it is asserted only
+## as the state the page leaves behind, so this test keeps measuring the backend contract.
 func _test_quit_to_menu_calls_the_backend() -> void:
 	QuitSpy.reset()
 	var config := _shipped_config()
@@ -414,8 +421,8 @@ func _test_quit_to_menu_calls_the_backend() -> void:
 	check_eq(QuitSpy.to_menu, 1, "pressing it called to_main_menu exactly once")
 	check_eq(QuitSpy.quits, 0, "and never quit the application — quit-to-menu is not quit-to-desktop")
 	check_eq(root.get_modal_layer().depth(), 0, "with no confirmation dialog in the way")
-	check(root.is_pause_menu_open(),
-		"and the page did not pre-empt the scene change with a close of its own — the unwind belongs to teardown")
+	check(not root.is_pause_menu_open(),
+		"and the page unwound the pause on its way out — change_scene_to_file is deferred, so leaning on teardown was never safe and is impossible for a backend that swaps no scene")
 
 	root.free()
 	await step_frame()
@@ -470,10 +477,11 @@ func _test_a_second_open_is_refused() -> void:
 
 ## A config with no "pause" page must leave nothing behind. Since the pre-check moved ahead of the
 ## suspension there is nothing to unwind — the assertions below say so in both directions: depth zero
-## AND the policy never told anything at all. The post-_show_page unwind still exists for other
-## failures and is not what this test measures any more.
+## AND the policy never told anything at all. There is no post-[code]_show_page[/code] unwind left to
+## measure: under the pre-check that call cannot report failure, so the branch that used to undo it
+## was deleted as unreachable.
 ## Suspending the world to display nothing is strictly worse than not pausing.
-func _test_open_without_a_pause_page_unwinds_everything() -> void:
+func _test_open_without_a_pause_page_refuses_without_touching_anything() -> void:
 	CountingSpy.reset()
 	var config := MKConfig.new()
 	config.palette = load("res://addons/menu_kit/themes/default_palette.tres")
@@ -678,6 +686,227 @@ func _test_a_hidden_shell_consumes_nothing() -> void:
 	await step_frame()
 
 
+## The recovery rung's own failure case. The rung answers Escape on a foreign page by navigating BACK
+## to the recorded pause page — but that page can be gone by then: a host that removes the def, or
+## swaps the config, while the menu is open. The rung then discarded a false return and did nothing,
+## which is the one unrecoverable answer available: the press is consumed (the ladder always consumes
+## ui_cancel), so EVERY later Escape lands in the same branch and does the same nothing, with the
+## world suspended and the cursor free forever.
+##
+## Resuming is the decision: a running game with a warning in the log beats a frozen one with no exit.
+func _test_a_lost_recovery_target_resumes_rather_than_freezing() -> void:
+	var root := _make_root(MKTreePausePolicy)
+	await step_frame()
+	check(root.open_pause_menu(), "paused, on the pause page")
+	await step_frame()
+	root.go_to_page(&"only")
+	await step_frame()
+	check_eq(root.get_page_id(), &"only", "the host navigated the shell off the pause page while paused")
+
+	# The fixture builds a config of its own per shell, so removing the def mutates nothing shared.
+	# This is the state a host reaches by editing config.pages or repointing the resource mid-pause.
+	var doomed := root.config.get_page(&"pause")
+	check(doomed != null, "precondition: the pause page def exists before it is removed")
+	root.config.pages.erase(doomed)
+	check(root.config.get_page(&"pause") == null, "and it is gone from the config the shell holds")
+
+	check(_cancel(root), "Escape is consumed, as every ladder press is")
+	check(not root.is_pause_menu_open(),
+		"and with no page left to recover to, the rung RESUMES rather than consuming the gesture forever")
+	check_eq(root.get_suspend_depth(), 0, "the suspension unwound")
+	check(not get_root().get_tree().paused,
+		"the world is running again — the alternative is a permanently paused game whose every Escape is swallowed by a branch that cannot act")
+	check_eq(root.get_back_depth(), 0, "with nothing left on the back stack")
+
+	root.free()
+	await step_frame()
+
+
+## The focus fallback measures the TREE, not the local flag.
+##
+## The in-game configuration parks this shell hidden inside the game scene, and a hidden ANCESTOR
+## leaves the nav bar's own [member CanvasItem.visible] true — so the flag-only guard passed and the
+## deferred focus pass landed on a nav tab nobody could see (probed: MKNavTab_welcome held focus on a
+## shell booted with visible = false). The first input a player made then activated an invisible tab.
+##
+## Both halves are asserted, because the second is what makes the first non-vacuous: the bar really is
+## flag-visible, and really is not visible in the tree.
+func _test_a_hidden_shell_does_not_focus_an_invisible_nav_tab() -> void:
+	var root := MKRoot.new()
+	root.config = _shipped_config()
+	root.host_content_process_mode = Node.PROCESS_MODE_ALWAYS
+	root.show_backdrop = false
+	# Hidden BEFORE it enters the tree, so the whole boot — including the deferred focus pass — runs in
+	# the state the demo game scene boots its shell in.
+	root.visible = false
+	get_root().add_child(root)
+	await step_frame()
+	await step_frame()
+
+	var nav := _find_nav_bar(root)
+	check(nav != null, "the shell built a nav bar")
+	if nav != null:
+		check(nav.visible,
+			"whose own visible flag is TRUE — the ancestor is what hides it, which is why the flag-only guard passed")
+		check(not nav.is_visible_in_tree(), "while the tree-wide answer is false")
+	var owner := root.get_viewport().gui_get_focus_owner()
+	check(owner == null or not String(owner.name).begins_with("MKNavTab"),
+		"and nothing focused a nav tab: focus on a control nobody can see hands the player's next input to an invisible Start Game")
+
+	root.free()
+	await step_frame()
+
+
+## [code]_pause_page_id[/code] must be empty whenever the pause menu is closed — an invariant its own
+## field doc states and nothing could observe, because the member is private and no accessor exposes
+## it. Putting it on the diagnostics pause line answers both needs at once: a bug report can now
+## distinguish "paused, on the pause page" from "paused, navigated elsewhere", and this test can read
+## the invariant through the shipped surface rather than through a seam added for it.
+func _test_diagnostics_carry_the_pause_page_id_and_it_clears_on_close() -> void:
+	var root := _make_root(MKTreePausePolicy)
+	await step_frame()
+	check(root.open_pause_menu(), "opened")
+	await step_frame()
+	check_eq(_diagnostic_pause_page_id(root), "pause",
+		"the dump names the page open_pause_menu navigated to")
+	check(root.dump_diagnostics().contains("pause_menu_open: true"), "alongside the flag it qualifies")
+
+	root.close_pause_menu()
+	await step_frame()
+	check_eq(_diagnostic_pause_page_id(root), "",
+		"and the close CLEARS it — a stale id would make the ladder's recovery rung navigate to a page nobody asked for the next time the flag went true")
+	check(root.dump_diagnostics().contains("pause_menu_open: false"), "with the flag down")
+
+	root.free()
+	await step_frame()
+
+
+## Closing clears the back stack, and the asymmetry it fixes is a real gesture: pause, open a
+## sub-panel from the pause page, resume from the host (Resume, the ladder, or a quit). The return
+## address to the pause page survived the close, so the player's NEXT Escape — meant as "pause the
+## game" — popped the stack instead and drew the pause page over a running world, with the resume rung
+## unreachable because the flag was false.
+func _test_close_clears_the_back_stack_left_by_a_pause_sub_panel() -> void:
+	var root := _make_root(MKTreePausePolicy)
+	await step_frame()
+	check(root.open_pause_menu(), "paused, on the pause page")
+	await step_frame()
+	root.push_page(&"only")
+	await step_frame()
+	check_eq(root.get_back_depth(), 1, "precondition: a pause sub-navigation left a return address")
+
+	root.close_pause_menu()
+	await step_frame()
+	check_eq(root.get_back_depth(), 0,
+		"the close clears it — a return address into a shell that is about to be hidden is not worth keeping")
+	check(not root.is_pause_menu_open(), "and the menu is closed")
+
+	check(_cancel(root), "the next Escape is consumed")
+	check(root.get_page_id() != &"pause",
+		"and does NOT land on the pause page: with the stale address gone there is nothing to pop, so the gesture reaches the root rung instead of drawing a pause panel over a running game")
+	check(not get_root().get_tree().paused, "and the world is still running")
+	root.get_modal_layer().pop_all()
+	await step_frame()
+
+	root.free()
+	await step_frame()
+
+
+## The nav bar is RESTORED, not asserted true. A host is entitled to run the shell with the bar
+## hidden — a single-page shell, or its own chrome — and an unconditional [code]visible = true[/code]
+## on close made the pause gesture a way to summon a strip the host had deliberately hidden, which no
+## host gesture could then put back (nothing else writes that node).
+func _test_close_restores_the_nav_bar_the_host_had_hidden() -> void:
+	var root := _make_shipped_root()
+	await step_frame()
+	var nav := _find_nav_bar(root)
+	check(nav != null, "the shell built a nav bar")
+	if nav == null:
+		root.free()
+		await step_frame()
+		return
+	nav.visible = false
+	check(root.open_pause_menu(), "the pause menu opened over a shell whose host had hidden the bar")
+	await step_frame()
+	check(not nav.visible, "the bar is hidden while paused, as it is for every open")
+
+	root.close_pause_menu()
+	await step_frame()
+	check(not nav.visible,
+		"and STILL hidden after the close — the close restores what open found, rather than showing a strip the host hid")
+
+	root.free()
+	await step_frame()
+
+
+## Quit to Menu unwinds the pause before the backend runs.
+##
+## The page used to hand the whole unwind to teardown on the argument that
+## [method SceneTree.change_scene_to_file] frees everything mid-call. It does not: the scene change is
+## DEFERRED, so the call returns with the shell alive. And a backend need not change scene at all — an
+## in-place state machine, a fade — in which case nothing is ever torn down and the world stays paused
+## with a free cursor and a suspension counter nobody will unwind. The spy below is exactly that
+## backend: it records the call and changes no scene.
+func _test_quit_to_menu_unwinds_the_pause_before_the_backend_runs() -> void:
+	QuitSpy.reset()
+	var config := _shipped_config()
+	var slot := MKBackendSlot.new()
+	slot.backend_script = QuitSpy
+	config.menu_backend = slot
+	var root := _make_root_with(config)
+	await step_frame()
+	var nav := _find_nav_bar(root)
+	check(root.open_pause_menu(), "opened")
+	await step_frame()
+	check(get_root().get_tree().paused, "with the world paused")
+
+	var quit := _find_pause_button(root, "QuitToMenu")
+	check(quit != null, "the page exposes a Quit to Menu button")
+	if quit != null:
+		await _activate(quit)
+
+	check_eq(QuitSpy.to_menu, 1, "the backend was still called exactly once")
+	check(not root.is_pause_menu_open(), "and the pause menu closed itself first")
+	check_eq(root.get_suspend_depth(), 0, "the suspension unwound")
+	check(not get_root().get_tree().paused,
+		"so a backend that changes NO scene leaves a running world rather than a permanently frozen one")
+	check(nav == null or nav.visible, "with the shell's chrome restored")
+
+	root.free()
+	await step_frame()
+
+
+## Hiding the shell IS closing the pause menu. The documented in-game gesture is
+## [code]visible = open[/code] on a shell parked in the game scene, and a host that hides it directly —
+## a cutscene, a death screen, its own menu key — otherwise stranded the suspension: world paused,
+## cursor free, counter at one, and no surface on screen to unwind it from.
+##
+## No feedback loop is possible in either direction, which the demo's own handler is the proof of: it
+## hides in RESPONSE to a close, by which time the flag is already false and the notification is a
+## no-op, and it shows BEFORE an open, when the flag is false as well.
+func _test_hiding_the_shell_closes_the_pause_menu() -> void:
+	var root := _make_root(MKTreePausePolicy)
+	await step_frame()
+	check(root.open_pause_menu(), "the pause menu opened on a visible shell")
+	await step_frame()
+	check(get_root().get_tree().paused, "and the world is paused")
+
+	var toggles: Array[bool] = []
+	root.pause_menu_toggled.connect(func(open: bool) -> void: toggles.append(open))
+	root.hide()
+	await step_frame()
+
+	check(not root.is_pause_menu_open(), "hiding the shell closed the pause menu")
+	check_eq(root.get_suspend_depth(), 0, "dropping the suspension it was holding")
+	check(not get_root().get_tree().paused,
+		"and resuming the world — otherwise a host that hides its shell freezes the game with nothing on screen to unfreeze it")
+	check_eq(toggles, [false] as Array[bool],
+		"the host hears exactly one toggle(false), so its own `visible = open` handler re-hides an already hidden shell and stops there — no loop")
+
+	root.free()
+	await step_frame()
+
+
 # --- Fixtures -----------------------------------------------------------------
 
 ## A lean shell carrying the SHIPPED pause page under the given policy. [param page_mode] defaults to
@@ -796,6 +1025,25 @@ func _find_typed(node: Node, class_id: String) -> Node:
 		if found != null:
 			return found
 	return null
+
+
+## The [code]pause_page_id[/code] token out of [method MKRoot.dump_diagnostics], read positionally
+## between its own label and the next field's. Parsed rather than substring-matched because the value
+## under test is the EMPTY one, and "contains an empty string" is true of every string.
+func _diagnostic_pause_page_id(root: MKRoot) -> String:
+	const LABEL := "pause_page_id: "
+	const NEXT := "  mouse_mode:"
+	var dump := root.dump_diagnostics()
+	var start := dump.find(LABEL)
+	if start < 0:
+		fail("dump_diagnostics carries no pause_page_id field")
+		return "<missing>"
+	start += LABEL.length()
+	var end := dump.find(NEXT, start)
+	if end < 0:
+		fail("the pause_page_id field is not followed by mouse_mode on the same line")
+		return "<missing>"
+	return dump.substr(start, end - start)
 
 
 func _first_option(node: Node) -> OptionButton:

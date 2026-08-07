@@ -29,6 +29,8 @@ func run_tests() -> void:
 	await _test_adopt()
 	await _test_mismatch_keeps_service_instance()
 	await _test_service_resolves_from_project_setting()
+	await _test_the_service_saves_its_backend_on_exit()
+	await _test_a_standalone_root_saves_the_backend_it_built()
 
 	_restore_autoload(parked_for_suite)
 
@@ -99,6 +101,102 @@ func _test_standalone() -> void:
 		"standalone: diagnostics report that nothing was adopted")
 	root.free()
 	await step_frame()
+
+
+# --- Persistence: the file is written by SOMEBODY ------------------------------
+
+## [method MKSettingsBackend.save] had NO production caller. Every write reached
+## [method MKSettingsBackend.set_value], applied immediately, lived in memory — and the process then
+## ended without writing the file, so nothing a player changed survived a relaunch. Both owners of a
+## booted backend now flush on exit; this is the autoload half, which is the supported configuration.
+##
+## The relaunch is simulated the only honest way: a SECOND backend instance over the same path, loaded
+## from scratch. Reading the value back off the original handle would pass against a save that never
+## happened.
+func _test_the_service_saves_its_backend_on_exit() -> void:
+	const PATH := "user://test_ownership_service_save.json"
+	_remove_store(PATH)
+	var service := _install_service_at(MKJsonSettingsBackend, PATH)
+	await step_frame()
+	var backend: MKSettingsBackend = service.get_settings_backend()
+	check(backend != null, "save/service: the service booted a backend over the test path")
+	if backend == null:
+		_remove_service(service)
+		return
+	backend.set_value(&"probe/persisted", 11)
+	check(not FileAccess.file_exists(PATH),
+		"save/service: precondition — set_value alone writes nothing to disk, which is the whole defect")
+
+	# Freed immediately rather than queue_free'd: a queued node's deferred work can be dropped in a
+	# delete cascade (the handoff's §4 trap), and this test must observe _exit_tree, not race it.
+	_remove_service(service)
+	check(FileAccess.file_exists(PATH),
+		"save/service: exiting the tree wrote the store — the file existing is the proof _exit_tree ran at all")
+
+	var reloaded := _load_store(PATH)
+	check_eq(reloaded.get_value(&"probe/persisted", 0), 11,
+		"save/service: and a FRESH backend over the same path reads the value back — this is what 'settings survive a relaunch' means")
+	reloaded.free()
+	_remove_store(PATH)
+	await step_frame()
+
+
+## The standalone tier's half of the same rule (D3: no autoload). [MKRoot] saves ONLY a backend it
+## built itself — an ADOPTED one belongs to the service, which outlives every scene change, and saving
+## it from here would be a write per scene transition made by the wrong owner.
+func _test_a_standalone_root_saves_the_backend_it_built() -> void:
+	const PATH := "user://test_ownership_root_save.json"
+	_remove_store(PATH)
+	var config := _make_config(MKJsonSettingsBackend)
+	config.settings_backend.params = {"file_path": PATH}
+	var root := MKRoot.new()
+	root.config = config
+	get_root().add_child(root)
+	await step_frame()
+
+	var backend := root.get_settings_backend()
+	check(backend != null, "save/root: the standalone shell built its own backend")
+	if backend == null:
+		root.free()
+		await step_frame()
+		return
+	check(root.dump_diagnostics().contains("adopted from autoload: false"),
+		"save/root: precondition — it OWNS this one, which is what makes saving it its business")
+	backend.set_value(&"probe/persisted", 23)
+
+	root.free()
+	check(FileAccess.file_exists(PATH), "save/root: freeing the shell wrote the store")
+	var reloaded := _load_store(PATH)
+	check_eq(reloaded.get_value(&"probe/persisted", 0), 23,
+		"save/root: and the value survives into a fresh backend over the same path")
+	reloaded.free()
+	_remove_store(PATH)
+	await step_frame()
+
+
+## A cold backend over [param path], loaded — the stand-in for the next launch. Never added to the
+## tree: [method MKSettingsBackend.load] touches the filesystem, not the scene.
+func _load_store(path: String) -> MKJsonSettingsBackend:
+	var backend := MKJsonSettingsBackend.new()
+	backend._mk_configure({"file_path": path})
+	backend.load()
+	return backend
+
+
+func _remove_store(path: String) -> void:
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
+
+
+func _install_service_at(backend_script: Script, path: String) -> Node:
+	var service: Node = SERVICE_SCRIPT.new()
+	service.name = SERVICE_NAME
+	var slot := MKBackendSlot.new()
+	slot.backend_script = backend_script
+	slot.params = {"file_path": path}
+	service.override_backend_slot = slot
+	get_root().add_child(service)
+	return service
 
 
 ## Takes the registered autoload out of the tree and hands it back for restoration.

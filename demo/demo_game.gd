@@ -92,9 +92,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	# ordering.
 	_menu.visible = true
 	if not _menu.open_pause_menu():
-		# open_pause_menu unwinds its own suspension when the page id is missing, so the only thing
-		# left to undo is the visibility this line set. Without this, a config without a "pause" page
-		# leaves a fully opaque shell over the world with no way back.
+		# A refused open touched NOTHING: MKRoot pre-checks the page def and its scene before it
+		# suspends anything, so there is no suspension, no page change and no policy edge to undo —
+		# which makes this line the only cleanup there is, and what it undoes is the visibility the
+		# line above set. Without it, a config without a "pause" page leaves a fully opaque shell over
+		# the world with no way back.
 		_menu.visible = false
 	get_viewport().set_input_as_handled()
 

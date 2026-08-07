@@ -153,10 +153,23 @@ func _on_quit_pressed() -> void:
 	# three buttons and no prompt. A host wanting one wraps the backend, which is where the question
 	# "is there unsaved progress?" can actually be answered.
 	#
-	# Nothing runs after this call by design. to_main_menu is a scene change in the shipped default,
-	# which frees this page and the MKRoot above it mid-call; the pause teardown (counter zeroed,
-	# cursor visible, the policy's own _exit_tree resuming the world) is MKRoot's and the policy's
-	# exit-tree contract, not something to pre-empt with a close_pause_menu here.
+	# Close FIRST, then quit. Two facts make that the order, and both contradict this comment's
+	# previous claim that the backend frees everything mid-call:
+	# - SceneTree.change_scene_to_file is DEFERRED. The shipped MKSceneMenuBackend returns with this
+	#   page and the MKRoot above it still alive, and the swap happens at the end of the frame — so
+	#   there is no mid-call free to be careful around, and the close below runs on a live shell.
+	# - A backend need not change scene at all. A host whose to_main_menu re-uses the current scene (an
+	#   in-place state machine, a fade) never triggers MKRoot._exit_tree, and leaning on teardown left
+	#   that host with a paused world, a free cursor and a suspension counter nobody would unwind.
+	# Closing first is therefore better in both configurations: with the shipped backend the closed
+	# state is freed a frame later either way, and with a custom one it is the ONLY unwind.
+	#
+	# Duck-typed and null-tolerant for the same reason Resume's lookup is: a host may wrap the shell.
+	# A missing ancestor is not worth a warning here — the quit still happens, which is the gesture the
+	# player asked for.
+	var root := _find_ancestor_with("close_pause_menu")
+	if root != null:
+		root.call("close_pause_menu")
 	_menu_backend.to_main_menu()
 
 
