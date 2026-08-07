@@ -1,7 +1,7 @@
 # MenuKit — Build Handoff
 
-**Status:** Phases 1–6 complete and reviewed. Phase 6 (pause menu) went terminal at review
-round 7 (zero findings, cross-round mutations reproduced, mirror sweep clean).
+**Status:** Phases 1–7 complete and reviewed. Phase 7 (server browser) went terminal at review
+round 2 (zero majors; two prose minors, one fixed with the docs commit, one recorded below).
 **Repo:** `C:\GodotProjects\MenuKit` (standalone, own git history — not a Workingfile subtree)
 **HEAD:** `d59e383` (+ this docs commit)
 **Engine:** Godot 4.7 (`C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe`)
@@ -29,10 +29,23 @@ Phase 1–2 material below is carried forward unchanged where still true.
 | 4 | Rebinding: `MKRebindRow` capture widget, conflict modal, per-row + global reset, persistence, the `_input`/`_unhandled_input` priority rule, axis binding (descope valve NOT needed) | **Done.** Test leg + 2 adversarial review rounds (see the round table below) |
 | 5 | Profiles + preview: `MKJsonCodec` int envelope (the owner's int→float call), character select + delete confirm, `MKCreationHost` + Name/Archetype/Appearance/Point-buy steps, `MKPreviewViewport` (D13/F10), config-driven step ordering, demo archetypes + 3-stat schema | **Done.** Test leg + 8 adversarial review rounds (round table below; round 8 terminal) |
 | 6 | Pause menu: `mk_pause_menu` panel + the shipped `&"pause"` page in BOTH configs, `demo_game.tscn/.gd` (grey-box mouse-captured first-person), the pause-shell rules on `MKRoot` (nav hidden, page-aware ESC rung + recovery, pre-check refusal, `show_backdrop`, hide==close, recorded-nav restore, back-stack clear on close), save-on-exit for the settings store (round-2 catch: `save()` had NO production caller) | **Done.** Test leg + 7 adversarial review rounds (round table below; round 7 terminal) |
-| 7–9 | Server browser, input polish, handoff | Not started |
+| 7 | Server browser: `mk_server_browser` panel (every ConnectState rendered with its message — there is NO TIMEOUT enum member, "timeout" is FAILED + "Connection timed out."), demo Servers page, `servers_rig`, the `_recover_focus` seam (focus loss on rebuild/disable-under-ring), render-after-resolve (the status line lied for any backend without the stub-only `get_connect_state`) | **Done.** Test leg + 2 review rounds (round table below; round 2 terminal) |
+| 8–9 | Input polish, comment diet (8a), handoff | Not started |
 
-**Current metrics:** 107 compiled scripts/scenes, 22 test suites, gate:
-`compile=pass smokes=22/22 isolation=pass exit=0`.
+**Current metrics:** 111 compiled scripts/scenes, 23 test suites, gate:
+`compile=pass smokes=23/23 isolation=pass exit=0`.
+
+### Phase 7 defect-count table
+
+| Stage | Majors | Notes |
+|---|---|---|
+| Test leg | 1 | 98 assertions; found the stranded focus ring (a focused Cancel press disables the button under its own ring) — pinned, not endorsed, per its comment |
+| Round 1 | 3 | The pin upheld as MAJOR (not deferrable to Phase 8 — a dead accept on the page's primary flow); refresh freed a focused row leaving GUI focus on NULL (probe: keyboard dead); the status line rendered "No network backend is configured." over a live list for any host backend lacking the stub-only `get_connect_state` (_build rendered before _resolve). Plus 4 surviving mutations, all converted to tests |
+| Round 2 | 0 | **TERMINAL** — 3/3 re-runs red, 3/4 new mutations caught (the fourth argued harmless: a deliberately unreachable branch whose comment declares itself "the rule, not a prediction"); claim-family sweep clean; both arbitrations settled (fixed recovery order kept; the `_ready` double-grab probed, one benign backendless divergence found) |
+
+Majors per stage: **1 → 3 → 0.** The three round-1 majors shared ONE fix seam (`_recover_focus`),
+which is the phase's lesson: when a review finds a family of failures (null focus, disabled-under-
+ring, flip variants), hunt the shared mechanism before writing three fixes.
 
 ### Phase 6 defect-count table (test leg, then review rounds)
 
@@ -94,6 +107,10 @@ against an empty project (Audio Master-only, Controls no-KEYBIND — the §3.1 i
 ### Commit history (each review round its own commit, deliberately)
 
 ```
+29fa619 fix(phase7): act on the first review; the ring learns where the living buttons are
+fbd9561 test(phase7): the dedicated suite; the stranded focus ring is pinned, not endorsed
+ef94157 feat(phase7): server browser — a list that admits what it is
+c59eb0b docs: Phase 6 build handoff — terminal at round seven, five mirrors down
 d59e383 fix(phase6): act on the sixth review; the fourth and fifth mirrors
 87cd5d7 fix(phase6): act on the fifth review; the third mirror
 cecbcf2 fix(phase6): act on the fourth review; the ancestor and the shell are not the same node
@@ -284,6 +301,24 @@ Phase 6 additions:
 - **`git checkout -- <file>` during inline mutation testing restores HEAD, not your working
   state** — it wiped the integrator's own uncommitted fixes in the same file as the mutation.
   Mutate only files with no pending edits, or stash/re-apply deliberately.
+
+Phase 7 additions:
+
+- **Godot auto-disconnects a freed node's method-bound signal connections** — a backend
+  SceneTreeTimer resolving after its subscribed panel was freed emits into nothing, zero errors
+  (probed). Page-per-navigation panels can therefore subscribe plainly; the cost is state RESYNC
+  on re-entry, which is what the browser's `get_connect_state` duck-typed seed exists for.
+- **A capture rig's `wait_frames` is refresh-rate arithmetic, not time** — frames elapse at the
+  display's Hz, so a 60 Hz-sized wait silently under-waits on 144/165 Hz panels and inverts any
+  "the shot shows the resolved state" guarantee. Size rig waits for the fastest common display
+  and say so (`capture_scene.gd` can only RAISE a rig's wait, never cap it). `characters_rig.gd`
+  carries the same softness — Phase 8a sweep item.
+- **`gui_get_focus_owner()` goes NULL when the focused control is freed** (a rebuild that frees
+  rows kills keyboard/gamepad outright), and a control DISABLED under its own ring keeps focus
+  while eating accepts. Any panel that rebuilds or flips enablement needs a recovery seam;
+  `MKServerBrowser._recover_focus` is the worked example (recover only when the owner is null,
+  freed, or disabled INSIDE the panel — never steal live outside focus; `MKModalLayer`'s
+  focus-pullback makes stray grabs under a modal self-correcting).
 
 ---
 
@@ -521,6 +556,22 @@ Phase 6 open items:
 - **Save-on-exit loses a crashed session's writes** — accepted; must appear in the Phase 9
   CHANGELOG/INTEGRATION persistence notes alongside the format statement.
 
+Phase 7 open items:
+
+- **Re-entering the servers page mid-connect selects row 0, not the in-flight server** (round-2
+  nit). Connect is disabled so no mis-connect is possible; cross-page selection persistence was
+  never claimed. Recorded, not scheduled.
+- **The seeded mid-flight status is caption-only** (no message accessor on the abstract base) —
+  documented on the class; Phase 9 may add `get_connect_message()` if the API review wants it.
+- **Commit 29fa619's message claims "same end state" for the `_ready` double-grab** — round 2
+  probed one benign divergence on the backendless path (final owner Refresh, not Connect). The
+  commit message is immutable; this line is the correction of record.
+- **`characters_rig.gd` carries the frames-vs-Hz softness** servers_rig had corrected — Phase 8a
+  comment sweep item.
+- **Backendless Cancel is deliberately LIVE** (reaches the naming warn like Connect) — now
+  documented and tested; noted here because it reads as an oversight until the carve-out comment
+  is found.
+
 ## 6a. Human-only checklist (Phase 3 items requiring F5 / a display / a controller)
 
 1. **Brightness (gate 4c preview):** cold-drop or demo boot with a display — drag the slider,
@@ -597,17 +648,24 @@ proxies; these rows ARE the row-6 mouse-capture evidence):
 
 ---
 
-## 7. Next step: Phase 7 — server browser
+## 7. Next step: Phase 8 — input polish, then 8a — comment diet
 
-Per the plan's §5 row 7: the optional panel + `MKStubNetworkBackend` connect-state UI. The
-exit criteria are short: the panel is ABSENT under `default_config.tres` (whose network slot
-ships empty — §3.1's cold-drop first impression), and present under the demo config's stub
-slot with list/refresh/connect/cancel/error/timeout all rendering. Most of the machinery
-exists: `MKStubNetworkBackend` shipped in Phase 2 (fake list, `connect_delay` param already
-in the demo slot), the slot plumbing is §4.1, and the panel is `mk_server_browser.tscn/.gd`
-in the §3 layout. Watch the §3.1 rule: the panel is a new shipped file — its gate 1/gate 2
-row must be added in the same slice. Sized 2–3 days in the plan; the Phase 6 shape (small
-feature, big review surface) suggests budgeting the review rounds, not the build.
+Phase 8 (plan row 8): focus-ring styling, device-aware glyphs (`mk_input_glyphs.gd` in the §3
+layout — does not exist yet; original placeholder art only), cross-panel focus audit; exit =
+full demo completable gamepad-only AND keyboard-only. The deferred visual debt lives in §6
+above and is Phase 8's natural worklist: the binding-button column raggedness, the invisible
+unchecked CheckBox, the empty-roster alignment, the slider/enum ~28px drift, the quit-confirm
+destructive default focus, the welcome-page copy. The §4.7 note stands: every panel already
+passed keyboard-only traversal at its own phase gate, so Phase 8 is polish and the input
+MATRIX, not first-time wiring. Much of the matrix is un-headless — expect a §6a checklist
+growth, not just tests.
+
+Phase 8a (plan row 8a / §4.4a): strip construction-era comments to shipped density. The gate
+is TOKEN-LEVEL: comment-stripped before/after of every .gd must be IDENTICAL (script it in
+tools/), zero authored comments in .tres/project.godot, displaced host knowledge staged for
+the Phase 9 docs, maintainer knowledge into THIS file, one adversarial round asking "did any
+deleted comment carry a constraint the code cannot show". The §6/§4 sections above are the
+receiving vessels — write them BEFORE deleting, not after.
 
 ### The completed Phase 6, for reference
 

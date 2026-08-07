@@ -22,12 +22,12 @@ extends RefCounted
 ## Frames, not seconds — the rig API has no other unit, so this count only means "~1.4s" at an assumed
 ## 60 Hz and the assumption is the contract's weak point: at 144 Hz a 60 Hz-sized wait elapses before
 ## the connect resolves and the "resolved caption" guarantee above silently inverts into a CONNECTING
-## shot, with nothing failing to say so. Sized for the worst common case instead: 1.4s × 144 ≈ 202,
-## rounded up. Faster displays than that (240 Hz) would need it raised again; an over-long wait costs
-## only capture seconds, which is why the count is set by the fastest display rather than the typical
-## one.
+## shot, with nothing failing to say so. Sized for the fastest COMMON refresh rates: 1.4s × 165 ≈ 231,
+## rounded up (144 Hz needs 202; 165 Hz panels are at least as common). 240 Hz would need ~340 and is
+## the stated exception; an over-long wait costs only capture seconds, which is why the count is set
+## by the fastest common display rather than the typical one.
 func wait_frames() -> int:
-	return 220
+	return 240
 
 
 func setup(node: Node, tree: SceneTree) -> void:
