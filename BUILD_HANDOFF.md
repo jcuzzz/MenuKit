@@ -1,7 +1,9 @@
 # MenuKit — Build Handoff
 
-**Status:** Phases 1–8 complete and reviewed. Phase 8 (input polish) went terminal at review
-round 2 (zero new findings; spot-checks reproduced; the link_chain redundancy arbitrated KEEP).
+**Status:** Phases 1–8a complete and reviewed. Phase 8a (comment diet) passed terminal at its
+single mandated round: provably comment-only at the token level (90/90 files identical through
+the stripper, baseline independently re-derived from the pre-diet commit), no deleted comment
+carried a constraint that survives nowhere.
 **Repo:** `C:\GodotProjects\MenuKit` (standalone, own git history — not a Workingfile subtree)
 **HEAD:** `d59e383` (+ this docs commit)
 **Engine:** Godot 4.7 (`C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe`)
@@ -31,7 +33,8 @@ Phase 1–2 material below is carried forward unchanged where still true.
 | 6 | Pause menu: `mk_pause_menu` panel + the shipped `&"pause"` page in BOTH configs, `demo_game.tscn/.gd` (grey-box mouse-captured first-person), the pause-shell rules on `MKRoot` (nav hidden, page-aware ESC rung + recovery, pre-check refusal, `show_backdrop`, hide==close, recorded-nav restore, back-stack clear on close), save-on-exit for the settings store (round-2 catch: `save()` had NO production caller) | **Done.** Test leg + 7 adversarial review rounds (round table below; round 7 terminal) |
 | 7 | Server browser: `mk_server_browser` panel (every ConnectState rendered with its message — there is NO TIMEOUT enum member, "timeout" is FAILED + "Connection timed out."), demo Servers page, `servers_rig`, the `_recover_focus` seam (focus loss on rebuild/disable-under-ring), render-after-resolve (the status line lied for any backend without the stub-only `get_connect_state`) | **Done.** Test leg + 2 review rounds (round table below; round 2 terminal) |
 | 8 | Input polish: `MKInputGlyphs` (device-aware prompt vocabulary, hoisted from the rebind row; panel-owned tracker with a DETERMINISTIC dispatch-order contract), the §6 visual debt closed (binding column, label-column FILL, palette-generated CheckBox glyphs, CheckBox/CheckButton focus boxes), destructive dialogs open on Cancel by TREE ORDER, welcome copy, empty-roster geometry, select-panel focus recovery | **Done.** Test leg + 2 review rounds (table below; round 2 terminal) |
-| 8a–9 | Comment diet, handoff | Not started |
+| 8a | Comment diet: ~711 comment lines out across three parallel legs; `tools/comment_diff.ps1` (string-aware stripper + SHA manifest) is the gate and reported IDENTICAL; 64 authored `;` lines out of `.tres`/`.tscn` (the rule covers BOTH — learned this phase); displaced knowledge staged in `docs/phase9_staging/*.md` (59 host bullets + 24 handoff candidates) | **Done.** One adversarial round (mandated), PASS: zero lost constraints, two NITs (one fixed with the docs commit, the D-id glossary owed to Phase 9's docs) |
+| 9 | Polish & handoff | Not started |
 
 **Current metrics:** 113 compiled scripts/scenes, 24 test suites, gate:
 `compile=pass smokes=24/24 isolation=pass exit=0`.
@@ -122,6 +125,9 @@ against an empty project (Audio Master-only, Controls no-KEYBIND — the §3.1 i
 ### Commit history (each review round its own commit, deliberately)
 
 ```
+aed6ecb refactor(phase8a): the comment diet — the argument leaves, the constraint stays
+0b1451f chore(phase8a): the token gate — a cleanup that changes one token is not a cleanup
+49e0b8e docs: Phase 8 build handoff — terminal at round two; one contract, one guarantor
 cb37ec3 fix(phase8): act on the first review; the tracker's place in line is now a rule
 44b95f1 test(phase8): the dedicated suites; the pad-legend branch was never alive
 b46fa96 feat(phase8): input polish — the vocabulary, the column, and the ring on Cancel
@@ -707,23 +713,17 @@ Phase 8 items (the row-8 exit criterion is itself a manual matrix):
 
 ---
 
-## 7. Next step: Phase 8a — comment diet, then Phase 9 — polish & handoff
+## 7. Next step: Phase 9 — polish & handoff
 
-Phase 8a (plan row 8a / §4.4a): strip construction-era comments to shipped density. The gate
-is TOKEN-LEVEL: comment-stripped before/after of every .gd must be IDENTICAL (script it in
-tools/), zero authored comments in .tres/project.godot, displaced host knowledge staged for
-the Phase 9 docs, maintainer knowledge into THIS file, one adversarial round asking "did any
-deleted comment carry a constraint the code cannot show". The §6/§4 sections above are the
-receiving vessels — write them BEFORE deleting, not after. Two comments the diet must NOT
-flatten below their constraint: the MKInputGlyphs dispatch-order contract paragraph (it is the
-single source three sites reference) and the CheckBox-glyph "why the fix lives in the Theme"
-rationale (its forbidden-token-in-prose note is what keeps the isolation scan story sane).
-
-Phase 9 (plan row 9 + §6): alt skin under demo/alt_skin/ proving re-theme (gate 3), the five
-docs (INTEGRATION/THEMING/API/SETTINGS_SCHEMA/CREATION_STEPS), README, CHANGELOG 0.1.0 (the §6
-initial-format statement list: input event device field, __mk_type int tag + discriminator
-refusal, trimmed names, newer-store latch, save-on-exit crash caveat), MKVersion/plugin.cfg/tag
-agreement (gate 10), and the 13 ship gates — several need a display/editor session (§6a).
+Plan row 9 + §6: alt skin under demo/alt_skin/ proving re-theme (gate 3), the five docs
+(INTEGRATION/THEMING/API/SETTINGS_SCHEMA/CREATION_STEPS — the raw material is
+docs/phase9_staging/*.md, 59 host bullets written for exactly this), README, CHANGELOG 0.1.0
+(the §6 initial-format statement list: input event device field, __mk_type int tag +
+discriminator refusal, trimmed names, newer-store latch, save-on-exit crash caveat), a D-id
+glossary (the 8a NIT), MKVersion/plugin.cfg/tag agreement (gate 10), the characters_rig frame
+count (60 Hz-shaped, token change deferred out of 8a), and the 13 ship gates — automate what
+can be (gate 2's cold drop is scriptable: copy addons/ into a temp empty project, boot
+headless, assert zero errors/warnings), stage the display/editor gates in §6a.
 
 ### The completed Phase 6, for reference
 

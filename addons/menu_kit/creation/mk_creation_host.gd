@@ -88,7 +88,7 @@ var _schema: MKStatSchema
 ## The shared payload. Never read for meaning, only merged and handed over.
 var _payload: Dictionary = {}
 ## Payload key -> the [MKCreationStepDef] that claimed it, for the duplicate-key assertion and for the
-## F8 archetype-default check.
+## archetype-default check.
 var _owned_by: Dictionary = {}
 ## Keys the CURRENT archetype's defaults seeded, so re-choosing clears exactly what the previous choice
 ## put in and nothing else. Erasing the whole payload instead would take the player's typed name with
