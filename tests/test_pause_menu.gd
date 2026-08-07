@@ -1,0 +1,730 @@
+extends MKTest
+## The Phase 6 pause shell: the shipped [MKPauseMenu] page over a real [MKRoot] (plan §5 row 6).
+##
+## [b]Every mechanism here is exercised against the SHIPPED assets at least once[/b] —
+## [code]mk_pause_menu.tscn[/code] is the page in every fixture, and the button/ladder tests run on
+## [code]default_config.tres[/code] (duplicated only where a slot has to be swapped), so a page id or
+## a slot that drifts in the shipped resource fails here rather than in a host's project. The demo
+## game scene has its own suite ([code]test_demo_game.gd[/code]); this one is the addon half.
+##
+## [b]Gestures, not widget pokes.[/b] Buttons are activated by focusing them and pushing a real
+## [code]ui_accept[/code] press/release through the viewport (the [code]test_character_select[/code]
+## idiom), and every Escape is a pushed [code]ui_cancel[/code] through
+## [method Node._unhandled_input] — the precedence ladder is the thing under test, and calling
+## [method MKRoot.close_pause_menu] directly would prove nothing about it.
+##
+## What is deliberately NOT re-asserted here: the policy edge calls, the [code]can_pause[/code] false
+## branch and the teardown unwind on a synthetic root ([code]test_pause_policy.gd[/code]), and the
+## [method MKRoot._modal_should_suspend] mouse-mode matrix ([code]test_navigation.gd[/code]). The new
+## angle on suspension below is the [i]policy[/i] edge under a modal-over-pause, which neither covers.
+
+const SERVICE_NAME := "MKSettingsService"
+const SERVICE_SCRIPT := preload("res://addons/menu_kit/core/mk_settings_service.gd")
+const SHIPPED_CONFIG := "res://addons/menu_kit/default_config.tres"
+const PAUSE_PAGE_SCENE := "res://addons/menu_kit/panels/mk_pause_menu.tscn"
+const STORE_PATH := "user://test_pause_menu.json"
+
+## Messages seen by [member MKLog.observer] while a test has it installed.
+var _log_lines: Array[String] = []
+
+
+func run_tests() -> void:
+	_clean()
+	await _test_one_settings_backend_serves_both_shells()
+	await _test_countdown_from_pause_reverts_while_the_tree_is_paused()
+	await _test_a_preview_under_a_paused_page_does_not_animate()
+	await _test_the_pause_page_is_input_live_only_because_the_host_says_ALWAYS()
+	await _test_a_modal_over_pause_never_reaches_the_policy_exit_edge()
+	await _test_resume_button_closes_the_menu()
+	await _test_settings_from_pause_pushes_and_escape_walks_back()
+	await _test_quit_to_menu_calls_the_backend()
+	await _test_quit_to_menu_without_a_backend_warns_once()
+	await _test_a_second_open_is_refused()
+	await _test_open_without_a_pause_page_unwinds_everything()
+	await _test_a_hidden_shell_consumes_nothing()
+	_clean()
+
+
+# --- One store ----------------------------------------------------------------
+
+## Row 6's first clause: "Settings opened from pause writes the same store as the main menu — ONE
+## backend instance".
+##
+## The shipped adoption path is the subject, so the fixture mounts a real [code]MKSettingsService[/code]
+## at the path [MKRoot] resolves and then builds TWO shells over it — a main-menu shell and the
+## in-game pause shell, which is literally the Phase 6 configuration (a second [MKRoot] parked inside
+## the game scene). Identity is asserted first because it is the mechanism; the write-through is
+## asserted second because identity alone would still pass against a shell that reloaded the file
+## behind the other's back if the two were ever decoupled.
+func _test_one_settings_backend_serves_both_shells() -> void:
+	var parked := _park_autoload()
+	var service := _install_service(MKJsonSettingsBackend)
+	await step_frame()
+	var owned: MKSettingsBackend = service.get_settings_backend()
+	check(owned != null, "the service built the one backend")
+
+	var menu_shell := _make_root(MKTreePausePolicy)
+	var pause_shell := _make_root(MKTreePausePolicy)
+	await step_frame()
+
+	check(menu_shell.get_settings_backend() == owned,
+		"the main-menu shell adopted the service's instance")
+	check(pause_shell.get_settings_backend() == owned,
+		"and so did the in-game pause shell — one store, or the D14 countdown snapshots one handle while the panel writes the other")
+	check(menu_shell.get_settings_backend() == pause_shell.get_settings_backend(),
+		"the two shells hold the IDENTICAL instance, which is the §4.2 clause row 6 names")
+
+	# The write-through, in the direction row 6 states it: a value set from the PAUSE shell is visible
+	# to the main-menu shell with no reload call anywhere. Reading it back off the pause handle would
+	# be vacuous under a shared instance and equally vacuous under two.
+	pause_shell.get_settings_backend().set_value(&"probe/from_pause", 7)
+	check_eq(menu_shell.get_settings_backend().get_value(&"probe/from_pause", 0), 7,
+		"a value written from the pause shell is read by the main-menu shell without a reload")
+
+	menu_shell.free()
+	pause_shell.free()
+	await step_frame()
+	check(is_instance_valid(owned),
+		"and freeing both shells destroys nothing — the backend belongs to the service")
+	_remove_service(service)
+	_restore_autoload(parked)
+	await step_frame()
+
+
+# --- The countdown under a real pause -----------------------------------------
+
+## Row 6's PROCESS_MODE_ALWAYS clause: a [code]requires_confirm[/code] change made FROM PAUSE runs its
+## countdown to timeout and reverts.
+##
+## The tree is genuinely paused by the shipped [MKTreePausePolicy] for the whole of it, asserted on
+## every frame of the wait rather than once at each end — a policy that resumed mid-wait and re-paused
+## would otherwise pass, and "the countdown ticked" would be evidence of nothing.
+##
+## The countdown is restarted at a short duration once it is up. [constant
+## MKSettingsPanel.REVERT_SECONDS] is ten seconds of WALL CLOCK under a frame-driven accumulator, and
+## the duration is not the property under test: the property is that [method Node._process] runs at
+## all while [member SceneTree.paused] is true. The restart goes through the dialog's own public
+## [method MKRevertCountdown.start], so the panel's connections, the timeout emission and the revert
+## handler are all the shipped ones.
+func _test_countdown_from_pause_reverts_while_the_tree_is_paused() -> void:
+	var backend := MKJsonSettingsBackend.new()
+	backend._mk_configure({"file_path": STORE_PATH})
+	backend.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_root().add_child(backend)
+	backend.set_value(MKSettingsPanel.ID_WINDOW_MODE, 0)
+
+	var root := _make_root(MKTreePausePolicy)
+	await step_frame()
+	var panel := _make_confirm_panel(backend)
+	root.add_child(panel)
+	await step_frame()
+
+	check(root.open_pause_menu(), "the shipped pause page opened")
+	check(get_root().get_tree().paused, "and MKTreePausePolicy really paused the tree")
+
+	var option := _first_option(panel)
+	check(option != null, "the panel built the requires_confirm ENUM row")
+	if option == null:
+		await _drop(root, panel, backend)
+		return
+	option.select(1)
+	option.item_selected.emit(1)
+	var countdown := root.get_modal_layer().top() as MKRevertCountdown
+	check(countdown != null, "changing it from the pause menu raised the countdown")
+	if countdown == null:
+		await _drop(root, panel, backend)
+		return
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 3,
+		"and the new value is live in the store while the decision is pending")
+
+	countdown.start(0.15)
+	var before := countdown.get_time_left()
+	var lowest := before
+	var stayed_paused := true
+	# The dialog is FREED the moment the panel's revert handler resolves it, so validity is checked
+	# before every read: a typed call against a freed instance is itself an engine error, and the gate
+	# fails on those. The loop is bounded so a countdown that never ticks fails the assertions below
+	# rather than hanging the sweep.
+	for i in 600:
+		if not is_instance_valid(countdown) or not countdown.is_running():
+			break
+		lowest = minf(lowest, countdown.get_time_left())
+		await step_frame()
+		if not get_root().get_tree().paused:
+			stayed_paused = false
+	check(stayed_paused, "the tree was paused on EVERY frame of the wait, not merely at both ends")
+	check(not is_instance_valid(countdown) or not countdown.is_running(),
+		"the countdown reached timeout under pause")
+	check(lowest < before, "having actually ticked down rather than been reset")
+	check_eq(int(backend.get_value(MKSettingsPanel.ID_WINDOW_MODE, -1)), 0,
+		"and the unconfirmed change REVERTED — this is the whole of §4.2a's process-mode rule, observable")
+	check_eq(option.selected, 0, "the row that raised it went back with the store")
+	check(get_root().get_tree().paused, "the world is still paused: a revert is not a resume")
+	check_eq(root.get_modal_layer().depth(), 0, "and the dialog left the stack")
+
+	await _drop(root, panel, backend)
+	check(not get_root().get_tree().paused, "teardown left the world running")
+
+
+# --- Host content does not animate under pause --------------------------------
+
+## Row 6's "a host preview scene does not animate during pause", with [MKPreviewViewport] as the
+## concrete subject.
+##
+## [b]The pinned process mode is the point.[/b] The preview inherits, so an [MKRoot] page forces it
+## PAUSABLE and it freezes — and "the preview freezes when I open the pause menu" reads like a bug
+## report, which is exactly how somebody deletes this exit criterion by "fixing" it. The first
+## assertion is the tripwire on that; the rest measures the consequence rather than trusting it.
+func _test_a_preview_under_a_paused_page_does_not_animate() -> void:
+	var preview := MKPreviewViewport.new()
+	check_eq(preview.process_mode, Node.PROCESS_MODE_INHERIT,
+		"MKPreviewViewport sets NO process mode of its own — it inherits, which is what makes a paused page freeze it (deliberate: see its class doc before 'fixing' this)")
+	check(preview.auto_rotate, "and its idle turntable is on by default, so a frozen one is observable")
+
+	# A PAUSABLE branch is what MKRoot._show_page gives host content; the preview is mounted under one
+	# here rather than under a page so the assertion is about the preview, not about page plumbing (the
+	# page half is the next test).
+	var branch := Control.new()
+	branch.process_mode = Node.PROCESS_MODE_PAUSABLE
+	get_root().add_child(branch)
+	branch.add_child(preview)
+	await step_frame()
+	var pivot := preview.find_child(MKPreviewViewport.PIVOT_NAME, true, false) as Node3D
+	check(pivot != null, "the preview built its content pivot, which is where the turntable's yaw lands")
+
+	get_root().get_tree().paused = true
+	check(not preview.can_process(),
+		"under pause the preview cannot process — a PAUSABLE node inside a paused tree is what the §4.2a rule buys")
+	var yaw_paused := pivot.rotation.y if pivot != null else 0.0
+	for i in 5:
+		await step_frame()
+	check_eq(pivot.rotation.y if pivot != null else 0.0, yaw_paused,
+		"and its yaw does not move across five paused frames — the preview is not animating during pause")
+
+	get_root().get_tree().paused = false
+	await step_frame()
+	await step_frame()
+	check(pivot != null and pivot.rotation.y != yaw_paused,
+		"while an UNPAUSED preview does turn — otherwise the assertion above would hold against a preview that never spins at all")
+
+	branch.free()
+	await step_frame()
+
+
+## The other half of the same rule, at the page seam and on the SHIPPED pause page: host content is
+## PAUSABLE by default and therefore input-dead under a tree pause, and a shell hosting the pause menu
+## is the one that opts out. [member MKRoot.host_content_process_mode]'s own doc makes exactly this
+## claim; without an assertion, a default flipped back to PAUSABLE would ship a Resume button that
+## does nothing under the only policy that needs it.
+func _test_the_pause_page_is_input_live_only_because_the_host_says_ALWAYS() -> void:
+	var pausable := _make_root(MKTreePausePolicy, Node.PROCESS_MODE_PAUSABLE)
+	await step_frame()
+	check(pausable.open_pause_menu(), "a shell left at the default host process mode still OPENS the page")
+	await step_frame()
+	var dead := _find_pause_button(pausable, "Resume")
+	check(dead != null, "the shipped page built its Resume button either way")
+	check(dead != null and not dead.can_process(),
+		"but under a tree pause a PAUSABLE page is input-dead — Godot dispatches no GUI input to it, so Resume would not respond")
+	pausable.close_pause_menu()
+	pausable.free()
+	await step_frame()
+
+	var live := _make_root(MKTreePausePolicy)
+	await step_frame()
+	check(live.open_pause_menu(), "the pause-hosting shell opens it too")
+	await step_frame()
+	var alive := _find_pause_button(live, "Resume")
+	check(alive != null and alive.can_process(),
+		"and with host_content_process_mode = ALWAYS the same button is live under the same pause — the export is what the demo scene sets")
+	live.close_pause_menu()
+	live.free()
+	await step_frame()
+
+
+# --- Suspension edges ---------------------------------------------------------
+
+## A modal over the pause menu pushes 1→2 and its dismissal returns to 1 WITHOUT crossing the 1→0
+## edge. [code]test_pause_policy[/code] asserts the depth and that the world stays paused; neither
+## can tell "the policy was never told" from "the policy was told and happened to do nothing", because
+## MKTreePausePolicy's exit_menu is idempotent against its own flag. The counting spy below can, and
+## the failure it guards is the one row 6 names: capture restored underneath a still-open menu.
+func _test_a_modal_over_pause_never_reaches_the_policy_exit_edge() -> void:
+	CountingSpy.reset()
+	var root := _make_root(CountingSpy)
+	await step_frame()
+
+	check(root.open_pause_menu(), "the pause menu opened")
+	check_eq(CountingSpy.enters, 1, "the 0→1 edge told the policy exactly once")
+	check_eq(CountingSpy.reasons, ["pause"], "naming the reason it was given")
+
+	MKConfirmDialog.open(root.get_modal_layer(), "T", "B")
+	await step_frame()
+	check_eq(root.get_suspend_depth(), 2, "a modal over pause pushes 1→2")
+	check_eq(CountingSpy.enters, 1, "and does NOT re-enter the policy — edges are 0→1 only")
+
+	root.get_modal_layer().pop_modal()
+	await step_frame()
+	check_eq(root.get_suspend_depth(), 1, "dismissing it returns to 1")
+	check_eq(CountingSpy.exits, 0,
+		"without ever reaching the 1→0 edge — this is what stops mouse capture being restored underneath a still-open pause menu")
+
+	root.close_pause_menu()
+	check_eq(root.get_suspend_depth(), 0, "closing the menu reaches zero")
+	check_eq(CountingSpy.exits, 1, "and only THERE does the policy hear exit_menu, exactly once")
+
+	root.free()
+	await step_frame()
+
+
+## Counts every edge, and pauses for real, so "the policy was not told" is distinguishable from "the
+## policy was told and did nothing". Its own _exit_tree teardown is the §4.2a contract every custom
+## policy owes; without it this spy would leave the harness's tree paused for the next test.
+class CountingSpy extends MKPausePolicy:
+	static var enters := 0
+	static var exits := 0
+	static var reasons: Array[String] = []
+	var _paused_by_us := false
+
+	static func reset() -> void:
+		enters = 0
+		exits = 0
+		reasons = []
+
+	func enter_menu(reason: StringName) -> void:
+		enters += 1
+		reasons.append(String(reason))
+		if not get_tree().paused:
+			get_tree().paused = true
+			_paused_by_us = true
+
+	func exit_menu(_reason: StringName) -> void:
+		exits += 1
+		if _paused_by_us:
+			get_tree().paused = false
+			_paused_by_us = false
+
+	func _exit_tree() -> void:
+		if _paused_by_us and get_tree() != null:
+			get_tree().paused = false
+			_paused_by_us = false
+
+
+# --- The page's own buttons ---------------------------------------------------
+
+## Resume, through the button, under a real tree pause: focus plus a pushed ui_accept, so the engine's
+## own BaseButton activation runs. A [code]pressed.emit()[/code] here would pass against a page whose
+## button is unreachable — which is precisely the failure mode the PAUSABLE half of the previous test
+## describes.
+func _test_resume_button_closes_the_menu() -> void:
+	var root := _make_root(MKTreePausePolicy)
+	await step_frame()
+	check(root.open_pause_menu(), "opened")
+	await step_frame()
+	check(get_root().get_tree().paused, "the world is paused before the press")
+
+	var resume := _find_pause_button(root, "Resume")
+	check(resume != null, "the shipped page exposes a Resume button")
+	if resume != null:
+		check(resume.has_focus() or MKFocus.focus_first(root) != null,
+			"and the page focuses something on entry, or a gamepad could never reach it")
+		await _activate(resume)
+
+	check(not root.is_pause_menu_open(), "Resume closed the pause menu")
+	check_eq(root.get_suspend_depth(), 0, "the suspension unwound")
+	check(not get_root().get_tree().paused, "and the world is running again")
+
+	root.free()
+	await step_frame()
+
+
+## Settings-from-pause is a PUSH, and Escape walks the stack before it considers the resume rung —
+## the ladder order §4.2a/§4.7a states, driven end to end on the SHIPPED default config so the page
+## ids ("pause", "settings") are the shipped ones rather than fixture spellings.
+func _test_settings_from_pause_pushes_and_escape_walks_back() -> void:
+	var root := _make_shipped_root()
+	await step_frame()
+	check(root.open_pause_menu(), "the shipped config's pause page opened")
+	await step_frame()
+	check_eq(root.get_page_id(), &"pause", "and it is the page showing")
+	check_eq(root.get_back_depth(), 0,
+		"with an EMPTY back stack — open_pause_menu clears it, so Escape at the pause page is the resume rung and not a walk back into the main menu")
+
+	var settings := _find_pause_button(root, "Settings")
+	check(settings != null, "the page exposes a Settings button")
+	if settings != null:
+		await _activate(settings)
+	check_eq(root.get_page_id(), MKPauseMenu.SETTINGS_PAGE_ID,
+		"Settings pushed the shipped settings page")
+	check_eq(root.get_back_depth(), 1, "as a SUB-panel, so there is somewhere to come back to")
+	check(root.is_pause_menu_open(), "and the pause menu is still open behind it")
+	check(get_root().get_tree().paused, "with the world still paused")
+
+	check(_cancel(root), "Escape over the settings page is consumed")
+	check_eq(root.get_page_id(), &"pause",
+		"and returns to the PAUSE page rather than resuming the game out from under the player")
+	check(root.is_pause_menu_open(), "the menu is still open")
+	check(get_root().get_tree().paused, "and the world is still paused")
+
+	check(_cancel(root), "Escape at the pause page is consumed too")
+	check(not root.is_pause_menu_open(),
+		"and THERE it resumes — the Phase 6 rung, the symmetry a player expects from the key that opened the menu")
+	check(not get_root().get_tree().paused, "the world runs again")
+	check_eq(root.get_modal_layer().depth(), 0,
+		"and no quit-confirm appeared: the ladder stopped at the pause rung instead of falling through to the root gesture")
+
+	root.free()
+	await step_frame()
+
+
+## Quit to Menu calls [method MKMenuBackend.to_main_menu] and nothing else — no confirm dialog, and
+## no pre-emptive close (the teardown of a paused world is MKRoot's and the policy's exit-tree
+## contract, and a close here would be a second, differently-ordered unwind).
+func _test_quit_to_menu_calls_the_backend() -> void:
+	QuitSpy.reset()
+	var config := _shipped_config()
+	var slot := MKBackendSlot.new()
+	slot.backend_script = QuitSpy
+	config.menu_backend = slot
+	var root := _make_root_with(config)
+	await step_frame()
+	check(root.open_pause_menu(), "opened")
+	await step_frame()
+
+	var quit := _find_pause_button(root, "QuitToMenu")
+	check(quit != null, "the page exposes a Quit to Menu button")
+	if quit != null:
+		await _activate(quit)
+	check_eq(QuitSpy.to_menu, 1, "pressing it called to_main_menu exactly once")
+	check_eq(QuitSpy.quits, 0, "and never quit the application — quit-to-menu is not quit-to-desktop")
+	check_eq(root.get_modal_layer().depth(), 0, "with no confirmation dialog in the way")
+	check(root.is_pause_menu_open(),
+		"and the page did not pre-empt the scene change with a close of its own — the unwind belongs to teardown")
+
+	root.free()
+	await step_frame()
+	check(not get_root().get_tree().paused,
+		"and that teardown is what leaves the world running, exactly as a real quit-to-menu does")
+
+
+## A shell booted with no menu backend must NAME the problem and do so once per page, not once per
+## press: a warning per press buries the first one under the player's second attempt. Observed through
+## [member MKLog.observer], which exists because this contract is stated as a COUNT.
+func _test_quit_to_menu_without_a_backend_warns_once() -> void:
+	var config := _shipped_config()
+	config.menu_backend = null
+	var root := _make_root_with(config)
+	await step_frame()
+	check(root.open_pause_menu(), "opened")
+	await step_frame()
+	check(root.get_menu_backend() == null, "precondition: the shell really has no menu backend")
+
+	var quit := _find_pause_button(root, "QuitToMenu")
+	_watch_log()
+	if quit != null:
+		await _activate(quit)
+		await _activate(quit)
+	_unwatch_log()
+	check_eq(_log_lines.filter(func(l: String) -> bool: return l.contains("no MKMenuBackend")).size(), 1,
+		"two presses warn ONCE, and the message names MKMenuBackend so the reader knows which slot to assign")
+	check(root.is_pause_menu_open(), "and the menu stays open — a dead button is not a resume")
+
+	root.free()
+	await step_frame()
+
+
+# --- Refusals -----------------------------------------------------------------
+
+## A second open is refused and changes nothing. The demo forwards every ESC press, and under
+## MKNoPausePolicy its own handler is still receiving input while the menu is up, so this guard is
+## what stops a repeated gesture from stacking suspensions the first close cannot unwind.
+func _test_a_second_open_is_refused() -> void:
+	var root := _make_root(MKTreePausePolicy)
+	await step_frame()
+	check(root.open_pause_menu(), "the first open succeeds")
+	check_eq(root.get_suspend_depth(), 1, "raising one suspension")
+	check(not root.open_pause_menu(), "the second is refused")
+	check_eq(root.get_suspend_depth(), 1,
+		"and raised NO second suspension — otherwise one close would leave the world paused with no menu on screen")
+	root.close_pause_menu()
+	check(not get_root().get_tree().paused, "so a single close resumes the world")
+	root.free()
+	await step_frame()
+
+
+## A config with no "pause" page must leave nothing behind: the refusal unwinds the suspension it had
+## already raised, the policy is told to exit, and the cursor is not left free over a running game.
+## Suspending the world to display nothing is strictly worse than not pausing.
+func _test_open_without_a_pause_page_unwinds_everything() -> void:
+	CountingSpy.reset()
+	var config := MKConfig.new()
+	config.palette = load("res://addons/menu_kit/themes/default_palette.tres")
+	var slot := MKBackendSlot.new()
+	slot.backend_script = CountingSpy
+	config.pause_policy = slot
+	var page := MKMenuPageDef.new()
+	page.id = &"only"
+	page.title = "Only"
+	page.scene = load("res://addons/menu_kit/panels/mk_welcome_page.tscn")
+	config.pages.append(page)
+	config.initial_page = &"only"
+	# No expect_engine_error here: the refusal is a WARNING (a recoverable misconfiguration, per
+	# MKLog's own rule), and the gate's noise pattern deliberately excludes WARNING — declaring it
+	# would be an unmatched declaration, which the gate fails on in the other direction.
+	var root := _make_root_with(config)
+	await step_frame()
+
+	check(not root.open_pause_menu(), "open_pause_menu REFUSES when the page id is not in the config")
+	check(not root.is_pause_menu_open(), "and reports itself closed")
+	check_eq(root.get_suspend_depth(), 0, "the suspension it had already raised is unwound")
+	check_eq(CountingSpy.exits, CountingSpy.enters,
+		"and the policy's edges stay paired — an unwound open must not leave an enter without its exit")
+	check(not get_root().get_tree().paused, "so the world is not left paused behind a page nobody can see")
+	check_eq(root.get_page_id(), &"only", "and the shell is still on the page it was on")
+
+	root.free()
+	await step_frame()
+
+
+## A shell that is not visible consumes nothing. This is the in-game configuration's load-bearing
+## rule: the demo parks a hidden [MKRoot] in the game scene, and a hidden shell that swallowed
+## ui_cancel would eat the very gesture the host's ESC handler needs to open it — and, with both
+## stacks empty, answer it with a quit-confirm dialog nobody can see.
+func _test_a_hidden_shell_consumes_nothing() -> void:
+	var root := _make_root(MKTreePausePolicy)
+	await step_frame()
+	root.visible = false
+	await step_frame()
+
+	check(not _cancel(root), "a hidden shell does NOT consume ui_cancel")
+	check_eq(root.get_modal_layer().depth(), 0,
+		"and raises no quit-confirm — an invisible dialog holding a suspension is unrecoverable")
+	check(not root.is_pause_menu_open(), "and opens nothing")
+	check_eq(root.get_suspend_depth(), 0, "leaving the counter alone")
+
+	# Visible again, the SAME gesture is answered — so the assertion above measures the visibility
+	# rule and not a viewport that was ignoring pushed events all along.
+	root.visible = true
+	await step_frame()
+	check(_cancel(root), "the same gesture IS consumed once the shell is shown")
+	check_eq(root.get_modal_layer().depth(), 1, "raising the root quit-confirm, both stacks being empty")
+	root.get_modal_layer().pop_all()
+	await step_frame()
+
+	root.free()
+	await step_frame()
+
+
+# --- Fixtures -----------------------------------------------------------------
+
+## A lean shell carrying the SHIPPED pause page under the given policy. [param page_mode] defaults to
+## ALWAYS because that is what an MKRoot hosting the pause menu sets (demo_game.tscn sets it in the
+## scene); the PAUSABLE case is a test of its own.
+func _make_root(policy_script: Script,
+		page_mode: Node.ProcessMode = Node.PROCESS_MODE_ALWAYS) -> MKRoot:
+	var config := MKConfig.new()
+	config.palette = load("res://addons/menu_kit/themes/default_palette.tres")
+	var slot := MKBackendSlot.new()
+	slot.backend_script = policy_script
+	config.pause_policy = slot
+	var home := MKMenuPageDef.new()
+	home.id = &"only"
+	home.title = "Only"
+	home.scene = load("res://addons/menu_kit/panels/mk_welcome_page.tscn")
+	config.pages.append(home)
+	var pause := MKMenuPageDef.new()
+	pause.id = &"pause"
+	pause.title = "Paused"
+	pause.visible = false
+	pause.scene = load(PAUSE_PAGE_SCENE)
+	config.pages.append(pause)
+	config.initial_page = &"only"
+	var root := MKRoot.new()
+	root.config = config
+	root.host_content_process_mode = page_mode
+	root.show_backdrop = false
+	get_root().add_child(root)
+	return root
+
+
+## The shipped default config, in the in-game shape (no backdrop, ALWAYS page content).
+func _make_shipped_root() -> MKRoot:
+	return _make_root_with(_shipped_config())
+
+
+func _make_root_with(config: MKConfig) -> MKRoot:
+	var root := MKRoot.new()
+	root.config = config
+	root.host_content_process_mode = Node.PROCESS_MODE_ALWAYS
+	root.show_backdrop = false
+	get_root().add_child(root)
+	return root
+
+
+## A SHALLOW duplicate of the shipped default config, so a slot swap does not mutate the resource
+## every other test (and every host) loads — [method Resource.load] returns the same cached instance.
+## Shallow is deliberate: the page and archetype arrays are read here, never written.
+func _shipped_config() -> MKConfig:
+	var config := (load(SHIPPED_CONFIG) as MKConfig).duplicate(false) as MKConfig
+	check(config != null, "the shipped default config loads")
+	return config
+
+
+## One requires_confirm ENUM row on a real [MKSettingsPanel] — the same shape test_revert_countdown
+## builds, because the row type is not the subject here; the pause it runs under is.
+func _make_confirm_panel(backend: MKSettingsBackend) -> MKSettingsPanel:
+	var def := MKSettingDef.new()
+	def.id = MKSettingsPanel.ID_WINDOW_MODE
+	def.label = "Window Mode"
+	def.type = MKSettingDef.RowType.ENUM
+	def.default_value = 0
+	def.options = ["Windowed", "Fullscreen"] as Array[String]
+	def.option_values = [0, 3]
+	def.requires_confirm = true
+	var page := MKSettingsPageDef.new()
+	page.id = &"video"
+	page.title = "Video"
+	page.rows = [def] as Array[MKSettingDef]
+	var panel := MKSettingsPanel.new()
+	panel.pages = [page] as Array[MKSettingsPageDef]
+	panel.bind_backend(backend)
+	return panel
+
+
+func _drop(root: MKRoot, panel: Node, backend: Node) -> void:
+	if is_instance_valid(panel):
+		panel.queue_free()
+	if is_instance_valid(root):
+		root.queue_free()
+	if is_instance_valid(backend):
+		backend.queue_free()
+	await step_frame()
+	await step_frame()
+
+
+## The pause page's buttons, by the stable names [MKPauseMenu] builds them under. Indexed by name
+## rather than by order so a layout change does not silently retarget an assertion.
+func _find_pause_button(root: MKRoot, button_name: String) -> Button:
+	return root.find_child(button_name, true, false) as Button
+
+
+func _first_option(node: Node) -> OptionButton:
+	for child in node.get_children():
+		var button := child as OptionButton
+		if button != null:
+			return button
+		var found := _first_option(child)
+		if found != null:
+			return found
+	return null
+
+
+# --- Input drivers ------------------------------------------------------------
+
+## Focus plus a REAL ui_accept press/release through the viewport, so the engine's own BaseButton
+## activation runs — including the GUI dispatch that a PAUSABLE page would not receive.
+func _activate(button: Button) -> void:
+	if button == null or not is_instance_valid(button):
+		fail("tried to activate a button that does not exist")
+		return
+	button.grab_focus()
+	await step_frame()
+	get_root().push_input(_key(KEY_ENTER, true), true)
+	get_root().push_input(_key(KEY_ENTER, false), true)
+	await step_frame()
+	await step_frame()
+
+
+func _key(code: int, pressed: bool) -> InputEventKey:
+	var event := InputEventKey.new()
+	event.physical_keycode = code as Key
+	event.keycode = code as Key
+	event.pressed = pressed
+	return event
+
+
+## A real ui_cancel through the viewport's unhandled-input path, returning whether it was consumed —
+## the test_navigation driver, so the ladder runs in the engine's own dispatch order.
+func _cancel(root: MKRoot) -> bool:
+	var event := InputEventAction.new()
+	event.action = &"ui_cancel"
+	event.pressed = true
+	root.get_viewport().push_input(event)
+	return root.get_viewport().is_input_handled()
+
+
+# --- Service plumbing ---------------------------------------------------------
+
+## Mounted under the exact node name MKRoot resolves; registering a real autoload needs an editor.
+## Loaded by path because the service script deliberately carries no class_name.
+func _install_service(backend_script: Script) -> Node:
+	var service: Node = SERVICE_SCRIPT.new()
+	service.name = SERVICE_NAME
+	var slot := MKBackendSlot.new()
+	slot.backend_script = backend_script
+	service.override_backend_slot = slot
+	get_root().add_child(service)
+	return service
+
+
+func _remove_service(service: Node) -> void:
+	if is_instance_valid(service):
+		get_root().remove_child(service)
+		service.free()
+
+
+## The project registers the real service autoload, so a test mounting its own under the same name
+## must park it — Godot would otherwise rename the duplicate and every resolve would silently keep
+## finding the autoload.
+func _park_autoload() -> Node:
+	var service := get_root().get_node_or_null(SERVICE_NAME)
+	if service == null:
+		return null
+	get_root().remove_child(service)
+	return service
+
+
+func _restore_autoload(service: Node) -> void:
+	if service != null and is_instance_valid(service):
+		get_root().add_child(service)
+
+
+# --- Log observation ----------------------------------------------------------
+
+func _watch_log() -> void:
+	_log_lines = []
+	MKLog.observer = func(_level: int, message: String) -> void:
+		_log_lines.append(message)
+
+
+func _unwatch_log() -> void:
+	MKLog.observer = Callable()
+
+
+func _clean() -> void:
+	var dir := DirAccess.open("user://")
+	if dir == null:
+		return
+	var stem := STORE_PATH.get_file().get_basename()
+	for file in dir.get_files():
+		if file.begins_with(stem):
+			dir.remove(file)
+
+
+## Records the two application-level actions the pause page can reach, so "Quit to Menu called
+## to_main_menu" is distinguishable from "it called quit".
+class QuitSpy extends MKMenuBackend:
+	static var to_menu := 0
+	static var quits := 0
+
+	static func reset() -> void:
+		to_menu = 0
+		quits = 0
+
+	func start_game(_profile: Dictionary) -> void:
+		pass
+
+	func to_main_menu() -> void:
+		to_menu += 1
+
+	func quit() -> void:
+		quits += 1
