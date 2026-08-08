@@ -15,6 +15,13 @@ repurposing one is Breaking.
 
 ## [Unreleased]
 
+### Changed
+
+- **`MKCharacterSelect` is right-biased** — the roster reads down the right edge as a fixed-width
+  (380) vertically-inset band, with an expanding mouse-transparent gap (min 500) to its left as the
+  window onto the scene backdrop's character: the target genre's character-select shape. Structure
+  and traversal are unchanged (same cards, footer, focus chains); only the geometry moved.
+
 ### Added
 
 - **3D scene backdrops** — `MKBackdropDef.scene` (`PackedScene`) renders fullscreen in a

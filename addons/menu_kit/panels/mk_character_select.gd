@@ -34,9 +34,20 @@ signal selection_changed(entry: Dictionary)
 ## repointing the creation flow at its own page edits one constant.
 const CREATE_PAGE_ID := &"character_create"
 
-## Width floor for the card column, so a roster of short names does not collapse into a thin strip. A
-## layout rhythm, not a palette value.
-const _CARD_COLUMN_WIDTH := 520.0
+## The list column's fixed width. The page is RIGHT-BIASED by construction (the target genre's
+## character select: the selected character stands in the scene backdrop on the left, the roster
+## reads down the right edge), so the column takes a width rather than the page. Also the floor that
+## keeps a roster of short names from collapsing into a thin strip.
+const _LIST_COLUMN_WIDTH := 380.0
+
+## Minimum width kept clear to the LEFT of the list column — the window the scene backdrop's
+## character shows through. Expands with the screen; this is only the floor below which the layout
+## stops pretending there is a character to see.
+const _WORLD_GAP_MIN_WIDTH := 500.0
+
+## Vertical inset above and below the list, so the roster reads as a centred band rather than a
+## full-height rail. Fixed rather than proportional, matching the reference layout this page ports.
+const _LIST_VERTICAL_INSET := 200.0
 
 var _profile_backend: MKProfileBackend
 var _menu_backend: MKMenuBackend
@@ -88,15 +99,37 @@ func _build() -> void:
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(margin)
 
+	# Right bias is structural: an HBox whose first child is an expanding spacer pushes the whole
+	# list column to the right edge, and the spacer IS the view onto the backdrop character — which
+	# is why it ignores the mouse: nothing behind it is clickable, and a page-wide STOP control over
+	# the scene would read as a dead page to anyone instrumenting input.
+	var row := HBoxContainer.new()
+	row.name = "Row"
+	margin.add_child(row)
+
+	var world_gap := Control.new()
+	world_gap.name = "WorldGap"
+	world_gap.custom_minimum_size = Vector2(_WORLD_GAP_MIN_WIDTH, 0.0)
+	world_gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	world_gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(world_gap)
+
 	var column := VBoxContainer.new()
 	column.name = "Column"
-	margin.add_child(column)
+	column.custom_minimum_size = Vector2(_LIST_COLUMN_WIDTH, 0.0)
+	row.add_child(column)
 
 	var heading := Label.new()
 	heading.name = "Title"
 	heading.text = "Characters"
 	MKTheme.set_variation(heading, MKTheme.HEADER)
 	column.add_child(heading)
+
+	var top_inset := Control.new()
+	top_inset.name = "TopInset"
+	top_inset.custom_minimum_size = Vector2(0.0, _LIST_VERTICAL_INSET)
+	top_inset.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(top_inset)
 
 	var scroll := ScrollContainer.new()
 	scroll.name = "Scroll"
@@ -120,7 +153,6 @@ func _build() -> void:
 
 	_card_column = VBoxContainer.new()
 	_card_column.name = "Cards"
-	_card_column.custom_minimum_size = Vector2(_CARD_COLUMN_WIDTH, 0.0)
 	_card_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card_margin.add_child(_card_column)
 
@@ -149,6 +181,12 @@ func _build() -> void:
 	MKTheme.set_variation(_new_button, MKTheme.PANEL_BUTTON)
 	_new_button.pressed.connect(_on_new_pressed)
 	_footer.add_child(_new_button)
+
+	var bottom_inset := Control.new()
+	bottom_inset.name = "BottomInset"
+	bottom_inset.custom_minimum_size = Vector2(0.0, _LIST_VERTICAL_INSET)
+	bottom_inset.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(bottom_inset)
 
 	# Built as a typed local rather than an inline literal: an untyped Array is refused at runtime by
 	# link_chain's Array[Control] parameter.
