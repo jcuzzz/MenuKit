@@ -1,9 +1,10 @@
 # MenuKit — Build Handoff
 
-**Status:** Phases 1–8a complete and reviewed. Phase 8a (comment diet) passed terminal at its
-single mandated round: provably comment-only at the token level (90/90 files identical through
-the stripper, baseline independently re-derived from the pre-diet commit), no deleted comment
-carried a constraint that survives nowhere.
+**Status: ALL PHASES COMPLETE — v0.1.0 tagged.** Phase 9 went terminal at round 2 (round 1's
+four majors were all claims — stale scrim mirrors, a resurrected fixed-limitation, a vacuous
+cold-drop proof, a false atomicity sentence answered by making the code true; round 2 was the
+integrator's audit after the reviewer leg died on a session limit: hoist verified, the
+direct-write mutant re-run red, stale-claim sweep zero hits, versions agreeing, gates green).
 **Repo:** `C:\GodotProjects\MenuKit` (standalone, own git history — not a Workingfile subtree)
 **HEAD:** `d59e383` (+ this docs commit)
 **Engine:** Godot 4.7 (`C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe`)
@@ -34,7 +35,19 @@ Phase 1–2 material below is carried forward unchanged where still true.
 | 7 | Server browser: `mk_server_browser` panel (every ConnectState rendered with its message — there is NO TIMEOUT enum member, "timeout" is FAILED + "Connection timed out."), demo Servers page, `servers_rig`, the `_recover_focus` seam (focus loss on rebuild/disable-under-ring), render-after-resolve (the status line lied for any backend without the stub-only `get_connect_state`) | **Done.** Test leg + 2 review rounds (round table below; round 2 terminal) |
 | 8 | Input polish: `MKInputGlyphs` (device-aware prompt vocabulary, hoisted from the rebind row; panel-owned tracker with a DETERMINISTIC dispatch-order contract), the §6 visual debt closed (binding column, label-column FILL, palette-generated CheckBox glyphs, CheckBox/CheckButton focus boxes), destructive dialogs open on Cancel by TREE ORDER, welcome copy, empty-roster geometry, select-panel focus recovery | **Done.** Test leg + 2 review rounds (table below; round 2 terminal) |
 | 8a | Comment diet: ~711 comment lines out across three parallel legs; `tools/comment_diff.ps1` (string-aware stripper + SHA manifest) is the gate and reported IDENTICAL; 64 authored `;` lines out of `.tres`/`.tscn` (the rule covers BOTH — learned this phase); displaced knowledge staged in `docs/phase9_staging/*.md` (59 host bullets + 24 handoff candidates), all consumed and the directory deleted in Phase 9 | **Done.** One adversarial round (mandated), PASS: zero lost constraints, two NITs (one fixed with the docs commit, the D-id glossary owed to Phase 9's docs) |
-| 9 | Polish & handoff | Not started |
+| 9 | Polish & handoff: the docs set (INTEGRATION/API/SETTINGS_SCHEMA/CREATION_STEPS/THEMING/DECISIONS + README + CHANGELOG 0.1.0), the alt skin (warm slate/amber, metrics re-skinned, cyan focus) with headless + capture proof, `tools/cold_drop.ps1` (gate 2, empty allowlist as a measurement), `MKJsonCodec.write_atomic` (the profile store's truncate-write was the last false doc claim standing — the code was made true), the scrim wire (gate 3's final hole: `palette.scrim` had been authored-but-unread since Phase 2), version 0.1.0 pinned by test | **Done.** 2 review rounds (round 2 terminal); tagged `v0.1.0` |
+
+### Phase 9 defect-count table
+
+| Stage | Majors | Notes |
+|---|---|---|
+| Integration | 0 | Owner closed the scrim hole inline (mutation run red) and wrote tools/README for the one staging gap |
+| Round 1 | 4 | ALL claims: THEMING + CHANGELOG denied the scrim fix their own commit shipped; the CHANGELOG resurrected the quit-confirm limitation Phase 8 closed; cold_drop's plugin-ran proof matched a substring present before the plugin ran; SETTINGS_SCHEMA's "both stores atomic" was false for the roster (fixed by hoisting write_atomic — code made true, not doc made vague). Gate-7 smoke of the worked example: PASS without reading plugin source |
+| Round 2 | 0 | **TERMINAL** — integrator-inline audit (the Fable leg died on a session limit): hoist semantics verified, .tmp-seed mutant red, claim families zero hits, gate 10 preconditions confirmed |
+
+The phase's lesson is the signature at its purest: in a phase whose PRODUCT is claims, every
+major was a claim — and two were mirrors of fixes made in the same commit. Grep the claim
+family in the same sitting as the fix, always.
 
 **Current metrics:** 113 compiled scripts/scenes, 24 test suites, gate:
 `compile=pass smokes=24/24 isolation=pass exit=0`.
@@ -125,6 +138,9 @@ against an empty project (Audio Master-only, Controls no-KEYBIND — the §3.1 i
 ### Commit history (each review round its own commit, deliberately)
 
 ```
+85cc176 fix(phase9): act on the first review; the docs stop denying their own commit
+b6f8b0e feat(phase9): the docs, the alt skin, the cold drop, and the version that agrees
+970ee82 docs: Phase 8a build handoff — provably comment-only, nothing lost
 aed6ecb refactor(phase8a): the comment diet — the argument leaves, the constraint stays
 0b1451f chore(phase8a): the token gate — a cleanup that changes one token is not a cleanup
 49e0b8e docs: Phase 8 build handoff — terminal at round two; one contract, one guarantor
@@ -749,18 +765,27 @@ Phase 8 items (the row-8 exit criterion is itself a manual matrix):
 
 ---
 
-## 7. Next step: Phase 9 — polish & handoff
+## 7. Next step: post-handoff
 
-Plan row 9 + §6: alt skin under demo/alt_skin/ proving re-theme (gate 3), the five docs
-(INTEGRATION/THEMING/API/SETTINGS_SCHEMA/CREATION_STEPS — the raw material was
-docs/phase9_staging/*.md, 59 host bullets written for exactly this; all consumed, directory
-deleted), README, CHANGELOG 0.1.0
-(the §6 initial-format statement list: input event device field, __mk_type int tag +
-discriminator refusal, trimmed names, newer-store latch, save-on-exit crash caveat), a D-id
-glossary (the 8a NIT), MKVersion/plugin.cfg/tag agreement (gate 10), the characters_rig frame
-count (60 Hz-shaped, token change deferred out of 8a), and the 13 ship gates — automate what
-can be (gate 2's cold drop is scriptable: copy addons/ into a temp empty project, boot
-headless, assert zero errors/warnings), stage the display/editor gates in §6a.
+The build is done and tagged `v0.1.0`. What remains is not a phase:
+
+**Ship-gate ledger at the tag** (round-1 review's audit): gates 1/4a/5/6/8/9 AUTOMATED-GREEN
+(isolation scan, backend-ownership suite, cold-drop fresh profile, corrupt-file suite, 26/26,
+diagnostics suites); 2/3/4b/4c PARTIALLY-AUTOMATED (cold_drop.ps1 + the §6a editor row;
+alt-skin suites + capture; pause suites + §6a-17; brightness suite + §6a-1); 4 MANUAL (§6a
+rows 4, 6–11, 14, 20–25); 7 PASSED by simulation (the worked example smoked green without
+plugin source); 10 SATISFIED (MKVersion, plugin.cfg, CHANGELOG, tag all say 0.1.0, agreement
+pinned by test_version_agreement forever).
+
+**The §6a human checklist (rows 1–25) is the outstanding work** — it needs a display, a
+gamepad, a second keyboard layout, and an interactive editor session. Nothing in it blocks
+handing the repo over; all of it blocks calling gate 4's input matrix DONE.
+
+**Post-handoff per the plan:** the friend's integration will surface API friction no gate
+catches; budget the `1.0.0` pass after their real backends are wired — that release is where
+the API stops moving. Known candidates already recorded: `get_connect_message()` on the
+network base, the F6 identity-gated warn, the F8_NOISE rename, a pad-legend map for non-Xbox
+controllers, `font_size_title` (the one palette field still generated-but-unconsumed).
 
 ### The completed Phase 6, for reference
 
