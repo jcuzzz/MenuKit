@@ -31,6 +31,16 @@ repurposing one is Breaking.
 - The demo now ships a 3D menu backdrop (`demo/backdrops/menu_backdrop_3d.tscn` + catalog); the
   addon's default catalog remains the generated gradient, so a cold drop still references no scene
   asset and stays warning-free.
+- **A rigged demo character** — the three demo archetypes now preview as an animated mannequin
+  instead of coloured CSG primitives. `demo/characters/UAL2_Standard.glb` is Quaternius' *Universal
+  Animation Library 2* (Standard, non-root-motion), **CC0 1.0**, with the pack's `LICENSE.txt`
+  beside it; `preview_{vanguard,arcanist,scout}.tscn` are three scriptless scenes over that one
+  asset, each autoplaying `Idle_FoldArms` under a different body tint (the purple joint bands are
+  deliberately left the pack's shared accent on every archetype — only the body surface is
+  tinted). The `.glb` is **~8 MB** because it carries the whole 43-animation library and the demo
+  plays one idle — accepted rather than re-exported. `demo/backdrops/menu_backdrop_3d.tscn`'s `CharacterMount` moved from `y = 0.7`
+  to `y = 0.15` (the dais top) because the rig is feet-origin, not centre-origin. Demo-only: the
+  addon ships no art (D19).
 
 ## [0.1.0] — 2026-08-08
 

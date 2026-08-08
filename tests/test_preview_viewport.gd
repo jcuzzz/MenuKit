@@ -161,7 +161,7 @@ func _test_framing_falls_back_when_the_content_has_no_bounds() -> void:
 	await _drop(preview)
 
 
-## [b]The case the three shipped demo previews are.[/b] CSG builds its mesh on a DEFERRED call, so
+## [b]The CSG case.[/b] CSG builds its mesh on a DEFERRED call, so
 ## [method VisualInstance3D.get_aabb] reads zero on the frame the node is added. A widget that framed
 ## only immediately therefore takes the no-bounds fallback for every CSG preview (pivot at the origin,
 ## fallback distance, engine-default near/far) while ALSO logging that the content had no bounds,
@@ -171,10 +171,14 @@ func _test_framing_falls_back_when_the_content_has_no_bounds() -> void:
 ## reading for deferred-built content — says nothing in the log.
 func _test_deferred_built_content_frames_on_the_second_pass() -> void:
 	var preview := await _make_preview()
-	# The REAL shipped demo scene, not a stand-in: a hand-built CSG node in this file can drift away
-	# from what demo_creation holds, and the rule is about the content the addon ships with.
+	# demo/demo_creation/preview_vanguard.tscn is RETAINED SOLELY AS THIS SUITE'S CSG
+	# deferred-bounds subject — it is no longer shipped through any archetype, and the rigged scenes
+	# in demo/characters/ are the product path (its two CSG siblings were deleted with that
+	# re-point). Loaded as an authored .tscn rather than hand-built here because the deferred-build
+	# timing is what the assertion is about and a MeshInstance3D fixture measures immediately; the
+	# CSG fixtures further down this file cover the hand-built shape.
 	var vanguard := load("res://demo/demo_creation/preview_vanguard.tscn") as PackedScene
-	check(vanguard != null, "the shipped demo preview scene loads")
+	check(vanguard != null, "the CSG fixture scene loads")
 	if vanguard == null:
 		await _drop(preview)
 		return

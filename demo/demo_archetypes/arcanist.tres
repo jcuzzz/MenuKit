@@ -7,11 +7,11 @@
 ; carries a "school" the others do not. MenuKit stores whatever is here without inspecting it, and a
 ; demo where every archetype had identical keys would not prove that.
 ;
-; preview_scene is a coloured CSG sphere — see vanguard.tres for why the demo authors previews at all
-; and demo/demo_creation/preview_arcanist.tscn for why each one is a different primitive.
+; preview_scene is the shared CC0 mannequin under a blue body tint — see vanguard.tres for why the
+; demo authors previews at all; the three archetypes differ only by that tint, over one rigged asset.
 
 [ext_resource type="Script" path="res://addons/menu_kit/creation/mk_archetype.gd" id="1_archetype"]
-[ext_resource type="PackedScene" path="res://demo/demo_creation/preview_arcanist.tscn" id="2_preview"]
+[ext_resource type="PackedScene" path="res://demo/characters/preview_arcanist.tscn" id="2_preview"]
 
 [resource]
 script = ExtResource("1_archetype")

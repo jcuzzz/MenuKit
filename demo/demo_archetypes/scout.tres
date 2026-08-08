@@ -3,11 +3,11 @@
 ; The demo's ranger archetype. See vanguard.tres for the payload_defaults rule these three share —
 ; in particular why no archetype may carry a "stats" key.
 ;
-; preview_scene is a coloured CSG cylinder — taller than it is wide, so the appearance step's viewport
-; has one subject whose bounds are not roughly cubic.
+; preview_scene is the shared CC0 mannequin under a green body tint — a ~1.8-unit feet-origin rig, so
+; the appearance step's viewport has a subject whose bounds are nothing like cubic.
 
 [ext_resource type="Script" path="res://addons/menu_kit/creation/mk_archetype.gd" id="1_archetype"]
-[ext_resource type="PackedScene" path="res://demo/demo_creation/preview_scout.tscn" id="2_preview"]
+[ext_resource type="PackedScene" path="res://demo/characters/preview_scout.tscn" id="2_preview"]
 
 [resource]
 script = ExtResource("1_archetype")

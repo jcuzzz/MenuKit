@@ -180,7 +180,7 @@ static func _style_line_edit(theme: Theme, pal: MKPalette) -> void:
 		theme.set_font(&"font", &"LineEdit", pal.font)
 
 
-## Sliders get the track/fill treatment only; the grabber stays the engine texture because MenuKit
+## Sliders get the track/fill treatment only; the grabber stays the engine texture because the addon
 ## bundles no art, and a drawn-in-code grabber would be the one control that cannot be re-skinned
 ## from the palette.
 static func _style_slider(theme: Theme, pal: MKPalette) -> void:

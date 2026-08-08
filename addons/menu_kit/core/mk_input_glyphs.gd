@@ -4,7 +4,7 @@ extends Node
 ## The device-aware prompt vocabulary: one spelling of "what does this event look like on screen",
 ## plus a tracker for which device class the player is currently using.
 ##
-## [b]Text, not textures.[/b] Nothing here loads or draws an image. MenuKit ships no third-party art,
+## [b]Text, not textures.[/b] Nothing here loads or draws an image. The addon ships no third-party art,
 ## and a home-drawn keycap set would be one more thing an [MKPalette] swap could not re-skin, so a
 ## prompt is a STRING — "Escape", "Mouse Left", "A" — rendered by whatever [Label] or [Button] the
 ## caller already has.

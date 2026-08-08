@@ -1,0 +1,19 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" uid="uid://ysvjou8saha5" path="res://demo/characters/UAL2_Standard.glb" id="1_rig"]
+
+[sub_resource type="StandardMaterial3D" id="mat_vanguard"]
+albedo_color = Color(0.78, 0.34, 0.28, 1)
+roughness = 0.5
+
+[node name="PreviewVanguard" type="Node3D"]
+
+[node name="UAL2_Standard" parent="." instance=ExtResource("1_rig")]
+
+[node name="Mannequin" parent="UAL2_Standard/Armature/Skeleton3D" index="0"]
+surface_material_override/0 = SubResource("mat_vanguard")
+
+[node name="AnimationPlayer" parent="UAL2_Standard" index="1"]
+autoplay = "Idle_FoldArms"
+
+[editable path="UAL2_Standard"]

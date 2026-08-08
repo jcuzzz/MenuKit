@@ -70,4 +70,4 @@ size = Vector3(0.7, 3.2, 0.7)
 material = SubResource("mat_pillar")
 
 [node name="CharacterMount" type="Marker3D" parent="."]
-position = Vector3(0, 0.7, 0)
+position = Vector3(0, 0.15, 0)

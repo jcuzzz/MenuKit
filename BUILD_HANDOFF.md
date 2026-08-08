@@ -49,8 +49,8 @@ The phase's lesson is the signature at its purest: in a phase whose PRODUCT is c
 major was a claim — and two were mirrors of fixes made in the same commit. Grep the claim
 family in the same sitting as the fix, always.
 
-**Current metrics:** 113 compiled scripts/scenes, 24 test suites, gate:
-`compile=pass smokes=24/24 isolation=pass exit=0`.
+**Current metrics** (post-0.1.0, after the 3D-backdrop and demo-character slices): 119 compiled
+scripts/scenes, 28 test suites, gate: `compile=pass smokes=28/28 isolation=pass exit=0`.
 
 ### Phase 8 defect-count table
 
@@ -506,7 +506,10 @@ Phase 5 additions:
   mode deliberately inherited (a paused page freezes its preview — Phase 6's own exit criterion).
 - **The appearance step mounts the preview** and re-resolves the chosen archetype's
   `preview_scene` from the live payload on visibility (steps bind eagerly, before any choice
-  exists). Demo archetypes carry CSG primitive preview scenes — §4.6's rotating primitive.
+  exists). Demo archetypes carried CSG primitive preview scenes at this phase — §4.6's rotating
+  primitive; the post-0.1.0 demo-character slice (D19) replaced them with tinted rigged-mannequin
+  scenes under `demo/characters/`, and `demo/demo_creation/preview_vanguard.tscn` survives only as
+  `test_preview_viewport`'s CSG deferred-bounds subject.
 - **Select panel:** roster cards rebuilt on `roster_changed` with selection-by-id restore;
   disabled-state flips run BEFORE focus chaining (correct by construction, pinned on the
   empty→populated rebuild — first builds are ordering-blind); `MKFocus` skips disabled buttons
@@ -711,8 +714,9 @@ Phase 4 items (rebinding is input-hardware work; these are genuinely un-headless
 Phase 5 items:
 
 12. **Preview feel on a real display:** drag-to-spin + release inertia + wheel zoom on the
-    appearance step's primitive; the three-point look (key/fill/rim, pure white); auto-rotate
-    resuming after the throw decays. All arithmetic is headless-asserted; FEEL and LOOK are not.
+    appearance step's subject (since the D19 slice: the rigged mannequin, not a primitive); the
+    three-point look (key/fill/rim, pure white); auto-rotate resuming after the throw decays. All
+    arithmetic is headless-asserted; FEEL and LOOK are not.
 13. **Full creation walk by feel:** name → archetype cards → appearance preview → point-buy to
     zero remaining → Confirm; then the refusal path for real (create a duplicate name from a
     second walk) and recover without Cancel.
@@ -762,6 +766,20 @@ Phase 8 items (the row-8 exit criterion is itself a manual matrix):
     hover/pressed compositing over the white re-tint, focus boxes on CheckBox/CheckButton.
 25. **Pad-legend honesty on a non-Xbox pad:** SDL-positional names only (no engine API on 4.7)
     — a DualShock reads "B" for Circle; confirm and accept, or scope a legend map for Phase 9.
+
+Rigged demo character items (a capture is one frame — it proves pose and framing, never motion):
+
+26. **Idle feel on a real display:** boot the demo, select a character — the mannequin on the dais
+    must actually be MOVING (`Idle_FoldArms`, 2.5s, looping) rather than frozen on frame 0, the
+    loop must not visibly pop at the seam, and the pace must read as ambient rather than busy
+    behind the menu. Autoplay is headless-asserted; that it plays and loops on screen is not.
+27. **Pause freezes the preview:** with the character showing in an `MKPreviewViewport` (the
+    appearance step), get `get_tree().paused` true — the idle must FREEZE and resume on unpause.
+    The viewport inherits PAUSABLE from host content and that is REQUIRED behaviour, not a bug:
+    do not "fix" it. The fullscreen backdrop's copy of the same rig keeps animating instead, since
+    the `MKRoot` subtree is `PROCESS_MODE_ALWAYS` — confirm the split reads as intended rather
+    than as a glitch. Reaching a real pause from the creation flow may need the demo's pause rung
+    to be driven deliberately; if the gesture is not reachable, say so rather than passing the row.
 
 ---
 
@@ -891,8 +909,12 @@ as if it were a leg's). What it taught:
 
 The Workingfile plan freeze was LIFTED by the owner on 2026-08-07 (rev 10 is the first
 during-build revision); this file remains the authoritative build-STATE doc, the plan the
-authoritative SPEC. Unchanged: no LICENSE ships (D15); no third-party art/audio/fonts; nothing
-under `addons/menu_kit/` may reference an external `res://` path, including comments.
+authoritative SPEC. Unchanged: no repository-level LICENSE ships (D15 — the demo character's CC0
+pack license in `demo/characters/` covers only that asset); nothing under `addons/menu_kit/` may
+reference an external `res://` path, including comments. Third-party art/audio/fonts now carry one
+narrow carve-out (D19): the **demo** may carry CC0 art with the pack's own license file beside the
+asset — as `demo/characters/` does — while the **addon** never carries any, which is what the cold
+drop and the isolation gate keep proving.
 
 Editor-resave note (supersedes the old stash instructions): commit `f3fd3dc` committed a full
 editor resave — Godot does NOT round-trip comments in `.tres`/`project.godot` files, so

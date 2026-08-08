@@ -98,12 +98,17 @@ and the revert countdown keeps ticking under the pause.
 
 ## Assets and rights
 
-**No third-party assets ship with MenuKit.** No fonts, no audio files, no images, no icons — the
-backdrop is a generated gradient, the CheckBox glyph is rasterised from the palette at runtime, and
-input prompts are text rather than keycap art. `MKPalette.font` and the four `*_sfx` exports on
-`MKRoot` are the documented swap points for supplying your own.
+**The addon ships no third-party assets** (`addons/menu_kit/` — the part you drop into your game).
+No fonts, no audio files, no images, no icons — the default backdrop is a generated gradient, the
+CheckBox glyph is rasterised from the palette at runtime, and input prompts are text rather than
+keycap art. `MKPalette.font` and the four `*_sfx` exports on `MKRoot` are the documented swap
+points for supplying your own. The **demo** carries one exception under decision D19: the rigged
+demo character `demo/characters/UAL2_Standard.glb` (Quaternius Universal Animation Library 2,
+**CC0 1.0**), with the pack's `LICENSE.txt` beside it — demo-only, deletable with the folder, and
+never referenced from the addon.
 
-**No `LICENSE` file ships** (decision D15): this is a private handoff for production use, not an
+**No repository-level `LICENSE` file ships** (decision D15; the CC0 file above covers only the
+demo character asset): this is a private handoff for production use, not an
 asset-store listing, and rights are a matter between the parties. One consequence worth stating
 plainly: **with no written terms, code shipping inside a commercial product has no recorded answer to
 who may reuse it.** If either party wants one, adding a `LICENSE` file is a one-commit change — and

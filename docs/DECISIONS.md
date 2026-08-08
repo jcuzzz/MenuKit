@@ -26,6 +26,7 @@ change to what an id *means* as a documentation break.
 | **D16** | Production hardening: an automated headless test suite, versioned releases with CHANGELOG discipline, and diagnostics affordances (`MKLog`, `dump_diagnostics()`). | [API.md § MKLog](API.md#mklog) |
 | **D17** | Point-buy step: **built and shipped, disabled by default**. MenuKit owns allocation, validation and confirm-gating only — never the meaning of a stat. | [CREATION_STEPS.md §5](CREATION_STEPS.md#5-point-buy) |
 | **D18** | Package name: `MenuKit`; folder `addons/menu_kit/`; class prefix `MK` on every `class_name` in the addon, to avoid host collisions. | [API.md](API.md) |
+| **D19** | Art carve-out, successor to D15 and narrow: the **demo** may ship CC0 art, carrying the pack's own license file beside the asset. The **addon** never ships any — a cold drop stays asset-free and the isolation gate keeps proving it. | [../demo/characters/LICENSE.txt](../demo/characters/LICENSE.txt) |
 
 ## Adopted defaults
 
