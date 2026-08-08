@@ -49,8 +49,9 @@ The phase's lesson is the signature at its purest: in a phase whose PRODUCT is c
 major was a claim — and two were mirrors of fixes made in the same commit. Grep the claim
 family in the same sitting as the fix, always.
 
-**Current metrics** (post-0.1.0, after the 3D-backdrop and demo-character slices): 119 compiled
-scripts/scenes, 28 test suites, gate: `compile=pass smokes=28/28 isolation=pass exit=0`.
+**Current metrics** (post-0.1.0, after the 3D-backdrop, demo-character, select-layout and
+C#-adapter slices): 126 compiled scripts/scenes, 29 test suites, gate:
+`compile=pass smokes=29/29 isolation=pass exit=0`.
 
 ### Phase 8 defect-count table
 
@@ -780,6 +781,18 @@ Rigged demo character items (a capture is one frame — it proves pose and frami
     the `MKRoot` subtree is `PROCESS_MODE_ALWAYS` — confirm the split reads as intended rather
     than as a glitch. Reaching a real pause from the creation flow may need the demo's pause rung
     to be driven deliberately; if the gesture is not reachable, say so rather than passing the row.
+
+C# adapter item (needs an engine build this repo does not have):
+
+28. **Prove the C# adapters against a real .NET Godot build** — in the recipient's project, rebind
+    ONE backend end to end: a C# autoload delegate, the matching
+    `addons/menu_kit/backends/interop/mk_csharp_*.gd` in the slot,
+    `params = {"delegate_path": "/root/…"}`. Confirm the PascalCase lookup finds real C# methods,
+    that `MkConfigure` receives the remaining params, that a C# `[Signal]` re-emits through the
+    adapter (a `RosterChanged` must refresh the select panel), and that removing a method degrades to
+    ONE warning naming both spellings rather than an exception. Everything here is currently proven
+    against GDScript stand-ins only — the mechanism (`has_method` / `callv` / connect-by-name) is
+    engine-level and language-blind, but nothing in this repo can execute C#.
 
 ---
 

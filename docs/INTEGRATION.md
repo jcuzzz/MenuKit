@@ -588,6 +588,182 @@ Each of these is a known, documented property, not a bug to report:
 
 ---
 
+## 10. C# hosts
+
+MenuKit is GDScript, and a Godot .NET project runs it as-is. **There is exactly one wall**: Godot
+does not support a C# class extending a GDScript class, so your backends cannot subclass
+`MKProfileBackend` and friends — and `MKBackendSlot.validate_against` correctly refuses a script that
+does not extend the base its slot expects.
+
+The answer is the `addons/menu_kit/backends/interop/` adapters: five GDScript backends that DO extend
+the bases and forward every call to a C# node you name. You write plain C# and never touch GDScript.
+
+| Slot | Adapter script |
+|---|---|
+| `menu_backend` | `res://addons/menu_kit/backends/interop/mk_csharp_menu_backend.gd` |
+| `profile_backend` | `.../mk_csharp_profile_backend.gd` |
+| `settings_backend` | `.../mk_csharp_settings_backend.gd` |
+| `network_backend` | `.../mk_csharp_network_backend.gd` |
+| `pause_policy` | `.../mk_csharp_pause_policy.gd` |
+
+### Wiring one
+
+```
+# On your MKConfig, in the inspector:
+profile_backend.backend_script = <mk_csharp_profile_backend.gd>
+profile_backend.params         = { "delegate_path": "/root/GameProfiles", "save_dir": "user://saves/" }
+```
+
+`delegate_path` names a node under the window root — usually a C# autoload, which is the shape that
+exists before the shell boots. Write it absolute (`/root/GameProfiles`; the `/root/` segment is
+matched case-insensitively) or root-relative (`GameProfiles`) — both mean the same node. An absolute
+path with any other first segment (`/Main/GameProfiles`) is treated as unresolvable and takes the
+warn-once degrade path below: the adapter never hands an absolute path to `get_node`, because
+resolving one outside an active scene tree pushes an engine error on every headless or
+pre-main-scene boot. Every OTHER param is forwarded to the delegate's own configure hook.
+
+### Autoload order: put your delegate ABOVE `MKSettingsService`
+
+If your settings delegate is a C# autoload, register it **above** `MKSettingsService` in Project
+Settings → Autoload. The service makes its boot sequence — `snapshot_input_defaults()`, `load()`,
+`apply_all()` — synchronously in its own `_ready`, and Godot instantiates autoloads in list order.
+Registered below it, your delegate does not exist yet when all three run: stock bindings are never
+snapshotted, the player's file is never read, nothing is applied, and the service never calls them
+again.
+
+The settings adapter self-heals that case — it holds those three calls and replays them, in order,
+on the first resolution that finds the delegate, and it refuses to `save()` until its `load()` has
+actually reached the delegate (otherwise the service's exit-tree save writes C#-side defaults over
+the player's real settings file). Treat that as a safety net for a misordered project, not as the
+supported configuration: correct order is the only one where the boot sequence runs at the moment
+the service intends it to.
+
+One consequence worth stating plainly: a settings delegate that implements `Save()` but no
+`Load()` is **permanently refused** — `save()` never forwards, with a warning naming the reason.
+`Load()` is in the adapter's required set precisely so "the store was never read" can never be
+answered with a write; a C# store with nothing to load should implement a `Load()` that does
+nothing rather than omit it. The guard is per-instance: replacing the delegate node at the same
+path (a hot-reload swap) re-arms the refusal until the new instance's `Load()` has run.
+
+### The C# side
+
+```csharp
+using Godot;
+using Godot.Collections;
+
+public partial class GameProfiles : Node   // autoloaded as /root/GameProfiles
+{
+    [Signal] public delegate void RosterChangedEventHandler();
+
+    private string _saveDir = "user://saves/";
+
+    // Your own storage — the three helpers this example calls and does not show.
+    private Array<Dictionary> Load() { /* … read _saveDir, return the roster … */ return new Array<Dictionary>(); }
+    private void Save(Dictionary profile) { /* … write it under _saveDir … */ }
+    private Dictionary Read(string id) { /* … one profile, or null … */ return null; }
+
+    // The configure hook. Returns void: the adapter has already claimed every param key on your
+    // behalf (all of them except delegate_path, which it consumes and does not pass on), so MenuKit
+    // never inspects what you return here.
+    public void MkConfigure(Dictionary parameters)
+    {
+        if (parameters.ContainsKey("save_dir"))
+            _saveDir = (string)parameters["save_dir"];
+    }
+
+    public Array<Dictionary> ListProfiles() => Load();
+
+    public Dictionary CreateProfile(Dictionary payload)
+    {
+        var stored = payload.Duplicate();
+        stored["id"] = System.Guid.NewGuid().ToString();
+        Save(stored);
+        EmitSignal(SignalName.RosterChanged);   // the select panel refreshes off this
+        return stored;                          // an empty Dictionary means REFUSED
+    }
+
+    public bool DeleteProfile(string id) { /* … delete it; false means REFUSED … */ return true; }
+
+    public Dictionary LoadProfile(string id) => Read(id) ?? new Dictionary();
+}
+```
+
+`IsNameAvailable(string)` is optional: omit it and the base's default scans `ListProfiles()`, which
+comes straight back through the adapter.
+
+**Why `MkConfigure` returns nothing.** The adapter reports every param key to `MKRoot` as consumed
+itself. It has to: your delegate may not be resolvable yet when the params arrive (a C# autoload can
+sit below the adapter in autoload order), and reporting a key as unconsumed because of resolution
+ORDER would warn on a correct config. The cost is that a typo in one of *your* param keys is yours to
+catch — MenuKit will not flag it.
+
+### Naming: snake_case or PascalCase, both work
+
+Each adapter tries the GDScript contract name first, then its PascalCase form — strip leading
+underscores, split on `_`, upper-case each segment. So `list_profiles` → `ListProfiles`,
+`connect_state_changed` → `ConnectStateChanged`, and the configure hook `_mk_configure` →
+**`MkConfigure`** (`Mk`, not `MK` — the rule is mechanical). Signals resolve the same way, so a
+`[Signal] RosterChangedEventHandler` bridges to `roster_changed` with its arguments intact.
+
+Mechanical means mechanical, including around digits: `ui_2d_mode` maps to **`Ui2dMode`**, not
+`Ui2DMode`. Name your C# members to match what the rule produces rather than what reads best.
+
+The pause adapter adds one hook with no GDScript counterpart: **`MkExitTree()`**, called when the
+adapter leaves the tree. A pause policy must undo its own effects on teardown, and your C# autoload
+never leaves the tree to notice — implement it or the next game boots frozen.
+
+### Degradation
+
+A delegate that cannot be resolved, or that answers neither spelling of a method, **warns once**
+(naming the path, the adapter, and both spellings) and the adapter falls back to its base default —
+the same face an unassigned slot shows. A delegate returning the wrong type warns once and falls back
+too. Nothing throws.
+
+### Type mapping cautions
+
+- Use `Godot.Collections.Dictionary` / `Godot.Collections.Array`, never `System.Collections.*`. Only
+  Variant-compatible values cross the boundary.
+- Return `Array<Dictionary>` (or a plain `Array` of dictionaries) from `ListProfiles`/`ListServers`;
+  non-dictionary elements are dropped with one warning rather than crashing the panel.
+- Emit `ConnectStateChanged` with the **integer** value of `MKNetworkBackend.ConnectState`
+  (0 IDLE … 4 CANCELLED). An out-of-range value re-emits as `FAILED` with your message — the panel
+  must never sit on a spinner because of a bad enum.
+- Setting ids arrive as `StringName`; a C# signal declaring `string` is fine, the adapter converts.
+- Profile ids are `string`; `GetValue` takes and returns `Variant`.
+
+### Seams that were already cross-language
+
+These need no adapter — they are duck-typed and `Call`-driven already:
+
+- **Pages in C#.** A page scene's root need only be a `Control`. A `[Signal] SelectionChangedEventHandler(Dictionary entry)`
+  gets the backdrop-character wiring, because `MKRoot` connects `selection_changed` duck-typed on
+  whatever page it shows.
+- **Creation steps in C#.** The step contract is called by name, so author
+  `_mk_step_configure`, `_mk_step_commit`, … under those exact snake_case names — C# permits a
+  leading underscore in a method name and `Call` matches the registered name.
+- **Driving the shell:**
+
+```csharp
+var root = GetNode("/root/Main/MKRoot");
+root.Call("push_page", "settings");
+root.Connect("pause_menu_toggled", Callable.From((bool open) => GD.Print(open)));
+
+var settings = GetNode("/root/MKSettingsService");
+var backend = (Node)settings.Call("get_settings_backend");
+backend.Connect("setting_changed",
+    Callable.From((StringName id, Variant value) => GD.Print(id, value)));
+```
+
+### The honest limit
+
+This repo's gate has **no .NET engine build**. The adapters are proven against GDScript stand-in
+delegates that mimic the C# surface (PascalCase methods plus the expected signals) — the mechanism
+(`has_method`, `callv`, signal connection by name) is engine-level and language-blind, but the first
+proof against a real C# node happens in your project. Report anything that does not behave as
+documented; that feedback is expected.
+
+---
+
 ## Where to go next
 
 | Doc | For |

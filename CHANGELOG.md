@@ -24,6 +24,17 @@ repurposing one is Breaking.
 
 ### Added
 
+- **C# host adapters** (`addons/menu_kit/backends/interop/`) — `MKCSharpMenuBackend`,
+  `MKCSharpProfileBackend`, `MKCSharpSettingsBackend`, `MKCSharpNetworkBackend` and
+  `MKCSharpPausePolicy` extend the five abstract bases and forward every call, and each base's
+  signals, to a host node named by the slot param `delegate_path`. Godot does not allow a C# class to
+  extend a GDScript one, so a .NET host could not implement a backend at all; now it writes plain C#
+  (methods resolved snake_case-then-PascalCase, the configure hook as `MkConfigure`) and no GDScript.
+  A missing delegate, a missing method, or a wrong-typed return warns **once** by name and falls back
+  to the base default — the same face an unassigned slot shows. No `.cs` file ships in the addon.
+  **Proven against GDScript stand-in delegates only**: this repo's gate has no .NET engine build, so
+  the first real-C# proof happens in the integrating project (`BUILD_HANDOFF.md` §6a-28).
+  See [docs/INTEGRATION.md §10](docs/INTEGRATION.md).
 - **3D scene backdrops** — `MKBackdropDef.scene` (`PackedScene`) renders fullscreen in a
   `SubViewport` with its own `World3D`; when set it wins over the texture/gradient path outright.
   `MKBackdropDef.character_mount` (default `&"CharacterMount"`) names the node

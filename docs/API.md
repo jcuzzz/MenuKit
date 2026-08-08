@@ -254,6 +254,77 @@ not in `MKRoot`'s. `NOTIFICATION_EXIT_TREE` propagates children first, so by the
 multiplayer answer: `can_pause()` returns false and both edges are inert — and it hands you a
 responsibility (gate camera input on `MKRoot.pause_menu_toggled`).
 
+### C# adapter backends
+
+`addons/menu_kit/backends/interop/` — five backends that extend the bases and forward to a
+host-supplied node, because **a C# class cannot extend a GDScript one**. Full worked example in
+[INTEGRATION.md §10](INTEGRATION.md#10-c-hosts).
+
+```gdscript
+MKCSharpMenuBackend      extends MKMenuBackend
+MKCSharpProfileBackend   extends MKProfileBackend
+MKCSharpSettingsBackend  extends MKSettingsBackend
+MKCSharpNetworkBackend   extends MKNetworkBackend
+MKCSharpPausePolicy      extends MKPausePolicy
+```
+
+Each takes one param, `delegate_path` (`/root/Foo`, case-insensitive on the `/root/` segment, or the
+equivalent root-relative `Foo`; any other absolute path degrades rather than reaching `get_node`),
+forwards every remaining param to the
+delegate's configure hook, overrides its base's whole public contract, and exposes
+`get_delegate() -> Node` for diagnostics. `MKCSharpNetworkBackend` additionally answers
+`get_connect_state()`, the browser's duck-typed re-entry seed.
+
+**`MKCSharpDelegate`** (`RefCounted`) is the shared bridge the five forward through:
+
+```gdscript
+const PARAM_DELEGATE_PATH   := "delegate_path"
+const CONFIGURE_METHOD      := "_mk_configure"
+const CONFIGURE_METHOD_PASCAL := "MkConfigure"
+
+func configure(params: Dictionary) -> Array[String]
+func supports(method: String) -> bool          # warns once when the delegate answers neither spelling
+func supports_quiet(method: String) -> bool    # same lookup, no warning — for optional hooks
+func forward(method: String, args: Array = []) -> Variant
+func was_delivered() -> bool                   # did the LAST forward reach the delegate, or degrade?
+func bridge(signal_name: String, sink: Callable) -> void
+func ensure_resolved() -> bool
+var on_resolved: Callable                      # fired once per resolution, after held params go over
+func to_pascal_case(method: String) -> String
+func to_bool / to_dictionary / to_dictionary_array / to_event_array / to_enum
+```
+
+The delegate contract, in five rules:
+
+1. **Names.** snake_case first, then PascalCase (leading underscores stripped, `_` split, each
+   segment's first character upper-cased). `_mk_configure` → `MkConfigure`. Signals resolve the same
+   way and re-emit through the adapter with their arguments intact — `roster_changed` (0),
+   `setting_changed` (2), `servers_changed` (0), `connect_state_changed` (2).
+2. **Resolution is lazy and retried** while unresolved (a C# autoload may sit below the adapter in
+   autoload order), off `Engine.get_main_loop()` rather than the adapter's own tree position, so
+   `_mk_configure` — which runs before `MKRoot` adds the adapter as a child — still reaches the
+   delegate.
+3. **Params are claimed optimistically.** `delegate_path` is consumed by the adapter; every other key
+   is reported consumed and forwarded, because a delegate that is not resolvable *yet* would
+   otherwise make correct config warn. Unknown-key detection for those keys is the delegate's.
+4. **Degradation warns once and answers the base default** — for an unreachable delegate, for a
+   method under neither spelling, and for a return of the wrong type. One fault is exactly one line:
+   a call that degraded returns `null`, and the coercions do not warn a second time about that.
+   Never an error, never a throw.
+5. **Signal bridging follows the delegate INSTANCE.** It re-runs on every resolution, so a delegate
+   replaced at the same path keeps re-emitting; `bridge()` after resolution connects immediately.
+
+`MKCSharpSettingsBackend` adds one behaviour of its own: it holds `snapshot_input_defaults`, `load`
+and `apply_all` while the delegate is unresolved and replays them in order on the resolution that
+finds it, and refuses `save()` until `load()` has actually reached the CURRENT delegate instance —
+per-instance, so a delegate replaced at the same path must load again before it may save, and a
+delegate that implements no `Load()` is refused permanently (warned by name). See
+[INTEGRATION.md §10](INTEGRATION.md#10-c-hosts) for the autoload-order rule this backstops.
+
+`MKCSharpPausePolicy` adds `MkExitTree()`: an optional delegate hook called from the adapter's
+`_exit_tree()`, because the base's teardown contract cannot be honoured by an autoload that never
+leaves the tree.
+
 ---
 
 ## MKSettingsService
