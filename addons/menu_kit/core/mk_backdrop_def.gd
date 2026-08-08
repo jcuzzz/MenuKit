@@ -16,6 +16,22 @@ extends Resource
 ## Human-readable name for a backdrop-picker row.
 @export var display_name: String = ""
 
+## A 3D scene rendered fullscreen behind the menu — the ARPG main-menu shape: the whole screen is a
+## live viewport and the menu UI draws over it. [b]When set it wins outright[/b]: [member texture],
+## the gradient colors, [member tint], [member blur_amount] and [member scroll_speed] are all
+## ignored, because the scene owns its own look end to end.
+##
+## The scene must carry its own [Camera3D] (the def has no framing knowledge and [MKBackdrop] adds
+## none — a scene without one renders nothing and is warned about, naming this def). It renders in
+## its OWN [World3D], so its lights never leak into a host's running game and vice versa.
+@export var scene: PackedScene = null
+
+## Name of the node inside [member scene] under which [method MKBackdrop.set_character_scene] mounts
+## a character — how the selected roster character ends up standing in the menu scene. Searched
+## recursively by name; a [Marker3D] is the natural author choice. Only consulted when a character is
+## actually handed over, so a scene with no mount is valid until a host tries to use one.
+@export var character_mount: StringName = &"CharacterMount"
+
 ## The backdrop image. [b]Null is fully supported[/b] — [MKBackdrop] then generates a vertical
 ## gradient from [member gradient_top] / [member gradient_bottom], which is how the shipped default
 ## works without shipping or requiring an image asset.
@@ -48,5 +64,6 @@ func is_valid() -> bool:
 
 
 ## True when the def needs no external image and can be rendered from its gradient colors alone.
+## A scene def is not "generated" — it renders from [member scene], not from the gradient.
 func is_generated() -> bool:
-	return texture == null
+	return scene == null and texture == null

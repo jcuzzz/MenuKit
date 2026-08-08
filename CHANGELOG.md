@@ -13,6 +13,25 @@ repurposing one is Breaking.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **3D scene backdrops** — `MKBackdropDef.scene` (`PackedScene`) renders fullscreen in a
+  `SubViewport` with its own `World3D`; when set it wins over the texture/gradient path outright.
+  `MKBackdropDef.character_mount` (default `&"CharacterMount"`) names the node
+  `MKBackdrop.set_character_scene()` mounts a character under — the ARPG main-menu shape: the whole
+  screen is the viewport and the selected character stands in the data-driven scene. The scene must
+  carry its own `Camera3D` (warned by def path otherwise). Additive: existing texture/gradient defs
+  are byte-identical in behaviour.
+- **`MKCharacterSelect.selection_changed(entry)`** — id-gated selection announcement (`{}` = an
+  emptied roster). `MKRoot` connects it duck-typed on any shown page and resolves
+  `entry.archetype` → `MKConfig.archetypes` → `preview_scene` into the backdrop mount;
+  `MKRoot.set_backdrop_character(scene)` is the direct seam.
+- The demo now ships a 3D menu backdrop (`demo/backdrops/menu_backdrop_3d.tscn` + catalog); the
+  addon's default catalog remains the generated gradient, so a cold drop still references no scene
+  asset and stays warning-free.
+
 ## [0.1.0] — 2026-08-08
 
 First release. Everything is new, so the sections below summarise rather than enumerate.

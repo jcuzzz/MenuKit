@@ -4,7 +4,7 @@
 [ext_resource type="Script" uid="uid://bvd5uc04j3e7s" path="res://addons/menu_kit/creation/mk_archetype.gd" id="1_mdj5m"]
 [ext_resource type="Script" uid="uid://dmlec1d2qe8en" path="res://addons/menu_kit/core/mk_menu_page_def.gd" id="2_pagedef"]
 [ext_resource type="Resource" path="res://addons/menu_kit/themes/default_palette.tres" id="3_palette"]
-[ext_resource type="Resource" uid="uid://me6mhs6bqa0q" path="res://addons/menu_kit/themes/default_backdrop_catalog.tres" id="4_backdrops"]
+[ext_resource type="Resource" uid="uid://b4suvj5uk24le" path="res://demo/backdrops/demo_backdrop_catalog.tres" id="4_backdrops"]
 [ext_resource type="PackedScene" path="res://demo/pages/page_play.tscn" id="5_play"]
 [ext_resource type="PackedScene" path="res://demo/pages/page_settings.tscn" id="6_settings"]
 [ext_resource type="PackedScene" path="res://demo/pages/page_sub.tscn" id="7_sub"]
@@ -155,6 +155,7 @@ network_backend = SubResource("slot_network")
 pause_policy = SubResource("slot_pause")
 palette = ExtResource("3_palette")
 backdrop_catalog = ExtResource("4_backdrops")
+backdrop_id = &"menu_3d"
 pages = Array[ExtResource("2_pagedef")]([SubResource("page_play"), SubResource("page_characters"), SubResource("page_settings"), SubResource("page_servers"), SubResource("page_credits"), SubResource("page_sub"), SubResource("page_character_create"), SubResource("page_pause")])
 initial_page = &"play"
 archetypes = Array[ExtResource("1_mdj5m")]([ExtResource("18_vanguard"), ExtResource("19_arcanist"), ExtResource("20_scout")])

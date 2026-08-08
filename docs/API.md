@@ -53,6 +53,17 @@ func get_back_depth() -> int
 func request_quit_confirm() -> void          # the root rung of the cancel ladder
 ```
 
+### Backdrop character
+
+```gdscript
+func set_backdrop_character(scene: PackedScene) -> void  # stands scene in the scene backdrop's mount
+```
+
+Pages are wired automatically: a shown page with a `selection_changed(entry: Dictionary)` signal
+(duck-typed — `MKCharacterSelect`, or a host's own roster page) has it connected to the shell, which
+resolves `entry.archetype` through `MKConfig.archetypes` and mounts that archetype's
+`preview_scene`. See the MKBackdrop section.
+
 ### Pause
 
 ```gdscript
@@ -363,6 +374,8 @@ func get_ids() -> Array[StringName]
 
 class_name MKBackdropDef extends Resource
 @export var id, display_name, texture, gradient_top, gradient_bottom, tint, blur_amount, scroll_speed
+@export var scene: PackedScene = null              # 3D scene backdrop; wins over texture/gradient
+@export var character_mount: StringName = &"CharacterMount"
 func is_valid() -> bool
 func is_generated() -> bool
 
@@ -371,7 +384,17 @@ func apply_def(def: MKBackdropDef) -> void         # apply_def(null) CLEARS the 
 func apply_from_catalog(catalog: MKBackdropCatalog, id: StringName = &"") -> void
 func clear() -> void
 func get_active_def() -> MKBackdropDef
+func set_character_scene(scene: PackedScene) -> void  # mounts under character_mount; null clears;
+                                                      # remembered across backdrop swaps
 ```
+
+A def carrying `scene` renders that 3D scene fullscreen in a `SubViewport` with its **own
+`World3D`** (no light leakage either way); `texture`, the gradient, `tint`, `blur_amount` and
+`scroll_speed` are ignored for it. The scene must carry its own `Camera3D` — a cameraless scene is
+warned about by def path. `MKRoot.set_backdrop_character(scene)` is the shell-level forwarder, and
+any page emitting `selection_changed(entry: Dictionary)` (as `MKCharacterSelect` does) drives it
+automatically: the entry's `archetype` id resolves through `MKConfig.archetypes` to that archetype's
+`preview_scene`, an unresolvable entry clears the mount.
 
 ---
 

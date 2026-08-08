@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="MKBackdropCatalog" format=3 uid="uid://b4suvj5uk24le"]
+
+[ext_resource type="Script" uid="uid://co041pp0rxcs4" path="res://addons/menu_kit/core/mk_backdrop_catalog.gd" id="1_catalog"]
+[ext_resource type="Script" uid="uid://b6ggaywoc5ku2" path="res://addons/menu_kit/core/mk_backdrop_def.gd" id="2_def"]
+[ext_resource type="PackedScene" path="res://demo/backdrops/menu_backdrop_3d.tscn" id="3_scene"]
+
+[sub_resource type="Resource" id="def_menu_3d"]
+script = ExtResource("2_def")
+id = &"menu_3d"
+display_name = "3D Menu Scene"
+scene = ExtResource("3_scene")
+
+[sub_resource type="Resource" id="def_gradient"]
+script = ExtResource("2_def")
+id = &"gradient"
+display_name = "Gradient"
+
+[resource]
+script = ExtResource("1_catalog")
+backdrops = Array[ExtResource("2_def")]([SubResource("def_menu_3d"), SubResource("def_gradient")])
+default_id = &"menu_3d"

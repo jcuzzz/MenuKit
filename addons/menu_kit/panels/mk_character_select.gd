@@ -24,6 +24,12 @@ extends Control
 ## guessing at a frame boundary. Same convention as [signal MKSettingsPanel.built].
 signal built()
 
+## Emitted when the selected roster entry CHANGES — id-gated, so a click, arrow-key focus travel and
+## a rebuild that restores the same selection do not re-announce it. The empty dictionary means "no
+## selection" (an emptied roster). [MKRoot] listens duck-typed to drive the backdrop's mounted
+## character; a host page can listen for a portrait/stat pane the same way.
+signal selection_changed(entry: Dictionary)
+
 ## The page id [method _on_new_pressed] navigates to. Named here rather than at the call site so a host
 ## repointing the creation flow at its own page edits one constant.
 const CREATE_PAGE_ID := &"character_create"
@@ -228,6 +234,10 @@ func _refresh() -> void:
 		_select(entries[0])
 	else:
 		_update_actions()
+		# _select never ran, but the selection DID change if something was selected before this
+		# rebuild emptied the roster — announce the no-selection state through the same signal.
+		if not previous_id.is_empty():
+			selection_changed.emit({})
 
 	# Chain AFTER the column is populated and after the disabled flags are settled — MKFocus reads the
 	# live tree, so a chain built before the cards exist wires nothing.
@@ -319,6 +329,7 @@ func _card_text(entry: Dictionary) -> String:
 
 
 func _select(entry: Dictionary) -> void:
+	var changed := str(entry.get("id", "")) != _selected_id()
 	_selected = entry
 	var id := str(entry.get("id", ""))
 	for card_id in _cards:
@@ -329,6 +340,8 @@ func _select(entry: Dictionary) -> void:
 		# what keeps the selected card re-skinnable.
 		MKTheme.set_variation_if(card, card_id == id, MKTheme.PRIMARY_BUTTON, MKTheme.PANEL_BUTTON)
 	_update_actions()
+	if changed:
+		selection_changed.emit(entry)
 
 
 func _selected_id() -> String:

@@ -338,6 +338,14 @@ func _show_page(id: StringName) -> bool:
 		# control has can_process() false and Godot does not dispatch GUI input to it, so under a tree
 		# pause policy its Resume button would not respond.
 		inst.process_mode = host_content_process_mode
+		# Duck-typed, not `inst is MKCharacterSelect`: any page (a host's own roster UI included)
+		# that announces a selection this way drives the backdrop character. Connected BEFORE
+		# add_child — the select panel default-selects during its own _ready, and a connection made
+		# after add_child misses that first announcement, leaving the backdrop empty until the player
+		# moves the ring. Freed pages disconnect themselves — Godot auto-disconnects a freed node's
+		# method-bound connections.
+		if inst.has_signal("selection_changed"):
+			inst.connect("selection_changed", _on_page_selection_changed)
 		_page_host.add_child(inst)
 		if inst is Control:
 			var c := inst as Control
@@ -367,6 +375,37 @@ func _focus_page_content() -> void:
 	# focusables, so the two agree by construction.
 	if _nav_bar != null and is_instance_valid(_nav_bar) and _nav_bar.is_visible_in_tree():
 		_nav_bar.focus_active()
+
+
+## Puts [param scene] into the active scene backdrop's character mount (null clears it). The public
+## seam for a host driving the backdrop character itself; pages with a
+## [code]selection_changed[/code] signal are wired to it automatically via
+## [method _on_page_selection_changed].
+func set_backdrop_character(scene: PackedScene) -> void:
+	if _backdrop != null:
+		_backdrop.set_character_scene(scene)
+
+
+## A shown page announced a new selected roster entry: resolve its [code]archetype[/code] id through
+## [member MKConfig.archetypes] and stand that archetype's [member MKArchetype.preview_scene] in the
+## backdrop scene. Unresolvable — no archetype field, an id the config does not know, an archetype
+## with no preview — CLEARS the mount rather than leaving the previous character standing for the
+## wrong entry. Type-gated like the select panel's card label: the payload is an opaque host
+## dictionary and `archetype` may hold anything.
+func _on_page_selection_changed(entry: Dictionary) -> void:
+	if _backdrop == null:
+		return
+	var scene: PackedScene = null
+	var arch_field: Variant = entry.get("archetype", "")
+	if config != null \
+			and (typeof(arch_field) == TYPE_STRING or typeof(arch_field) == TYPE_STRING_NAME):
+		var arch_id := str(arch_field)
+		if not arch_id.is_empty():
+			for arch in config.archetypes:
+				if arch != null and String(arch.id) == arch_id:
+					scene = arch.preview_scene
+					break
+	_backdrop.set_character_scene(scene)
 
 
 # --- Pause and mouse capture --------------------------------------------------
