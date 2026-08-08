@@ -782,17 +782,21 @@ Rigged demo character items (a capture is one frame — it proves pose and frami
     than as a glitch. Reaching a real pause from the creation flow may need the demo's pause rung
     to be driven deliberately; if the gesture is not reachable, say so rather than passing the row.
 
-C# adapter item (needs an engine build this repo does not have):
+C# adapter item:
 
-28. **Prove the C# adapters against a real .NET Godot build** — in the recipient's project, rebind
-    ONE backend end to end: a C# autoload delegate, the matching
-    `addons/menu_kit/backends/interop/mk_csharp_*.gd` in the slot,
-    `params = {"delegate_path": "/root/…"}`. Confirm the PascalCase lookup finds real C# methods,
-    that `MkConfigure` receives the remaining params, that a C# `[Signal]` re-emits through the
-    adapter (a `RosterChanged` must refresh the select panel), and that removing a method degrades to
-    ONE warning naming both spellings rather than an exception. Everything here is currently proven
-    against GDScript stand-ins only — the mechanism (`has_method` / `callv` / connect-by-name) is
-    engine-level and language-blind, but nothing in this repo can execute C#.
+28. **Prove the C# adapters against a real .NET Godot build** — **SUBSTANTIALLY CLOSED
+    2026-08-09** by a local out-of-repo proof: `C:\GodotProjects\MenuKitCSharpProof\` (a cold-drop
+    host on Godot 4.7.1-stable mono + .NET SDK 10.0.302 building the net8.0 target) ran
+    `proof.gd` headless against REAL C# delegate nodes — `PROOF_RESULT passed=15 failed=0`.
+    Proven for real: the INTEGRATION.md §10 example compiles VERBATIM as pasted and runs through
+    the adapter; PascalCase lookup finds real C# methods with `Godot.Collections` marshalling
+    intact both directions; `MkConfigure` receives params minus `delegate_path`; C# `[Signal]`
+    emissions re-emit through the adapter (roster and settings, `string`→`StringName` coerced);
+    the settings boot-triad replays IN ORDER against a late-mounted C# node and `save()` is
+    refused before `load()`; and the character-select page renders a C#-served roster through a
+    real `MKRoot`. Remaining for the recipient's own project (the original row's residue): their
+    real autoload registration/order in `project.godot`, and the missing-method degrade observed
+    against their build (proven here only via the GDScript stand-ins).
 
 ---
 

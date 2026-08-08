@@ -756,11 +756,15 @@ backend.Connect("setting_changed",
 
 ### The honest limit
 
-This repo's gate has **no .NET engine build**. The adapters are proven against GDScript stand-in
-delegates that mimic the C# surface (PascalCase methods plus the expected signals) — the mechanism
-(`has_method`, `callv`, signal connection by name) is engine-level and language-blind, but the first
-proof against a real C# node happens in your project. Report anything that does not behave as
-documented; that feedback is expected.
+This repo's own gate has **no .NET engine build**, so the in-repo suite proves the adapters
+against GDScript stand-in delegates that mimic the C# surface. A one-off out-of-repo proof
+(2026-08-09, Godot 4.7.1-stable mono, .NET SDK 10 building net8.0) has additionally run them
+against **real C# delegate nodes** — 15/15 green, including this section's worked example compiled
+verbatim, real `Godot.Collections` marshalling both directions, `[Signal]` re-emission, the
+boot-triad replay, the save guard, and the select panel rendering a C#-served roster
+(BUILD_HANDOFF §6a-28 has the record). What has never run is YOUR project's configuration —
+autoload registration and order, your method set, your build. Report anything that does not behave
+as documented; that feedback is expected.
 
 ---
 
