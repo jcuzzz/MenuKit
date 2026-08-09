@@ -936,6 +936,15 @@ narrow carve-out (D19): the **demo** may carry CC0 art with the pack's own licen
 asset — as `demo/characters/` does — while the **addon** never carries any, which is what the cold
 drop and the isolation gate keep proving.
 
+Delivery posture (owner decision, 2026-08-09): this remains a **friend handoff at
+client-deliverable quality**. The process record — this file's phase narratives, the review-round
+commit history, the plan docs' orchestration notes — **ships as-is, deliberately**: it is the
+evidence the asset was built under adversarial review, which is the quality property being
+delivered. Only the session working file (`CLAUDE.md`, untracked via `.git/info/exclude`) stays
+out of the package. Do not scrub, squash, or neutral-terms-rewrite the history or process docs
+for delivery; if the package ever goes beyond the original engagement, revisit D15's LICENSE
+question first (the README's Assets-and-rights section carries the warning).
+
 Editor-resave note (supersedes the old stash instructions): commit `f3fd3dc` committed a full
 editor resave — Godot does NOT round-trip comments in `.tres`/`project.godot` files, so
 authored prose there is unsustainable by mechanism; that fact is the opening argument of the
