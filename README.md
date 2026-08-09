@@ -32,6 +32,14 @@ Version **0.1.0** · Godot **4.7** · Plugin folder `addons/menu_kit/`, class pr
   point-buy ships **disabled by default**.
 - **3D preview slot** — a `SubViewport` host with drag-spin and inertia that accepts any
   `PackedScene`. No rig, no humanoid assumption — equally a character, a weapon or a helmet.
+- **3D scene backdrops** — an `MKBackdropDef` may carry a whole 3D scene instead of a
+  texture/gradient: the full screen becomes a live viewport (own `World3D`) with the menu UI over
+  it, and the selected roster character stands in the scene at a data-driven mount — the ARPG
+  main-menu shape. The character select is right-biased around that view: roster band on the
+  right, the character in the world on the left.
+- **C# hosts** — five adapter backends bridge the GDScript bases to plain C# delegate nodes
+  (Godot forbids cross-language inheritance; the adapters are the door). Proven against real C#
+  under a .NET engine build — see [docs/INTEGRATION.md §10](docs/INTEGRATION.md#10-c-hosts).
 - **Pause menu** — the same shell, page-based, with pause-policy abstraction. `MKTreePausePolicy`
   freezes the world; `MKNoPausePolicy` is the multiplayer answer where the menu opens over a live
   world.
@@ -71,7 +79,7 @@ MenuKit only through configs and backends.
 | Page | What it demonstrates |
 |---|---|
 | **Play** | A host-authored page and `MKSceneMenuBackend` starting the demo game scene |
-| **Characters** | The roster: create, select, delete, with the confirm dialog |
+| **Characters** | The roster: create, select, delete, with the confirm dialog — the selected character (a rigged CC0 mannequin, idle playing) standing in the 3D menu scene behind the list |
 | **Settings** | Video / Audio / Gameplay / Controls — every row type, the rebind flow, the D14 revert countdown, the brightness slider, and a live `CUSTOM` row |
 | **Servers** | The server browser against `MKStubNetworkBackend`: refresh, connect, cancel, failure and timeout states |
 | **Credits** | A second host page, plus a hidden "sub" page reachable only by `push_page` |

@@ -1,6 +1,12 @@
 # Plan — C# host compatibility
 
-**Status:** PLANNED. **Written:** 2026-08-08.
+**Status:** IMPLEMENTED 2026-08-08 (commit `b0222bd` — orchestrated: opus implementation, test and
+fix legs, two fable review rounds). Departures from the plan as written: the boot-triad replay
+rides a new `MKCSharpDelegate.on_resolved` hook (a replay triggered only by triad calls would
+never fire — the service calls them exactly once); the save-refusal guard is per delegate
+INSTANCE, not a boolean (a hot-reload swap must reload before it may save); and §3's
+"stand-ins only" honest limit was superseded on 2026-08-09 by the out-of-repo real-C# proof
+(BUILD_HANDOFF §6a-28, `PROOF_RESULT passed=15 failed=0`). **Written:** 2026-08-08.
 **Goal:** a Godot .NET (C#) host can integrate MenuKit fully — backends included — without
 forking the addon or waiting for a C# port. The recipient's project is C#; after this slice the
 owner assesses whether a full port is still wanted.

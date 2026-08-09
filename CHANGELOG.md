@@ -18,9 +18,10 @@ repurposing one is Breaking.
 ### Changed
 
 - **`MKCharacterSelect` is right-biased** — the roster reads down the right edge as a fixed-width
-  (380) vertically-inset band, with an expanding mouse-transparent gap (min 500) to its left as the
-  window onto the scene backdrop's character: the target genre's character-select shape. Structure
-  and traversal are unchanged (same cards, footer, focus chains); only the geometry moved.
+  (380) band inset 200 top and bottom, with an expanding mouse-transparent gap (min 500) to its
+  left as the window onto the scene backdrop's character: the target genre's character-select
+  shape. Structure and traversal are unchanged (same cards, footer, focus chains); only the
+  geometry moved.
 
 ### Added
 
@@ -32,8 +33,10 @@ repurposing one is Breaking.
   (methods resolved snake_case-then-PascalCase, the configure hook as `MkConfigure`) and no GDScript.
   A missing delegate, a missing method, or a wrong-typed return warns **once** by name and falls back
   to the base default — the same face an unassigned slot shows. No `.cs` file ships in the addon.
-  **Proven against GDScript stand-in delegates only**: this repo's gate has no .NET engine build, so
-  the first real-C# proof happens in the integrating project (`BUILD_HANDOFF.md` §6a-28).
+  The in-repo gate proves them against GDScript stand-in delegates (it has no .NET engine build);
+  additionally proven against **real C# delegate nodes** in an out-of-repo .NET host on 2026-08-09
+  — 15/15 green, including the worked example compiled verbatim (`BUILD_HANDOFF.md` §6a-28 has the
+  record; the remaining untested surface is the integrating project's own configuration).
   See [docs/INTEGRATION.md §10](docs/INTEGRATION.md).
 - **3D scene backdrops** — `MKBackdropDef.scene` (`PackedScene`) renders fullscreen in a
   `SubViewport` with its own `World3D`; when set it wins over the texture/gradient path outright.
@@ -179,7 +182,10 @@ Documented properties of `0.1.0`, not open defects:
   is disabled meanwhile, so no mis-connect is possible.
 - **Two shipped scenes are unreferenced** (`mk_modal_layer.tscn`, `mk_confirm_dialog.tscn`) — both
   types are built in code; the scenes are authoring conveniences.
-- **Some cosmetic alignment drift remains**: rebind buttons' left edges are ragged against the
-  slider/enum control column, and empty-roster copy is centred while roster cards left-align.
+
+*(Correction of record, 2026-08-09: this list originally also claimed ragged rebind-button edges
+and centred empty-roster copy as remaining drift. Both were already fixed by Phase 8 before the
+tag — the binding column width floor and the card-matched empty-label geometry shipped in 0.1.0 —
+so the claim was false when written and is withdrawn rather than silently deleted.)*
 
 [0.1.0]: #010--2026-08-08

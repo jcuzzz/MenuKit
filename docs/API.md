@@ -8,7 +8,9 @@ signature, an exported `Resource` field, a `Theme` type-variation name, or a per
 **Breaking** and says so in the CHANGELOG.
 
 Contents: [MKRoot](#mkroot) · [Backends](#backends) · [MKSettingsService](#mksettingsservice) ·
-[MKConfig / MKBackendSlot / MKMenuPageDef](#mkconfig) · [MKInputGlyphs](#mkinputglyphs) ·
+[MKConfig / MKBackendSlot / MKMenuPageDef](#mkconfig) ·
+[MKBackdropCatalog / MKBackdropDef / MKBackdrop](#mkbackdropcatalog--mkbackdropdef--mkbackdrop) ·
+[MKInputGlyphs](#mkinputglyphs) ·
 [MKFocus](#mkfocus) · [MKPreviewViewport](#mkpreviewviewport) ·
 [MKModalLayer / MKConfirmDialog](#mkmodallayer) · [MKLog](#mklog) · [MKJsonCodec](#mkjsoncodec) ·
 [MKVersion](#mkversion)
@@ -289,6 +291,8 @@ func forward(method: String, args: Array = []) -> Variant
 func was_delivered() -> bool                   # did the LAST forward reach the delegate, or degrade?
 func bridge(signal_name: String, sink: Callable) -> void
 func ensure_resolved() -> bool
+func get_delegate() -> Node                    # the resolved node, or null
+func get_delegate_path() -> String             # the configured delegate_path, verbatim
 var on_resolved: Callable                      # fired once per resolution, after held params go over
 func to_pascal_case(method: String) -> String
 func to_bool / to_dictionary / to_dictionary_array / to_event_array / to_enum
@@ -815,4 +819,5 @@ Documented in their own docs, listed here for completeness:
 | `MKPalette`, `MKTheme`, `MKThemeGenerator` | [THEMING.md](THEMING.md) |
 | `MKSettingDef`, `MKSettingsPageDef`, `MKSettingsPanel`, `MKRebindRow`, `MKRevertCountdown`, `MKExampleCustomRow` | [SETTINGS_SCHEMA.md](SETTINGS_SCHEMA.md) |
 | `MKCreationHost`, `MKCreationStepDef`, `MKArchetype`, `MKStatSchema`, `MKStatDef`, `MKStepName`, `MKStepArchetype`, `MKStepAppearance`, `MKStepPointbuy` | [CREATION_STEPS.md](CREATION_STEPS.md) |
-| `MKPauseMenu`, `MKCharacterSelect`, `MKCharacterCreate`, `MKServerBrowser`, `MKWelcomePage`, `MKNavBar` | [INTEGRATION.md](INTEGRATION.md) |
+| `MKPauseMenu`, `MKCharacterSelect`, `MKCharacterCreate`, `MKServerBrowser` | [INTEGRATION.md](INTEGRATION.md) |
+| `MKWelcomePage`, `MKNavBar` | Shell furniture `MKRoot` builds and drives itself — their class docs in source are the reference; hosts configure them only through `MKConfig` (`pages`, titles, order) |

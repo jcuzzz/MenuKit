@@ -6,7 +6,10 @@ cold-drop proof, a false atomicity sentence answered by making the code true; ro
 integrator's audit after the reviewer leg died on a session limit: hoist verified, the
 direct-write mutant re-run red, stale-claim sweep zero hits, versions agreeing, gates green).
 **Repo:** `C:\GodotProjects\MenuKit` (standalone, own git history — not a Workingfile subtree)
-**HEAD:** `d59e383` (+ this docs commit)
+**HEAD:** moves with the post-0.1.0 slices — read `git log` for truth; the CHANGELOG's Unreleased
+block is the slice ledger (3D backdrops, demo character, right-biased select, C# adapters, the
+real-C# proof). This line stopped naming a hash on 2026-08-09 because it had already gone stale
+once (it said `d59e383` five slices after that commit)
 **Engine:** Godot 4.7 (`C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe`)
 **Plan (authoritative spec):** `c:\GodotProjects\Workingfile\docs\plans\menukit_asset_extraction_plan.md` — **rev 10** (the owner lifted the plan freeze on 2026-08-07; rev 10 adds
 **Phase 8a, the comment-diet phase** — §4.4a has the per-comment-kind rules and the token-level
