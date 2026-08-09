@@ -1,4 +1,4 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene format=3 uid="uid://d2w7v1d8os7js"]
 
 [ext_resource type="PackedScene" uid="uid://ysvjou8saha5" path="res://demo/characters/UAL2_Standard.glb" id="1_rig"]
 
@@ -6,14 +6,14 @@
 albedo_color = Color(0.35, 0.45, 0.85, 1)
 roughness = 0.5
 
-[node name="PreviewArcanist" type="Node3D"]
+[node name="PreviewArcanist" type="Node3D" unique_id=525373643]
 
-[node name="UAL2_Standard" parent="." instance=ExtResource("1_rig")]
+[node name="UAL2_Standard" parent="." unique_id=812841447 instance=ExtResource("1_rig")]
 
-[node name="Mannequin" parent="UAL2_Standard/Armature/Skeleton3D" index="0"]
+[node name="Mannequin" parent="UAL2_Standard/Armature/Skeleton3D" parent_id_path=PackedInt32Array(812841447, 924954492) index="0" unique_id=1978494386]
 surface_material_override/0 = SubResource("mat_arcanist")
 
-[node name="AnimationPlayer" parent="UAL2_Standard" index="1"]
-autoplay = "Idle_FoldArms"
+[node name="AnimationPlayer" parent="UAL2_Standard" index="1" unique_id=1532100797]
+autoplay = &"Idle_FoldArms"
 
 [editable path="UAL2_Standard"]
