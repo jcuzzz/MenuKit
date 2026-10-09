@@ -104,7 +104,10 @@ and the revert countdown keeps ticking under the pause.
 
 ---
 
-## Assets and rights
+## License and assets
+
+MenuKit is released under the **[MIT License](LICENSE)** (decision D21). The addon folder carries
+its own copy, `addons/menu_kit/LICENSE.md`, so the terms travel with a copied `addons/menu_kit/`.
 
 **The addon ships no third-party assets** (`addons/menu_kit/` — the part you drop into your game).
 No fonts, no audio files, no images, no icons — the default backdrop is a generated gradient, the
@@ -114,10 +117,3 @@ points for supplying your own. The **demo** carries one exception under decision
 demo character `demo/characters/UAL2_Standard.glb` (Quaternius Universal Animation Library 2,
 **CC0 1.0**), with the pack's `LICENSE.txt` beside it — demo-only, deletable with the folder, and
 never referenced from the addon.
-
-**No repository-level `LICENSE` file ships** (decision D15; the CC0 file above covers only the
-demo character asset): this is a private handoff for production use, not an
-asset-store listing, and rights are a matter between the parties. One consequence worth stating
-plainly: **with no written terms, code shipping inside a commercial product has no recorded answer to
-who may reuse it.** If either party wants one, adding a `LICENSE` file is a one-commit change — and
-it should happen **before this package is distributed to anyone beyond the original engagement.**
