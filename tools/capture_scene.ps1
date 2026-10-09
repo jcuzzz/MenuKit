@@ -10,8 +10,8 @@
 # Final line is machine-readable (mirrors check.ps1):
 #   CAPTURE_RESULT status=ok scene=... out=... size=1280x720 exit=0
 #
-# Invoke bare (no pipes/redirects) — allowlists match on command shape. GODOT_BIN env var
-# overrides the engine path, same as check.ps1.
+# Invoke bare (no pipes/redirects) — allowlists match on command shape. Engine resolution
+# (GODOT_BIN, then PATH) is shared with check.ps1.
 #
 # user:// isolation is OWNED BY THIS WRAPPER, exactly as check.ps1 owns it for the test sweep: the
 # child engine runs with APPDATA redirected into a repo-local profile that is wiped at the START of
@@ -30,9 +30,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Godot = if ($env:GODOT_BIN) { $env:GODOT_BIN } else { "C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe" }
-if (-not (Test-Path $Godot)) {
-    Write-Output "CAPTURE_RESULT status=error exit=2  # Godot binary not found: $Godot (set GODOT_BIN)"
+. (Join-Path $PSScriptRoot "godot_bin.ps1")
+$Godot = Resolve-GodotBin
+if (-not $Godot) {
+    Write-Output "CAPTURE_RESULT status=error exit=2  # Godot binary not found (set GODOT_BIN, or put godot on PATH)"
     exit 2
 }
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path

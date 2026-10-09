@@ -4,6 +4,15 @@ Maintainer tooling. Everything here runs from the repo root, bare (`./tools/chec
 per-command execution-policy flags), and everything that writes runs against isolated state
 under `.agent_tmp/`, never the developer's real `user://`.
 
+## Finding the engine
+
+Every wrapper resolves Godot 4.7 the same way (`tools/godot_bin.ps1`): `$env:GODOT_BIN` if set,
+otherwise the first `godot` / `godot4` executable on `PATH`. Point it at the **console** build on
+Windows so engine output reaches the gate (`Godot_v4.7-stable_win64_console.exe`). With neither,
+each script exits 2 with a machine-readable `…_RESULT … exit=2` line naming the fix.
+
+The tooling is Windows PowerShell 5.1-shaped (it is what CI runs, on `windows-latest`).
+
 ## check.ps1 — the gate
 
 - `./tools/check.ps1` — compile every `.gd`/`.tscn` (reimports first when the class cache is
