@@ -28,8 +28,8 @@ func run_tests() -> void:
 
 	# The release value itself, so a stray "-dev" or an un-bumped constant is caught at the source
 	# rather than only as a mismatch (both halves can be wrong together).
-	check_eq(MKVersion.VERSION, "0.1.0",
-		"MKVersion.VERSION is the 0.1.0 release value")
+	check_eq(MKVersion.VERSION, "0.2.0",
+		"MKVersion.VERSION is the 0.2.0 release value")
 
 	# The other fields the gate reads: a plugin.cfg missing its name or script is not installable, and
 	# no other test opens this file.

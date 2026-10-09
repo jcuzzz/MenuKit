@@ -13,6 +13,68 @@ repurposing one is Breaking.
 
 ---
 
+## [Unreleased]
+
+## [0.2.0] — 2026-10-10
+
+The first public release.
+
+### Changed
+
+- **Licensed under MIT** (D21, superseding D15's private-handoff "no LICENSE"). The root
+  `LICENSE` and an identical `addons/menu_kit/LICENSE.md` — the copy travels with a copied addon
+  folder; `tests/test_license.gd` holds the two identical. The demo character stays CC0 (D19).
+- **Contributor docs replace the build handoff:** `CONTRIBUTING.md` and `docs/DEVELOPMENT.md`
+  (same section numbers as the old handoff, so `§6a-28`-style citations still resolve).
+- **Tooling finds Godot via `GODOT_BIN` or `PATH`** (`tools/godot_bin.ps1`) instead of a
+  hard-coded machine path; GitHub Actions runs `check.ps1 -Smokes -Isolation` on every push and
+  pull request.
+- **`MKCharacterSelect` is right-biased** — the roster reads down the right edge as a fixed-width
+  (380) band inset 200 top and bottom, with an expanding mouse-transparent gap (min 500) to its
+  left as the window onto the scene backdrop's character: the target genre's character-select
+  shape. Structure and traversal are unchanged (same cards, footer, focus chains); only the
+  geometry moved.
+
+### Added
+
+- **C# host adapters** (`addons/menu_kit/backends/interop/`) — `MKCSharpMenuBackend`,
+  `MKCSharpProfileBackend`, `MKCSharpSettingsBackend`, `MKCSharpNetworkBackend` and
+  `MKCSharpPausePolicy` extend the five abstract bases and forward every call, and each base's
+  signals, to a host node named by the slot param `delegate_path`. Godot does not allow a C# class to
+  extend a GDScript one, so a .NET host could not implement a backend at all; now it writes plain C#
+  (methods resolved snake_case-then-PascalCase, the configure hook as `MkConfigure`) and no GDScript.
+  A missing delegate, a missing method, or a wrong-typed return warns **once** by name and falls back
+  to the base default — the same face an unassigned slot shows. No `.cs` file ships in the addon.
+  The in-repo gate proves them against GDScript stand-in delegates (it has no .NET engine build);
+  additionally proven against **real C# delegate nodes** in an out-of-repo .NET host on 2026-08-09
+  — 15/15 green, including the worked example compiled verbatim ([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §6a-28 has the
+  record; the remaining untested surface is the integrating project's own configuration).
+  See [docs/INTEGRATION.md §10](docs/INTEGRATION.md).
+- **3D scene backdrops** — `MKBackdropDef.scene` (`PackedScene`) renders fullscreen in a
+  `SubViewport` with its own `World3D`; when set it wins over the texture/gradient path outright.
+  `MKBackdropDef.character_mount` (default `&"CharacterMount"`) names the node
+  `MKBackdrop.set_character_scene()` mounts a character under — the action-RPG main-menu shape: the whole
+  screen is the viewport and the selected character stands in the data-driven scene. The scene must
+  carry its own `Camera3D` (warned by def path otherwise). Additive: existing texture/gradient defs
+  are byte-identical in behaviour.
+- **`MKCharacterSelect.selection_changed(entry)`** — id-gated selection announcement (`{}` = an
+  emptied roster). `MKRoot` connects it duck-typed on any shown page and resolves
+  `entry.archetype` → `MKConfig.archetypes` → `preview_scene` into the backdrop mount;
+  `MKRoot.set_backdrop_character(scene)` is the direct seam.
+- The demo now ships a 3D menu backdrop (`demo/backdrops/menu_backdrop_3d.tscn` + catalog); the
+  addon's default catalog remains the generated gradient, so a cold drop still references no scene
+  asset and stays warning-free.
+- **A rigged demo character** — the three demo archetypes now preview as an animated mannequin
+  instead of coloured CSG primitives. `demo/characters/UAL2_Standard.glb` is Quaternius' *Universal
+  Animation Library 2* (Standard, non-root-motion), **CC0 1.0**, with the pack's `LICENSE.txt`
+  beside it; `preview_{vanguard,arcanist,scout}.tscn` are three scriptless scenes over that one
+  asset, each autoplaying `Idle_FoldArms` under a different body tint (the purple joint bands are
+  deliberately left the pack's shared accent on every archetype — only the body surface is
+  tinted). The `.glb` is **~8 MB** because it carries the whole 43-animation library and the demo
+  plays one idle — accepted rather than re-exported. `demo/backdrops/menu_backdrop_3d.tscn`'s `CharacterMount` moved from `y = 0.7`
+  to `y = 0.15` (the dais top) because the rig is feet-origin, not centre-origin. Demo-only: the
+  addon ships no art (D19).
+
 ## [0.1.0] — 2026-08-08
 
 First release. Everything is new, so the sections below summarise rather than enumerate.
@@ -132,7 +194,12 @@ Documented properties of `0.1.0`, not open defects:
   is disabled meanwhile, so no mis-connect is possible.
 - **Two shipped scenes are unreferenced** (`mk_modal_layer.tscn`, `mk_confirm_dialog.tscn`) — both
   types are built in code; the scenes are authoring conveniences.
-- **Some cosmetic alignment drift remains**: rebind buttons' left edges are ragged against the
-  slider/enum control column, and empty-roster copy is centred while roster cards left-align.
 
-[0.1.0]: #010--2026-08-08
+*(Correction of record, 2026-08-09: this list originally also claimed ragged rebind-button edges
+and centred empty-roster copy as remaining drift. Both were already fixed by Phase 8 before the
+tag — the binding column width floor and the card-matched empty-label geometry shipped in 0.1.0 —
+so the claim was false when written and is withdrawn rather than silently deleted.)*
+
+[Unreleased]: https://github.com/jcuzzz/MenuKit/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jcuzzz/MenuKit/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/jcuzzz/MenuKit/releases/tag/v0.1.0

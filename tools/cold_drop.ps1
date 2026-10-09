@@ -9,8 +9,8 @@
 # Final line is machine-readable (mirrors check.ps1 / isolation_check.ps1):
 #   COLD_DROP_RESULT status=pass import=pass boot=pass service=pass noise=0 exit=0
 #
-# Invoke bare (no pipes/redirects) — allowlists match on command shape. GODOT_BIN overrides the
-# engine path, same as check.ps1.
+# Invoke bare (no pipes/redirects) — allowlists match on command shape. Engine resolution (GODOT_BIN,
+# then PATH) is shared with check.ps1.
 #
 # What makes this a COLD drop rather than a second run of the repo's own gate:
 #   - The temp project's project.godot is MINIMAL. It carries config_version, an application name,
@@ -52,9 +52,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Godot = if ($env:GODOT_BIN) { $env:GODOT_BIN } else { "C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe" }
-if (-not (Test-Path $Godot)) {
-    Write-Output "COLD_DROP_RESULT status=error import=skipped boot=skipped noise=0 exit=2  # Godot binary not found: $Godot (set GODOT_BIN)"
+. (Join-Path $PSScriptRoot "godot_bin.ps1")
+$Godot = Resolve-GodotBin
+if (-not $Godot) {
+    Write-Output "COLD_DROP_RESULT status=error import=skipped boot=skipped noise=0 exit=2  # Godot binary not found (set GODOT_BIN, or put godot on PATH)"
     exit 2
 }
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path

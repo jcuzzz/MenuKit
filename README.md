@@ -1,5 +1,8 @@
 # MenuKit
 
+[![check](https://github.com/jcuzzz/MenuKit/actions/workflows/check.yml/badge.svg)](https://github.com/jcuzzz/MenuKit/actions/workflows/check.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **A modular, fully re-skinnable menu framework for Godot 4.7.**
 
 MenuKit gives a game everything between the splash screen and gameplay: a themed shell with
@@ -11,7 +14,7 @@ Everything that touches your game — starting a match, saving a character, paus
 through a **backend you supply**. MenuKit ships working defaults for every one of them, so it runs
 before you have written any.
 
-Version **0.1.0** · Godot **4.7** · Plugin folder `addons/menu_kit/`, class prefix `MK`.
+Version **0.2.0** · Godot **4.7** · Plugin folder `addons/menu_kit/`, class prefix `MK`.
 
 ---
 
@@ -32,6 +35,14 @@ Version **0.1.0** · Godot **4.7** · Plugin folder `addons/menu_kit/`, class pr
   point-buy ships **disabled by default**.
 - **3D preview slot** — a `SubViewport` host with drag-spin and inertia that accepts any
   `PackedScene`. No rig, no humanoid assumption — equally a character, a weapon or a helmet.
+- **3D scene backdrops** — an `MKBackdropDef` may carry a whole 3D scene instead of a
+  texture/gradient: the full screen becomes a live viewport (own `World3D`) with the menu UI over
+  it, and the selected roster character stands in the scene at a data-driven mount — the action-RPG
+  main-menu shape. The character select is right-biased around that view: roster band on the
+  right, the character in the world on the left.
+- **C# hosts** — five adapter backends bridge the GDScript bases to plain C# delegate nodes
+  (Godot forbids cross-language inheritance; the adapters are the door). Proven against real C#
+  under a .NET engine build — see [docs/INTEGRATION.md §10](docs/INTEGRATION.md#10-c-hosts).
 - **Pause menu** — the same shell, page-based, with pause-policy abstraction. `MKTreePausePolicy`
   freezes the world; `MKNoPausePolicy` is the multiplayer answer where the menu opens over a live
   world.
@@ -71,7 +82,7 @@ MenuKit only through configs and backends.
 | Page | What it demonstrates |
 |---|---|
 | **Play** | A host-authored page and `MKSceneMenuBackend` starting the demo game scene |
-| **Characters** | The roster: create, select, delete, with the confirm dialog |
+| **Characters** | The roster: create, select, delete, with the confirm dialog — the selected character (a rigged CC0 mannequin, idle playing) standing in the 3D menu scene behind the list |
 | **Settings** | Video / Audio / Gameplay / Controls — every row type, the rebind flow, the D14 revert countdown, the brightness slider, and a live `CUSTOM` row |
 | **Servers** | The server browser against `MKStubNetworkBackend`: refresh, connect, cancel, failure and timeout states |
 | **Credits** | A second host page, plus a hidden "sub" page reachable only by `push_page` |
@@ -93,18 +104,21 @@ and the revert countdown keeps ticking under the pause.
 | **[docs/CREATION_STEPS.md](docs/CREATION_STEPS.md)** | The step contract, payload ownership, point-buy, extending a step |
 | **[docs/DECISIONS.md](docs/DECISIONS.md)** | The `D`-id glossary used throughout the source comments |
 | **[CHANGELOG.md](CHANGELOG.md)** | Release history, initial persisted-format statement, known limitations |
+| **[CONTRIBUTING.md](CONTRIBUTING.md)** | How to verify a change, the hard rules, PR expectations |
+| **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** | Engine traps, architecture decisions, open items, the human-only checklist, the review process |
 
 ---
 
-## Assets and rights
+## License and assets
 
-**No third-party assets ship with MenuKit.** No fonts, no audio files, no images, no icons — the
-backdrop is a generated gradient, the CheckBox glyph is rasterised from the palette at runtime, and
-input prompts are text rather than keycap art. `MKPalette.font` and the four `*_sfx` exports on
-`MKRoot` are the documented swap points for supplying your own.
+MenuKit is released under the **[MIT License](LICENSE)** (decision D21). The addon folder carries
+its own copy, `addons/menu_kit/LICENSE.md`, so the terms travel with a copied `addons/menu_kit/`.
 
-**No `LICENSE` file ships** (decision D15): this is a private handoff for production use, not an
-asset-store listing, and rights are a matter between the parties. One consequence worth stating
-plainly: **with no written terms, code shipping inside a commercial product has no recorded answer to
-who may reuse it.** If either party wants one, adding a `LICENSE` file is a one-commit change — and
-it should happen **before this package is distributed to anyone beyond the original engagement.**
+**The addon ships no third-party assets** (`addons/menu_kit/` — the part you drop into your game).
+No fonts, no audio files, no images, no icons — the default backdrop is a generated gradient, the
+CheckBox glyph is rasterised from the palette at runtime, and input prompts are text rather than
+keycap art. `MKPalette.font` and the four `*_sfx` exports on `MKRoot` are the documented swap
+points for supplying your own. The **demo** carries one exception under decision D19: the rigged
+demo character `demo/characters/UAL2_Standard.glb` (Quaternius Universal Animation Library 2,
+**CC0 1.0**), with the pack's `LICENSE.txt` beside it — demo-only, deletable with the folder, and
+never referenced from the addon.

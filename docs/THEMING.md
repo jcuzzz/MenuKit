@@ -234,7 +234,16 @@ naming the resource and field; `has_backdrop(id)` probes without tripping that w
 
 An `MKBackdropDef` carries `texture` (optional), `gradient_top`/`gradient_bottom`, `tint`,
 `blur_amount` and `scroll_speed`. **A def with no texture renders a generated gradient**, which is
-why the shipped catalog references no external image and MenuKit bundles no art.
+why the shipped catalog references no external image and the addon bundles no art (the demo
+carries its own CC0 character asset under decision D19; the addon never references it).
+
+A def may instead carry `scene` (a `PackedScene`): the backdrop then renders that 3D scene
+**fullscreen** in a `SubViewport` with its own `World3D`, and every 2D field above is ignored — the
+scene owns its look, including its own `Camera3D` (a cameraless scene warns by def path). Its
+`character_mount` names the node `MKBackdrop.set_character_scene()` stands a character under; the
+shell drives that from any page emitting `selection_changed` (see [API.md](API.md)). The demo's
+`demo/backdrops/` pair is the worked example; the addon's default catalog stays a generated
+gradient so a cold drop references no scene asset.
 
 `MKBackdrop.apply_def(null)` **clears** the layer — null is not ignored; it is how you turn the
 backdrop off (because you supply your own 3D background) through the same call you use to set one.

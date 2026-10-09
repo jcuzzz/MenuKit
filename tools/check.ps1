@@ -27,10 +27,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-# GODOT_BIN env var overrides the default engine path (CI / other machines / version bumps).
-$Godot = if ($env:GODOT_BIN) { $env:GODOT_BIN } else { "C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe" }
-if (-not (Test-Path $Godot)) {
-    Write-Output "VERIFY_RESULT compile=error smokes=skipped git=unknown exit=2  # Godot binary not found: $Godot (set GODOT_BIN)"
+# Engine: $env:GODOT_BIN, else godot / godot4 on PATH (tools/godot_bin.ps1).
+. (Join-Path $PSScriptRoot "godot_bin.ps1")
+$Godot = Resolve-GodotBin
+if (-not $Godot) {
+    Write-Output "VERIFY_RESULT compile=error smokes=skipped git=unknown exit=2  # Godot binary not found (set GODOT_BIN, or put godot on PATH)"
     exit 2
 }
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path

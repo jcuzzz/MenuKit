@@ -1,16 +1,19 @@
 [gd_scene load_steps=2 format=3]
 
-; The Vanguard's preview subject: a box.
+; A TEST FIXTURE, not shipped content: retained as tests/test_preview_viewport.gd's CSG
+; deferred-bounds subject. No archetype points at it any more — the product path is the three
+; rigged scenes in demo/characters/, and its two siblings (preview_arcanist/preview_scout) were
+; deleted with that re-point.
 ;
-; A plain CSG primitive with a colour and NO script, and that is the whole point of the demo's
-; preview set. MKPreviewViewport assumes nothing about what it is shown — no rig, no skeleton, no
-; scale convention — and a demo that shipped an authored character would prove only that the widget
-; can display an authored character. Three primitives in three colours prove the frame-from-bounds
-; math and the idle turntable on content the reader can see the entirety of in one file.
+; Why it survives as a .tscn rather than becoming a node built inside the test: CSG builds its mesh
+; on a DEFERRED call, so get_aabb() reads zero on the frame the node is added, and the widget's
+; second-pass framing exists for exactly that. A MeshInstance3D fixture measures immediately and
+; cannot reproduce the failure mode; a CSG node hand-built in the suite could, but the suite's
+; other CSG fixtures already cover the hand-built shape and this one additionally proves the widget
+; survives a real authored .tscn arriving through load().
 ;
-; The material is authored HERE rather than assigned in code, so the archetype -> preview_scene
-; -> viewport path carries no demo-side setup step at all: the viewport instantiates the scene and
-; what is in the file is what appears.
+; MKPreviewViewport assumes nothing about what it is shown — no rig, no skeleton, no scale
+; convention — which is why a box and a mannequin are both legitimate subjects for it.
 
 [sub_resource type="StandardMaterial3D" id="mat_vanguard"]
 albedo_color = Color(0.78, 0.34, 0.28, 1)
