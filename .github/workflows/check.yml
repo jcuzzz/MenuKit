@@ -1,0 +1,57 @@
+name: check
+
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: 4.7-stable
+
+jobs:
+  gate:
+    # The tooling is Windows PowerShell 5.1-shaped (tools/README.md).
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\godot
+          key: godot-${{ env.GODOT_VERSION }}-win64
+
+      - name: Download Godot
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "godot.zip"
+          $url = "https://github.com/godotengine/godot-builds/releases/download/$env:GODOT_VERSION/Godot_v$($env:GODOT_VERSION)_win64.exe.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath (Join-Path $env:RUNNER_TEMP "godot") -Force
+
+      - name: Locate the console build
+        shell: powershell
+        run: |
+          $exe = Get-ChildItem -Path (Join-Path $env:RUNNER_TEMP "godot") -Recurse -Filter "*_console.exe" | Select-Object -First 1
+          if (-not $exe) { Write-Error "no *_console.exe in the Godot archive"; exit 1 }
+          "GODOT_BIN=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Gate (compile + smokes + isolation)
+        shell: powershell
+        run: |
+          $out = & ./tools/check.ps1 -Smokes -Isolation
+          $out | ForEach-Object { Write-Output $_ }
+          $last = $out | Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0 -or $last -notmatch 'exit=0') { exit 1 }
+
+      - name: Upload gate logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-logs
+          path: .agent_tmp/
+          if-no-files-found: ignore

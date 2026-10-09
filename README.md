@@ -1,5 +1,8 @@
 # MenuKit
 
+[![check](https://github.com/jcuzzz/MenuKit/actions/workflows/check.yml/badge.svg)](https://github.com/jcuzzz/MenuKit/actions/workflows/check.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **A modular, fully re-skinnable menu framework for Godot 4.7.**
 
 MenuKit gives a game everything between the splash screen and gameplay: a themed shell with
