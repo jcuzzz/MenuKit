@@ -16,8 +16,8 @@ extends Resource
 ## Human-readable name for a backdrop-picker row.
 @export var display_name: String = ""
 
-## A 3D scene rendered fullscreen behind the menu — the ARPG main-menu shape: the whole screen is a
-## live viewport and the menu UI draws over it. [b]When set it wins outright[/b]: [member texture],
+## A 3D scene rendered fullscreen behind the menu — the action-RPG main-menu shape: the whole
+## screen is a live viewport and the menu UI draws over it. [b]When set it wins outright[/b]: [member texture],
 ## the gradient colors, [member tint], [member blur_amount] and [member scroll_speed] are all
 ## ignored, because the scene owns its own look end to end.
 ##

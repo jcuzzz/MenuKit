@@ -5,8 +5,8 @@ extends MKTest
 ## instantiated here. What a C# node PRESENTS to GDScript is a Node whose methods and signals are
 ## registered under their exact (PascalCase) names — and that shape is reproducible in GDScript
 ## exactly. [PascalStandIn] below is that shape: PascalCase methods, PascalCase signals,
-## [code]MkConfigure[/code]. The first real-C# proof happens in the recipient's project and is
-## recorded as a human row in BUILD_HANDOFF §6a; everything a GDScript test CAN reach is reached
+## [code]MkConfigure[/code]. The real-C# proof runs out-of-repo and is recorded as
+## human row 28 in docs/DEVELOPMENT.md §6a; everything a GDScript test CAN reach is reached
 ## here.
 ##
 ## [b]What each section pins.[/b]

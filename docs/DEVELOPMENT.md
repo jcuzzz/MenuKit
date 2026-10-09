@@ -1,200 +1,25 @@
-# MenuKit — Build Handoff
+# MenuKit — Development Notes
 
-**Status: ALL PHASES COMPLETE — v0.1.0 tagged.** Phase 9 went terminal at round 2 (round 1's
-four majors were all claims — stale scrim mirrors, a resurrected fixed-limitation, a vacuous
-cold-drop proof, a false atomicity sentence answered by making the code true; round 2 was the
-integrator's audit after the reviewer leg died on a session limit: hoist verified, the
-direct-write mutant re-run red, stale-claim sweep zero hits, versions agreeing, gates green).
-**Repo:** `C:\GodotProjects\MenuKit` (standalone, own git history — not a Workingfile subtree)
-**HEAD:** moves with the post-0.1.0 slices — read `git log` for truth; the CHANGELOG's Unreleased
-block is the slice ledger (3D backdrops, demo character, right-biased select, C# adapters, the
-real-C# proof). This line stopped naming a hash on 2026-08-09 because it had already gone stale
-once (it said `d59e383` five slices after that commit)
-**Engine:** Godot 4.7 (`C:\GodotProjects\Installer\Godot_v4.7-stable_win64_console.exe`)
-**Plan (authoritative spec):** `c:\GodotProjects\Workingfile\docs\plans\menukit_asset_extraction_plan.md` — **rev 10** (the owner lifted the plan freeze on 2026-08-07; rev 10 adds
-**Phase 8a, the comment-diet phase** — §4.4a has the per-comment-kind rules and the token-level
-comment-only verification — and folds in the §3.1 drift this file used to carry)
-**Written:** 2026-08-06 (Phases 3–4); Phase 5 sections + the rev-10 sync added 2026-08-07;
-Phase 6 sections added 2026-08-07 (same day — the phase ran orchestrated end-to-end in one
-session: two Opus implementation legs, an Opus test leg, seven review rounds — reviews on
-Fable from round 3 by owner direction, fix legs on Opus)
-
-This file supersedes `Workingfile\docs\plans\menukit_build_handoff.md`, which is frozen at the
-Phase 2 state (Workingfile was declared never-edit for the Phase 3 session). Same format; the
-Phase 1–2 material below is carried forward unchanged where still true.
+The working knowledge behind MenuKit's code: how to verify a change, what the gate catches, the
+engine traps that cost real time, the architecture decisions made during the build, known open
+items, the checklist of things only a human with a display and a controller can verify, and the
+review process that kept the package correct. [CONTRIBUTING.md](../CONTRIBUTING.md) is the short
+version; read this before writing non-trivial GDScript here.
 
 ---
 
-## 1. Where the build is
+## 1. Reading this document
 
-| Phase | Scope | State |
-|---|---|---|
-| 1 | Shell: theme system, modal stack, data-driven nav, `MKRoot`, tooling, demo | **Done.** 6 adversarial review rounds |
-| 2 | Six shipped backend defaults, `MKSettingsService` autoload, JSON persistence | **Done.** 2 review rounds |
-| 3 | Settings schema + panel, brightness controller, D14 revert countdown | **Done.** 7 adversarial review rounds (majors 4→3→2→1→1→0→0; round 7 terminal, zero findings) |
-| 4 | Rebinding: `MKRebindRow` capture widget, conflict modal, per-row + global reset, persistence, the `_input`/`_unhandled_input` priority rule, axis binding (descope valve NOT needed) | **Done.** Test leg + 2 adversarial review rounds (see the round table below) |
-| 5 | Profiles + preview: `MKJsonCodec` int envelope (the owner's int→float call), character select + delete confirm, `MKCreationHost` + Name/Archetype/Appearance/Point-buy steps, `MKPreviewViewport` (D13/F10), config-driven step ordering, demo archetypes + 3-stat schema | **Done.** Test leg + 8 adversarial review rounds (round table below; round 8 terminal) |
-| 6 | Pause menu: `mk_pause_menu` panel + the shipped `&"pause"` page in BOTH configs, `demo_game.tscn/.gd` (grey-box mouse-captured first-person), the pause-shell rules on `MKRoot` (nav hidden, page-aware ESC rung + recovery, pre-check refusal, `show_backdrop`, hide==close, recorded-nav restore, back-stack clear on close), save-on-exit for the settings store (round-2 catch: `save()` had NO production caller) | **Done.** Test leg + 7 adversarial review rounds (round table below; round 7 terminal) |
-| 7 | Server browser: `mk_server_browser` panel (every ConnectState rendered with its message — there is NO TIMEOUT enum member, "timeout" is FAILED + "Connection timed out."), demo Servers page, `servers_rig`, the `_recover_focus` seam (focus loss on rebuild/disable-under-ring), render-after-resolve (the status line lied for any backend without the stub-only `get_connect_state`) | **Done.** Test leg + 2 review rounds (round table below; round 2 terminal) |
-| 8 | Input polish: `MKInputGlyphs` (device-aware prompt vocabulary, hoisted from the rebind row; panel-owned tracker with a DETERMINISTIC dispatch-order contract), the §6 visual debt closed (binding column, label-column FILL, palette-generated CheckBox glyphs, CheckBox/CheckButton focus boxes), destructive dialogs open on Cancel by TREE ORDER, welcome copy, empty-roster geometry, select-panel focus recovery | **Done.** Test leg + 2 review rounds (table below; round 2 terminal) |
-| 8a | Comment diet: ~711 comment lines out across three parallel legs; `tools/comment_diff.ps1` (string-aware stripper + SHA manifest) is the gate and reported IDENTICAL; 64 authored `;` lines out of `.tres`/`.tscn` (the rule covers BOTH — learned this phase); displaced knowledge staged in `docs/phase9_staging/*.md` (59 host bullets + 24 handoff candidates), all consumed and the directory deleted in Phase 9 | **Done.** One adversarial round (mandated), PASS: zero lost constraints, two NITs (one fixed with the docs commit, the D-id glossary owed to Phase 9's docs) |
-| 9 | Polish & handoff: the docs set (INTEGRATION/API/SETTINGS_SCHEMA/CREATION_STEPS/THEMING/DECISIONS + README + CHANGELOG 0.1.0), the alt skin (warm slate/amber, metrics re-skinned, cyan focus) with headless + capture proof, `tools/cold_drop.ps1` (gate 2, empty allowlist as a measurement), `MKJsonCodec.write_atomic` (the profile store's truncate-write was the last false doc claim standing — the code was made true), the scrim wire (gate 3's final hole: `palette.scrim` had been authored-but-unread since Phase 2), version 0.1.0 pinned by test | **Done.** 2 review rounds (round 2 terminal); tagged `v0.1.0` |
+MenuKit was built in numbered phases (1–9, plus 8a) under a written plan, each phase closed by
+adversarial review rounds. The sections below keep that structure — "Phase 4 additions" is the
+batch of traps or decisions that phase surfaced — because the commit history is organised the
+same way: `git log` shows each phase's implementation commits followed by one commit per review
+round, with long messages recording why each defect existed.
 
-### Phase 9 defect-count table
-
-| Stage | Majors | Notes |
-|---|---|---|
-| Integration | 0 | Owner closed the scrim hole inline (mutation run red) and wrote tools/README for the one staging gap |
-| Round 1 | 4 | ALL claims: THEMING + CHANGELOG denied the scrim fix their own commit shipped; the CHANGELOG resurrected the quit-confirm limitation Phase 8 closed; cold_drop's plugin-ran proof matched a substring present before the plugin ran; SETTINGS_SCHEMA's "both stores atomic" was false for the roster (fixed by hoisting write_atomic — code made true, not doc made vague). Gate-7 smoke of the worked example: PASS without reading plugin source |
-| Round 2 | 0 | **TERMINAL** — integrator-inline audit (the Fable leg died on a session limit): hoist semantics verified, .tmp-seed mutant red, claim families zero hits, gate 10 preconditions confirmed |
-
-The phase's lesson is the signature at its purest: in a phase whose PRODUCT is claims, every
-major was a claim — and two were mirrors of fixes made in the same commit. Grep the claim
-family in the same sitting as the fix, always.
-
-**Current metrics** (post-0.1.0, after the 3D-backdrop, demo-character, select-layout and
-C#-adapter slices): 126 compiled scripts/scenes, 29 test suites, gate:
-`compile=pass smokes=29/29 isolation=pass exit=0`.
-
-### Phase 8 defect-count table
-
-| Stage | Majors | Notes |
-|---|---|---|
-| Integration | 1 trivial | Leg A's comment spelled the forbidden override token in prose; the isolation scan (correctly) flags tokens in comments too — reworded |
-| Test leg | 0 | 24th suite (90 assertions) + three extended; probe finding: `Input.get_joy_button_string` does not exist on 4.7 — the pad-legend branch ships dead, pinned with a future-engine tripwire |
-| Round 1 | 2 | The tracker's dispatch-order contract was stated THREE ways, two contradictory, one probe-false — and inverted across rebuild() (fresh: tracker sees consumed events; rebuilt: blind). And the check-glyph 2px border floor reverted to the shipped palette's defect value (1) undetected. Plus 3 coverage minors |
-| Round 2 | 0 | **TERMINAL** — 3/3 re-runs red; 3/4 new mutations red (the fourth survives by per-process test isolation, scoped claim, argued); the shipped-shape transitivity of reverse dispatch PROBED true; link_chain redundancy arbitrated KEEP (the un-trapped dialog is a documented shape and the only place the flag is live) |
-
-Majors per stage: **1 → 0 → 2 → 0.** The round-1 headline is the Phase 6 mirror lesson inverted:
-not five copies of one dead claim, but one LIVE contract written three ways — single-source a
-mechanism's contract at birth, and make the code (not a comment) the guarantor (the placement
-rule vs three prose promises).
-
-### Phase 7 defect-count table
-
-| Stage | Majors | Notes |
-|---|---|---|
-| Test leg | 1 | 98 assertions; found the stranded focus ring (a focused Cancel press disables the button under its own ring) — pinned, not endorsed, per its comment |
-| Round 1 | 3 | The pin upheld as MAJOR (not deferrable to Phase 8 — a dead accept on the page's primary flow); refresh freed a focused row leaving GUI focus on NULL (probe: keyboard dead); the status line rendered "No network backend is configured." over a live list for any host backend lacking the stub-only `get_connect_state` (_build rendered before _resolve). Plus 4 surviving mutations, all converted to tests |
-| Round 2 | 0 | **TERMINAL** — 3/3 re-runs red, 3/4 new mutations caught (the fourth argued harmless: a deliberately unreachable branch whose comment declares itself "the rule, not a prediction"); claim-family sweep clean; both arbitrations settled (fixed recovery order kept; the `_ready` double-grab probed, one benign backendless divergence found) |
-
-Majors per stage: **1 → 3 → 0.** The three round-1 majors shared ONE fix seam (`_recover_focus`),
-which is the phase's lesson: when a review finds a family of failures (null focus, disabled-under-
-ring, flip variants), hunt the shared mechanism before writing three fixes.
-
-### Phase 6 defect-count table (test leg, then review rounds)
-
-| Stage | Majors | Notes |
-|---|---|---|
-| Integration (owner) | 1 visual | First capture: the shell's opaque backdrop hid the whole world — nothing showed a pause menu was over a game; `show_backdrop` born here |
-| Test leg | 0 | 150 assertions over the shipped assets; zero product defects — a first for this build |
-| Round 1 | 5 | The pause shell rendered the full NAV STRIP: one tab click broke the rung's own guarantee (ESC resumed under a full settings page), Start Game reachable from pause; open suspended the world for a scene-less page (the refusal doc was false); three surviving mutations (pop_all, back-stack clear + a vacuous assertion, show_backdrop untested) |
-| Round 2 | 5 | Two inside round 1's fixes (recovery dead-end: ESC consumed forever over a frozen world; the focus guard tested `.visible`, probe put focus on an invisible tab); dead unwind block; undefended invariant; and the fresh-eyes catch of the phase: **`MKSettingsBackend.save()` had no production caller — settings never persisted across a relaunch** |
-| Round 3 | 3 | Code held (D14-vs-save-on-exit and visibility-teardown probes both clean); three surviving mutants — all coverage: the visibility close's DIRECTION, "close before to_main_menu" pinned only by a test NAME, the adopted-save exclusion; plus two false comments (a false impossibility argument where a safety net was deleted) |
-| Round 4 | 1 | `not is_visible_in_tree()` → `not visible` survived: both direction tests drove the shell itself, where the reads agree — the ancestor-hide gesture (host UI layer) is where they diverge; plus the "cannot fail" claim's two stale MIRRORS (method doc + test doc) |
-| Round 5 | 1 | Audit of the integrator's inline round-4 fixes: all reproduced; one finding — the THIRD mirror (pause_rig.gd still claimed the repudiated "already unwound" mechanism) |
-| Round 6 | 2 | Zero behavioral; the FOURTH and FIFTH mirrors (test_demo_game's refusal doc/caption; `_show_page`'s doc naming a caller-unwind that no longer exists, contradicting its sibling comment) |
-| Round 7 | 0 | **TERMINAL** — 2/2 cross-round mutations red at claimed granularity; grep-sweep of every corrected claim family found no surviving mirror |
-
-Majors per stage: **1 → 0 → 5 → 5 → 3 → 1 → 1 → 2 → 0.** The signature held and specialized:
-after round 2 every finding was either missing coverage for a fresh fix or a PROSE MIRROR of an
-already-corrected claim — five mirrors of one repudiated mechanism ("open suspends, then unwinds
-on failure") surfaced across four rounds in four different files. The lesson is §8's, sharpened:
-when a mechanism changes, grep the CLAIM FAMILY across the whole repo in the same fix leg;
-correcting only the file under review manufactures next round's finding.
-
-### Phase 5 defect-count table (test leg, then review rounds)
-
-| Stage | Majors | Notes |
-|---|---|---|
-| Test leg | 2 | Preview size-sync inert under stretch (engine WARNING per _ready); own_world flip tore live instances ("scenario is null" ERROR) |
-| Round 1 | 7 | Preview tested-but-MOUNTED-NOWHERE; disabled-Play focus on cold drop; a `__mk_type` payload key destroyed the whole roster on load; unenforceable merge-order doc; untested point-buy guard; capture tool wrote the developer's REAL user://; rig never passed step 1 |
-| Round 2 | 1 | The round-1 fix's thesis (visibility re-resolve) defended by no test — the suite bound a null host |
-| Round 3 | 5 | CSG deferred AABBs meant the SHIPPED demo previews never framed (MeshInstance fixtures hid it); frame_content not idempotent; false zoom claim; F8 order-dependent; dead is_valid |
-| Round 4 | 3 | The reframe de-dup boolean defeated the reframe (FIFO); the refusal gate bricked (skipped-optional) AND leaked (last-step Skip) |
-| Round 5 | 2 | "Tree entry re-frames" was _ready-once — reparenting silently mis-rendered forever; single-step flows permanently gated |
-| Round 6 | 1 | The detached CLEAR missed the state reset (behind the tree guard) |
-| Round 7 | 2 | The newer-file doc claimed the protection its next write destroyed (now a read-only latch); unique-name bypassable by whitespace. Plus: the config-reorder exit criterion had NO test |
-| Round 8 | 0 | **TERMINAL** — 5/5 mutations red incl. cross-round spot-checks; remaining findings were two false defences (both docs of the clampf fix contradicted the measurement they cited; the refusal message enumerated wrong causes) |
-
-Majors per round: **2 → 7 → 1 → 5 → 3 → 2 → 1 → 2 → 0.** The non-monotonic bumps (rounds 3, 7)
-were both fresh-eyes sweeps of code earlier rounds never opened — budget for that shape: a
-"narrowing" round count says nothing about files no round has read yet. The signature held every
-round, with two new variants: fixtures that do not share the shipped assets' failure modes
-(round 3 — CSG vs MeshInstance), and guards that guard the wrong thing (round 4).
-
-### Phase 4 defect-count table (test leg, then review rounds)
-
-| Stage | Majors | Minors | Notes |
-|---|---|---|---|
-| Test leg (pre-review) | 2 | 1 + 1 doc | Commit-never-ends-listening; Replace never redraws the loser; demo reserved list derived empty; false idle-cost comment |
-| Review round 1 | 2 | 3 | `device` dropped from the persisted event format (InputMap matching IS device-aware — measured); the `_ready` fix guarded by nothing (the test declined the assertion on a false premise); AZERTY cross-form match; dead-but-enabled Reset; double warn |
-| Review round 2 | 0 | 0 | **TERMINAL** — 9/9 round-1 mutation claims reproduced red; findings were three wrong attributions in comments, one dead line, visual NITs |
-
-The recurring defect signature held again: every substantive round found a confident comment
-defending code that does not do what it says — including one inside the TEST suite (round 1's M2),
-which is the first time the signature appeared in the file whose job is catching it.
-
-Ship gates 1 and 2 still pass: isolation scan clean (no out-of-addon `res://` even in comments,
-zero `add_theme_*_override`), and the addon's four shipped settings pages build warning-free
-against an empty project (Audio Master-only, Controls no-KEYBIND — the §3.1 intersection held).
-
-### Commit history (each review round its own commit, deliberately)
-
-```
-85cc176 fix(phase9): act on the first review; the docs stop denying their own commit
-b6f8b0e feat(phase9): the docs, the alt skin, the cold drop, and the version that agrees
-970ee82 docs: Phase 8a build handoff — provably comment-only, nothing lost
-aed6ecb refactor(phase8a): the comment diet — the argument leaves, the constraint stays
-0b1451f chore(phase8a): the token gate — a cleanup that changes one token is not a cleanup
-49e0b8e docs: Phase 8 build handoff — terminal at round two; one contract, one guarantor
-cb37ec3 fix(phase8): act on the first review; the tracker's place in line is now a rule
-44b95f1 test(phase8): the dedicated suites; the pad-legend branch was never alive
-b46fa96 feat(phase8): input polish — the vocabulary, the column, and the ring on Cancel
-9381326 docs: Phase 7 build handoff — terminal at round two, one seam for three majors
-29fa619 fix(phase7): act on the first review; the ring learns where the living buttons are
-fbd9561 test(phase7): the dedicated suite; the stranded focus ring is pinned, not endorsed
-ef94157 feat(phase7): server browser — a list that admits what it is
-c59eb0b docs: Phase 6 build handoff — terminal at round seven, five mirrors down
-d59e383 fix(phase6): act on the sixth review; the fourth and fifth mirrors
-87cd5d7 fix(phase6): act on the fifth review; the third mirror
-cecbcf2 fix(phase6): act on the fourth review; the ancestor and the shell are not the same node
-26d2f59 fix(phase6): act on the third review; the code held, the coverage had not
-3cc90c3 fix(phase6): act on the second review; the fixes had fixed less than they claimed
-8f9bc14 fix(phase6): act on the first review; the pause shell stops being a main menu
-3dce93c test(phase6): the dedicated suites; the world behind the menu is the fixture
-8f28ddf feat(phase6): pause menu — the shell learns to sit on top of a game
-9edf86b docs: sync the handoff to plan rev 10 — freeze lifted, Phase 8a exists, drift resolved
-f3fd3dc chore: commit the Godot editor resave; the editor is the argument
-f91c69a docs: Phase 5 build handoff
-66a9c39 fix(phase5): act on the eighth review; terminal — the code held, two defences did not
-443be1c fix(phase5): act on the seventh review; the roster now refuses what it cannot keep
-25c9739 fix(phase5): act on the sixth review; the slot does not care about the tree
-f34f2c9 fix(phase5): act on the fifth review; the recovery ran once per lifetime
-6bacded fix(phase5): act on the fourth review; the guards guarded against the wrong thing
-ec255fb fix(phase5): act on the third review; the tested path and the shipped path diverged
-2e7b088 fix(phase5): act on the second review; the thesis was true but undefended
-fcfb21a fix(phase5): act on the first review; the preview existed but nothing showed it
-f0cd03a test(phase5): the dedicated suites; the preview viewport lied about its size
-e566d33 feat(phase5): profiles + preview — select, creation wizard, int envelope, preview slot
-c687745 docs: Phase 4 build handoff
-31e2e85 fix(phase4): act on the second review; the behaviour held, the attributions did not
-7600424 fix(phase4): act on the first adversarial review; the format was device-blind
-318ae1c feat(phase4): input rebinding — capture row, conflict modal, reset, targeted apply
-38f4da9 docs: Phase 3 build handoff
-f028cb8 fix(phase3): act on the sixth review; the behaviour held, the words did not
-139f428 fix(phase3): act on the fifth review; disposal is deferred to the layer
-e24fd25 fix(phase3): act on the fourth review; the residual was not acceptable
-777452a fix(phase3): act on the third review; the orphan machinery stops touching the stack
-6da3b5b fix(phase3): act on the second review; two of three majors were round 1's own
-adf7222 fix(phase3): act on the Phase 3 adversarial review
-ffcccaa feat(phase3): schema-driven settings, brightness controller, D14 revert countdown
-c22e40a … (Phase 2 head; earlier history in the Phase 2 handoff)
-```
-
-The commit messages remain long on purpose: each records *why* a defect existed. The Phase 3
-sequence is a worked example of the §8 process — five of the seven rounds found defects inside
-the previous round's own fixes.
+References of the form **plan §N** or **row N** point at that original build plan, which is not
+part of this repository; the sentence around each reference states the constraint it cites.
+**Gate N** refers to the ship gates summarised in §7. Section numbers here are stable — tests and
+docs cite them (`§6a-28`, `§6a row 26`).
 
 ---
 
@@ -347,7 +172,7 @@ Phase 6 additions:
   state** — it wiped the integrator's own uncommitted fixes in the same file as the mutation.
   Mutate only files with no pending edits, or stash/re-apply deliberately.
 
-Consolidated at Phase 9 (the staging files' handoff candidates, folded in before the staging
+Consolidated at Phase 9 (the staging files' candidates, folded in before the staging
 directory was deleted):
 
 - **`ProjectSettings.set_setting` mutates memory only** — without an explicit
@@ -543,7 +368,7 @@ Phase 6 additions:
   The bare `_show_page` call after the pre-check is a containment decision, not an
   impossibility claim: the call-site comment names the two foreign-code windows and the
   recovery rung that contains them. Five prose mirrors of the old suspend-then-unwind mechanism
-  had to be hunted down across four rounds; the grep-the-claim-family rule in §1 is the residue.
+  had to be hunted down across four rounds; the grep-the-claim-family rule in §8 is the residue.
 - **Hide == close:** `NOTIFICATION_VISIBILITY_CHANGED` closes an open pause menu when the shell
   becomes not-visible-in-tree (ancestor hides included). Direction-guarded; entry/show is a
   no-op. This is what makes the host's `visible = open` one-liner safe in both directions.
@@ -788,64 +613,52 @@ Rigged demo character items (a capture is one frame — it proves pose and frami
 C# adapter item:
 
 28. **Prove the C# adapters against a real .NET Godot build** — **SUBSTANTIALLY CLOSED
-    2026-08-09** by a local out-of-repo proof: `C:\GodotProjects\MenuKitCSharpProof\` (a cold-drop
-    host on Godot 4.7.1-stable mono + .NET SDK 10.0.302 building the net8.0 target) ran
-    `proof.gd` headless against REAL C# delegate nodes — `PROOF_RESULT passed=15 failed=0`.
-    Proven for real: the INTEGRATION.md §10 example compiles VERBATIM as pasted and runs through
-    the adapter; PascalCase lookup finds real C# methods with `Godot.Collections` marshalling
-    intact both directions; `MkConfigure` receives params minus `delegate_path`; C# `[Signal]`
-    emissions re-emit through the adapter (roster and settings, `string`→`StringName` coerced);
-    the settings boot-triad replays IN ORDER against a late-mounted C# node and `save()` is
-    refused before `load()`; and the character-select page renders a C#-served roster through a
-    real `MKRoot`. Remaining for the recipient's own project (the original row's residue): their
-    real autoload registration/order in `project.godot`, and the missing-method degrade observed
-    against their build (proven here only via the GDScript stand-ins).
+    2026-08-09** by an out-of-repo proof: a cold-drop host on Godot 4.7.1-stable mono + .NET SDK
+    10.0.302 building the net8.0 target ran a headless proof script against REAL C# delegate
+    nodes — `PROOF_RESULT passed=15 failed=0`. Proven for real: the INTEGRATION.md §10 example
+    compiles VERBATIM as pasted and runs through the adapter; PascalCase lookup finds real C#
+    methods with `Godot.Collections` marshalling intact both directions; `MkConfigure` receives
+    params minus `delegate_path`; C# `[Signal]` emissions re-emit through the adapter (roster and
+    settings, `string`→`StringName` coerced); the settings boot-triad replays IN ORDER against a
+    late-mounted C# node and `save()` is refused before `load()`; and the character-select page
+    renders a C#-served roster through a real `MKRoot`. To reproduce: copy `addons/menu_kit/`
+    into a fresh .NET Godot 4.7 project, paste the §10 example, build, and drive the adapters
+    headless. Remaining for any host's own project: its real autoload registration/order in
+    `project.godot`, and the missing-method degrade observed against its build (proven here only
+    via the GDScript stand-ins).
 
 ---
 
-## 7. Next step: post-handoff
+## 7. Ship gates and toward 1.0
 
-The build is done and tagged `v0.1.0`. What remains is not a phase:
+**Ship-gate ledger at `v0.1.0`:** gates 1/4a/5/6/8/9 AUTOMATED-GREEN (isolation scan,
+backend-ownership suite, cold-drop fresh profile, corrupt-file suite, the full smoke suite,
+diagnostics suites); 2/3/4b/4c PARTIALLY-AUTOMATED (`cold_drop.ps1` + the §6a editor row;
+alt-skin suites + capture; pause suites + §6a-17; brightness suite + §6a-1); 4 MANUAL (§6a rows
+4, 6–11, 14, 20–25); 7 PASSED by simulation (the worked integration example smoked green without
+plugin source); 10 SATISFIED (`MKVersion`, `plugin.cfg`, CHANGELOG and tag agree, pinned by
+`test_version_agreement`).
 
-**Ship-gate ledger at the tag** (round-1 review's audit): gates 1/4a/5/6/8/9 AUTOMATED-GREEN
-(isolation scan, backend-ownership suite, cold-drop fresh profile, corrupt-file suite, 26/26,
-diagnostics suites); 2/3/4b/4c PARTIALLY-AUTOMATED (cold_drop.ps1 + the §6a editor row;
-alt-skin suites + capture; pause suites + §6a-17; brightness suite + §6a-1); 4 MANUAL (§6a
-rows 4, 6–11, 14, 20–25); 7 PASSED by simulation (the worked example smoked green without
-plugin source); 10 SATISFIED (MKVersion, plugin.cfg, CHANGELOG, tag all say 0.1.0, agreement
-pinned by test_version_agreement forever).
+**The §6a human checklist is the outstanding verification work** — it needs a display, a
+gamepad, a second keyboard layout, and an interactive editor session. Reports from any of those
+rows are welcome as issues.
 
-**The §6a human checklist (rows 1–25) is the outstanding work** — it needs a display, a
-gamepad, a second keyboard layout, and an interactive editor session. Nothing in it blocks
-handing the repo over; all of it blocks calling gate 4's input matrix DONE.
-
-**Post-handoff per the plan:** the friend's integration will surface API friction no gate
-catches; budget the `1.0.0` pass after their real backends are wired — that release is where
-the API stops moving. Known candidates already recorded: `get_connect_message()` on the
-network base, the F6 identity-gated warn, the F8_NOISE rename, a pad-legend map for non-Xbox
-controllers, `font_size_title` (the one palette field still generated-but-unconsumed).
-
-### The completed Phase 6, for reference
-
-Per the plan's §5 row — the demo game scene (`demo_game.tscn`, mouse-captured first-person
-grey-box), the ESC flow, `MKRoot.open/close_pause_menu()` driving `MKPausePolicy`,
-resume/settings/quit-to-menu, and the mouse-mode depth counting. Read the §5 row-6 exit criteria
-in full before starting — they are unusually specific (the ONE-backend-instance clause, the
-countdown-from-pause proving PROCESS_MODE_ALWAYS, the `MKNoPausePolicy` ~20-minute multiplayer
-seam test, the quit-then-new-game unfreeze, and "a host preview scene does not animate during
-pause" — that last one now has a concrete subject: `MKPreviewViewport` deliberately inherits
-PAUSABLE, and the handoff's Phase 5 notes say why nobody should "fix" it).
-
-Phase 5 seams Phase 6 leans on: the pause policies and their tests exist since Phase 2
-(`test_pause_policy.gd`); `MKRoot`'s suspend-depth machinery is Phase 1; `start_game(profile)`
-is now actually CALLED by the select panel, so the demo game scene finally has a real entry
-path. The `characters_rig.gd` + `capture_scene.ps1` isolation combo is the capture pattern.
+**Toward `1.0.0`:** real host integrations will surface API friction no gate catches; `1.0.0` is
+where the API stops moving. Candidates already recorded: `get_connect_message()` on the network
+base, the F6 identity-gated warn, the `F8_NOISE` rename, a pad-legend map for non-Xbox
+controllers, and `font_size_title` (the one palette field still generated-but-unconsumed).
 
 ---
 
-## 8. Process that worked (updated)
+## 8. The review process
 
-Phase 3 ran the §8 process at full discipline: parallel Opus implementation legs on disjoint
+Every phase ran the same loop, and it is the one contributions should expect: implementation
+(parallel legs on disjoint files — never two Godot processes against one project, the import
+cache collides) → integration by one owner → a dedicated test leg against the integrated code →
+adversarial review → fix → re-review until a round introduces nothing new. The per-phase notes
+below are what each phase taught about running it.
+
+Phase 3 ran the §8 process at full discipline: parallel implementation legs on disjoint
 files (no Godot runs in parallel legs — the import cache collides) → integration by one owner
 → a dedicated test leg against the integrated code → adversarial review → fix leg → re-review
 until a round introduces nothing new. Major counts per round: **4 → 3 → 2 → 1 → 1 → 0 → 0**
@@ -897,11 +710,10 @@ What earned its keep this phase:
   not do what it says.* It appeared in every round through 6, including inside fixes whose
   behaviour was correct.
 
-Phase 6 ran the shape at speed (one session: two Opus implementation legs on disjoint files
-with a binding owner-written contract between them, owner integration, Opus test leg, seven
-review rounds — Fable reviewers from round 3 on, by owner direction; fix legs Opus; two rounds'
-fixes applied integrator-inline when small and fully specified, each audited by the NEXT round
-as if it were a leg's). What it taught:
+Phase 6 ran the shape at speed (one session: two implementation legs on disjoint files
+with a binding owner-written contract between them, owner integration, a test leg, seven
+review rounds; two rounds' fixes applied integrator-inline when small and fully specified, each
+audited by the NEXT round as if it were a leg's). What it taught:
 
 - **A zero-defect test leg does not mean a clean phase.** The 150-assertion leg found nothing;
   round 1 then found five majors — every one in the INTERACTION between the new feature and
@@ -922,41 +734,3 @@ as if it were a leg's). What it taught:
   report exists" — that pointing is the discipline, not optional.
 - **One process footgun on record:** `git checkout --` to restore a mutation clobbered the
   integrator's own uncommitted comment fixes in the same file (§4 trap). Mutate clean files.
-
----
-
-## 9. Scope reminders
-
-The Workingfile plan freeze was LIFTED by the owner on 2026-08-07 (rev 10 is the first
-during-build revision); this file remains the authoritative build-STATE doc, the plan the
-authoritative SPEC. Unchanged: no repository-level LICENSE ships (D15 — the demo character's CC0
-pack license in `demo/characters/` covers only that asset); nothing under `addons/menu_kit/` may
-reference an external `res://` path, including comments. Third-party art/audio/fonts now carry one
-narrow carve-out (D19): the **demo** may carry CC0 art with the pack's own license file beside the
-asset — as `demo/characters/` does — while the **addon** never carries any, which is what the cold
-drop and the isolation gate keep proving.
-
-Delivery posture (owner decision, 2026-08-09): this remains a **friend handoff at
-client-deliverable quality**. The process record — this file's phase narratives, the review-round
-commit history, the plan docs' orchestration notes — **ships as-is, deliberately**: it is the
-evidence the asset was built under adversarial review, which is the quality property being
-delivered. Only the session working file (`CLAUDE.md`, untracked via `.git/info/exclude`) stays
-out of the package. Do not scrub, squash, or neutral-terms-rewrite the history or process docs
-for delivery; if the package ever goes beyond the original engagement, revisit D15's LICENSE
-question first (the README's Assets-and-rights section carries the warning).
-
-Editor-resave note (supersedes the old stash instructions): commit `f3fd3dc` committed a full
-editor resave — Godot does NOT round-trip comments in `.tres`/`project.godot` files, so
-authored prose there is unsustainable by mechanism; that fact is the opening argument of the
-rev-10 comment-diet phase (plan §4.4a / row 8a), which will relocate any still-valuable
-rationale into `docs/`. The old `stash@{0}` ("pre-phase4 editor resave noise") is now fully
-superseded by history and can be dropped. The former plan-drift paragraph is resolved: rev 10
-folded the §3.1 rows (Settings page, Characters/create pages, the corrected MKWelcomePage row)
-into the plan itself.
-
-Phase 8a exists because of THIS build's style: the review loop's long rationale comments were
-the right tool for construction (the recurring defect class is comment-vs-code drift, and dense
-falsifiable comments are what made it catchable) and are the wrong density for the shipped
-asset. When running Phase 8a, hold the fix legs to the token-level comment-stripped-diff
-verification in §4.4a — a "cleanup" that changes one token is a behaviour change smuggled past
-review.

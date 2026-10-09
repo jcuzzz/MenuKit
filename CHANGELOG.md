@@ -35,13 +35,13 @@ repurposing one is Breaking.
   to the base default — the same face an unassigned slot shows. No `.cs` file ships in the addon.
   The in-repo gate proves them against GDScript stand-in delegates (it has no .NET engine build);
   additionally proven against **real C# delegate nodes** in an out-of-repo .NET host on 2026-08-09
-  — 15/15 green, including the worked example compiled verbatim (`BUILD_HANDOFF.md` §6a-28 has the
+  — 15/15 green, including the worked example compiled verbatim ([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §6a-28 has the
   record; the remaining untested surface is the integrating project's own configuration).
   See [docs/INTEGRATION.md §10](docs/INTEGRATION.md).
 - **3D scene backdrops** — `MKBackdropDef.scene` (`PackedScene`) renders fullscreen in a
   `SubViewport` with its own `World3D`; when set it wins over the texture/gradient path outright.
   `MKBackdropDef.character_mount` (default `&"CharacterMount"`) names the node
-  `MKBackdrop.set_character_scene()` mounts a character under — the ARPG main-menu shape: the whole
+  `MKBackdrop.set_character_scene()` mounts a character under — the action-RPG main-menu shape: the whole
   screen is the viewport and the selected character stands in the data-driven scene. The scene must
   carry its own `Camera3D` (warned by def path otherwise). Additive: existing texture/gradient defs
   are byte-identical in behaviour.

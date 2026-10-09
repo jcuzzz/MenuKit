@@ -1,21 +1,23 @@
 # Plan — Rigged demo character (Quaternius Universal Animation Library, CC0)
 
-**Status:** IMPLEMENTED 2026-08-08 (orchestrated: opus implementation + test legs, fable review).
-Rev 2 — the owner redirected the source from KayKit Adventurers to the Quaternius Universal
-Animation Library already vetted in the ARPG (2026-08-08). One departure from §4 recorded during
+**Status:** IMPLEMENTED 2026-08-08 (implementation + test legs, adversarial review).
+Rev 2 — the source moved from KayKit Adventurers to the Quaternius Universal Animation Library,
+already vetted in an existing Godot 4.7 pipeline (2026-08-08). One departure from §4 recorded during
 the build: `demo/demo_creation/preview_vanguard.tscn` was RETAINED (not deleted) as
 `test_preview_viewport`'s CSG deferred-bounds subject; the other two primitives are gone.
 **Written:** 2026-08-08, after the 3D-scene-backdrop slice (`8c02e41`).
 **Goal:** the demo's three archetypes preview as a rigged character playing an idle animation —
 in the fullscreen 3D menu backdrop AND in the creation flow's `MKPreviewViewport`.
 
+**Note:** this plan predates the public release. Its references to the build handoff's §6a/§9 now
+live in [DEVELOPMENT.md](../DEVELOPMENT.md) §6a and [DECISIONS.md](../DECISIONS.md) (D19, D21).
+
 ---
 
 ## 1. The decision this plan encodes
 
-Use the ARPG's **Quaternius Universal Animation Library** —
-`Workingfile\assets\Universal Animation Library 2[Standard]\Unreal-Godot\UAL2_Standard.glb` — a
-rigged mannequin whose `.glb` carries the full animation set, idle included. Chosen over
+Use the **Quaternius Universal Animation Library 2 (CC0)** — `UAL2_Standard.glb` from the
+pack's `Unreal-Godot` folder — a rigged mannequin whose `.glb` carries the full animation set, idle included. Chosen over
 downloading anything new AND over the KayKit pack rev 1 named, because:
 
 - **The license proof ships inside the pack.** `License.txt` beside the asset states CC0 1.0
@@ -24,8 +26,7 @@ downloading anything new AND over the KayKit pack rev 1 named, because:
 - One neutral mannequin fits MenuKit's stance better than five genre-flavoured adventurers: the
   demo demonstrates "a rigged character stands in the scene", not "MenuKit is a fantasy kit"
   (the same argument the shipped neutral archetype makes).
-- Already vetted in the owner's Godot 4.7 pipeline; copy direction Workingfile → MenuKit is the
-  established one-way port; Workingfile is not modified.
+- Already vetted in a Godot 4.7 pipeline before this slice.
 
 Take the **non-`_RM`** variant (in-place animations — root-motion idles would walk the mannequin
 off the dais) from **UAL2** (the newer library), single source. UAL1 stays untouched unless

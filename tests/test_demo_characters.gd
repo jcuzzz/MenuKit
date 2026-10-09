@@ -16,7 +16,7 @@ extends MKTest
 ## a hardcoded path would quietly stop testing the shipped thing the moment it moved.
 ##
 ## [b]Headless boundary.[/b] That the idle READS well — pace, seam, whether it looks alive behind a
-## menu — is BUILD_HANDOFF §6a row 26 on a real display. What is real headless is every premise that
+## menu — is docs/DEVELOPMENT.md §6a row 26 on a real display. What is real headless is every premise that
 ## row depends on: the animation exists, it loops, the rig stands on the floor, the mount is where the
 ## rig's origin convention needs it, and the art carries its licence.
 

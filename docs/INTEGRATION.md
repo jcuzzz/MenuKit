@@ -762,7 +762,7 @@ against GDScript stand-in delegates that mimic the C# surface. A one-off out-of-
 against **real C# delegate nodes** — 15/15 green, including this section's worked example compiled
 verbatim, real `Godot.Collections` marshalling both directions, `[Signal]` re-emission, the
 boot-triad replay, the save guard, and the select panel rendering a C#-served roster
-(BUILD_HANDOFF §6a-28 has the record). What has never run is YOUR project's configuration —
+([DEVELOPMENT.md](DEVELOPMENT.md) §6a-28 has the record). What has never run is YOUR project's configuration —
 autoload registration and order, your method set, your build. Report anything that does not behave
 as documented; that feedback is expected.
 

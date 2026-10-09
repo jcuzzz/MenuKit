@@ -1,15 +1,15 @@
 # Plan — C# host compatibility
 
-**Status:** IMPLEMENTED 2026-08-08 (commit `b0222bd` — orchestrated: opus implementation, test and
-fix legs, two fable review rounds). Departures from the plan as written: the boot-triad replay
+**Status:** IMPLEMENTED 2026-08-08 (commit `b0222bd` — implementation, test and fix legs, two
+adversarial review rounds). Departures from the plan as written: the boot-triad replay
 rides a new `MKCSharpDelegate.on_resolved` hook (a replay triggered only by triad calls would
 never fire — the service calls them exactly once); the save-refusal guard is per delegate
 INSTANCE, not a boolean (a hot-reload swap must reload before it may save); and §3's
 "stand-ins only" honest limit was superseded on 2026-08-09 by the out-of-repo real-C# proof
-(BUILD_HANDOFF §6a-28, `PROOF_RESULT passed=15 failed=0`). **Written:** 2026-08-08.
+([DEVELOPMENT.md](../DEVELOPMENT.md) §6a-28, `PROOF_RESULT passed=15 failed=0`). **Written:** 2026-08-08.
 **Goal:** a Godot .NET (C#) host can integrate MenuKit fully — backends included — without
-forking the addon or waiting for a C# port. The recipient's project is C#; after this slice the
-owner assesses whether a full port is still wanted.
+forking the addon or waiting for a C# port. The motivating host project is C#; whether a full port
+is still wanted was to be assessed after this slice.
 
 ---
 
@@ -71,7 +71,7 @@ New `docs/INTEGRATION.md` section "C# hosts", covering:
   MKRoot surface and `MKSettingsService`).
 - The honest limit: this repo's gate has no .NET engine build, so the adapters are proven against
   a GDScript STAND-IN delegate that mimics the C# surface (PascalCase methods + signals); the
-  first real-C# proof happens in the recipient's project. Goes in BUILD_HANDOFF §6a as a new
+  first real-C# proof happens in a host's project. Goes in the development notes' §6a as a new
   human row, and the CHANGELOG says the same.
 
 ## 4. Tests
@@ -97,12 +97,12 @@ with snake_case proves the first spelling path):
 - `./tools/check.ps1 -Smokes -Isolation` full gate (isolation is load-bearing here: the interop
   folder is new addon surface).
 - Docs: INTEGRATION.md §"C# hosts", API.md (adapter classes + the delegate contract), CHANGELOG
-  Unreleased, BUILD_HANDOFF §6a row (real-C# proof is post-handoff), DECISIONS.md (the
+  Unreleased, the development notes' §6a row (real-C# proof is out-of-repo), DECISIONS.md (the
   adapter-over-port decision and its rationale).
 - No captures — nothing visual ships.
 
 ## 6. Out of scope, stated
 
-- A C# port of MenuKit (assessed by the owner after this lands).
+- A C# port of MenuKit (assessed after this lands).
 - Shipping any `.cs` file, `.csproj`, or .NET-edition engine requirement.
 - Testing against a real .NET Godot build (recorded as the §6a row instead).

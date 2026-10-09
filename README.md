@@ -34,7 +34,7 @@ Version **0.1.0** · Godot **4.7** · Plugin folder `addons/menu_kit/`, class pr
   `PackedScene`. No rig, no humanoid assumption — equally a character, a weapon or a helmet.
 - **3D scene backdrops** — an `MKBackdropDef` may carry a whole 3D scene instead of a
   texture/gradient: the full screen becomes a live viewport (own `World3D`) with the menu UI over
-  it, and the selected roster character stands in the scene at a data-driven mount — the ARPG
+  it, and the selected roster character stands in the scene at a data-driven mount — the action-RPG
   main-menu shape. The character select is right-biased around that view: roster band on the
   right, the character in the world on the left.
 - **C# hosts** — five adapter backends bridge the GDScript bases to plain C# delegate nodes
@@ -101,6 +101,8 @@ and the revert countdown keeps ticking under the pause.
 | **[docs/CREATION_STEPS.md](docs/CREATION_STEPS.md)** | The step contract, payload ownership, point-buy, extending a step |
 | **[docs/DECISIONS.md](docs/DECISIONS.md)** | The `D`-id glossary used throughout the source comments |
 | **[CHANGELOG.md](CHANGELOG.md)** | Release history, initial persisted-format statement, known limitations |
+| **[CONTRIBUTING.md](CONTRIBUTING.md)** | How to verify a change, the hard rules, PR expectations |
+| **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** | Engine traps, architecture decisions, open items, the human-only checklist, the review process |
 
 ---
 
