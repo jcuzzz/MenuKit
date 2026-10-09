@@ -1,7 +1,7 @@
 # MenuKit API reference
 
 Every public class, signature and signal a host writes code against. Signatures are as shipped in
-`0.1.0`.
+`0.2.0`.
 
 Anything below is a **public surface** under the versioning rule: a change to a backend method
 signature, an exported `Resource` field, a `Theme` type-variation name, or a persisted JSON key is
@@ -799,7 +799,7 @@ payload spelling it, with a warning naming the path.
 ```gdscript
 class_name MKVersion extends RefCounted
 
-const VERSION := "0.1.0"
+const VERSION := "0.2.0"
 const MIN_GODOT := "4.7"
 
 static func version_string() -> String

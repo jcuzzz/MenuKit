@@ -7,7 +7,7 @@ extends RefCounted
 ## the release tag (ship gate 10). The mirror is enforced by [code]tests/test_version_agreement.gd[/code],
 ## because a hand-mirrored constant drifts silently. Surfaced by [code]MKRoot.dump_diagnostics()[/code].
 
-const VERSION := "0.1.0"
+const VERSION := "0.2.0"
 
 ## Minimum engine version this package is verified against.
 const MIN_GODOT := "4.7"

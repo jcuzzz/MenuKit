@@ -15,8 +15,20 @@ repurposing one is Breaking.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-10
+
+The first public release.
+
 ### Changed
 
+- **Licensed under MIT** (D21, superseding D15's private-handoff "no LICENSE"). The root
+  `LICENSE` and an identical `addons/menu_kit/LICENSE.md` — the copy travels with a copied addon
+  folder; `tests/test_license.gd` holds the two identical. The demo character stays CC0 (D19).
+- **Contributor docs replace the build handoff:** `CONTRIBUTING.md` and `docs/DEVELOPMENT.md`
+  (same section numbers as the old handoff, so `§6a-28`-style citations still resolve).
+- **Tooling finds Godot via `GODOT_BIN` or `PATH`** (`tools/godot_bin.ps1`) instead of a
+  hard-coded machine path; GitHub Actions runs `check.ps1 -Smokes -Isolation` on every push and
+  pull request.
 - **`MKCharacterSelect` is right-biased** — the roster reads down the right edge as a fixed-width
   (380) band inset 200 top and bottom, with an expanding mouse-transparent gap (min 500) to its
   left as the window onto the scene backdrop's character: the target genre's character-select
@@ -188,4 +200,6 @@ and centred empty-roster copy as remaining drift. Both were already fixed by Pha
 tag — the binding column width floor and the card-matched empty-label geometry shipped in 0.1.0 —
 so the claim was false when written and is withdrawn rather than silently deleted.)*
 
-[0.1.0]: #010--2026-08-08
+[Unreleased]: https://github.com/jcuzzz/MenuKit/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jcuzzz/MenuKit/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/jcuzzz/MenuKit/releases/tag/v0.1.0

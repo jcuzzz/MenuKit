@@ -14,7 +14,7 @@ Everything that touches your game — starting a match, saving a character, paus
 through a **backend you supply**. MenuKit ships working defaults for every one of them, so it runs
 before you have written any.
 
-Version **0.1.0** · Godot **4.7** · Plugin folder `addons/menu_kit/`, class prefix `MK`.
+Version **0.2.0** · Godot **4.7** · Plugin folder `addons/menu_kit/`, class prefix `MK`.
 
 ---
 
